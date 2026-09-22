@@ -1,0 +1,29 @@
+services:
+  bot:
+    image: ${BOT_IMAGE:-movie-helper:local}
+    build: .
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 45s
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:?Set BOT_TOKEN in .env}
+      ALLOWED_CHAT_IDS: ${ALLOWED_CHAT_IDS:?Set ALLOWED_CHAT_IDS in .env}
+      DB_PATH: /data/movie-helper.db
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MEME_SUBREDDITS: ${MEME_SUBREDDITS:-RUSSIANMemeSub}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_DAILY_REQUEST_LIMIT: ${GEMINI_DAILY_REQUEST_LIMIT:-6}
+      FACT_WIKI_TITLES: ${FACT_WIKI_TITLES:-}
+    volumes:
+      - bot-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  bot-data:

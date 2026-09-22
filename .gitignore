@@ -30,3 +30,13 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Runtime data and credentials
+.env.*
+!.env.example
+/data/
+/bin/
+*.db
+*.db-*
+*.db.lock
+/backups/
