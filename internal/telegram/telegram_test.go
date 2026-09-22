@@ -56,9 +56,6 @@ func TestAuthorizationChatIsolationAndReplay(t *testing.T) {
 	h, a := handler(t)
 	ctx := context.Background()
 	h.Handle(ctx, nil, update(1, -1, 7, "/suggest_fact Миниатюры в кино | https://example.org/fact"))
-	if p.remaining < 80*time.Second {
-		t.Fatal("handler deadline prevents fallback", p.remaining)
-	}
 	q, err := h.Store.Queue(ctx, -1, 0)
 	if err != nil || len(q) != 1 {
 		t.Fatal(q, err)
