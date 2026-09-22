@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/vaporon4a/movie-helper/internal/ai"
+	"github.com/vaporon4a/movie-helper/internal/content"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
@@ -72,14 +73,18 @@ func run() error {
 	if err := os.MkdirAll(*state, 0700); err != nil {
 		return errors.New("cannot create diagnostic directory")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), content.FetchTimeout)
 	defer cancel()
 	store, err := storage.Open(ctx, filepath.Join(*state, "diagnostic.db"))
 	if err != nil {
 		return errors.New("cannot open diagnostic database")
 	}
 	defer store.Close()
-	h := &http.Client{Timeout: 25 * time.Second, Transport: measuredTransport{http.DefaultTransport}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	requestTimeout, selectionTimeout := content.GroqRequestTimeout, content.GroqSelectionTimeout
+	if *provider == "gemini" {
+		requestTimeout, selectionTimeout = content.GeminiRequestTimeout, content.GeminiSelectionTimeout
+	}
+	h := &http.Client{Timeout: requestTimeout, Transport: measuredTransport{http.DefaultTransport}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	var items []daily.Item
 	path := filepath.Join(*state, "candidates.json")
 	data, err := os.ReadFile(path)
@@ -115,7 +120,7 @@ func run() error {
 		ed = &gemini.Client{HTTP: h, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: key, Model: model, Budget: budget, DailyLimit: 6, Now: time.Now, Reviews: store}
 	}
 	slog.Info("diagnostic start", "provider", *provider, "model", model, "candidates", len(items))
-	attempt, cancelAttempt := context.WithTimeout(ctx, 30*time.Second)
+	attempt, cancelAttempt := context.WithTimeout(ctx, selectionTimeout)
 	defer cancelAttempt()
 	item, err := ed.SelectMeme(attempt, items)
 	if err != nil {

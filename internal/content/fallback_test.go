@@ -15,6 +15,7 @@ type fakeEditor struct {
 	calls        int
 	err          error
 	reject, wait bool
+	remaining    time.Duration
 }
 
 func (e *fakeEditor) SelectMeme(ctx context.Context, _ []daily.Item) (*daily.Item, error) {
@@ -25,6 +26,9 @@ func (e *fakeEditor) Fact(ctx context.Context, _ []gemini.Article) (*daily.Item,
 }
 func (e *fakeEditor) selectItem(ctx context.Context) (*daily.Item, error) {
 	e.calls++
+	if deadline, ok := ctx.Deadline(); ok {
+		e.remaining = time.Until(deadline)
+	}
 	if e.wait {
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -33,6 +37,18 @@ func (e *fakeEditor) selectItem(ctx context.Context) (*daily.Item, error) {
 		return nil, e.err
 	}
 	return &daily.Item{Key: "selected"}, nil
+}
+
+func TestProviderDeadlinesLeaveTimeForFallback(t *testing.T) {
+	primary := &fakeEditor{err: errors.New("upstream unavailable")}
+	secondary := &fakeEditor{}
+	f := &Fallback{Primary: primary, Secondary: secondary}
+	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
+	defer cancel()
+	item, err := f.SelectMeme(ctx, nil)
+	if err != nil || item == nil || primary.remaining < 149*time.Second || secondary.remaining < 59*time.Second {
+		t.Fatal("provider deadline truncated", err, primary.remaining, secondary.remaining)
+	}
 }
 func TestFallbackErrorsLimitsAndTimeout(t *testing.T) {
 	for _, tc := range []struct {
@@ -44,7 +60,7 @@ func TestFallbackErrorsLimitsAndTimeout(t *testing.T) {
 			t.Run(tc.name+kind, func(t *testing.T) {
 				primary := &fakeEditor{err: tc.err, wait: tc.wait}
 				secondary := &fakeEditor{}
-				f := &Fallback{Primary: primary, Secondary: secondary, AttemptTimeout: 5 * time.Millisecond}
+				f := &Fallback{Primary: primary, Secondary: secondary, PrimaryTimeout: 5 * time.Millisecond, SecondaryTimeout: 5 * time.Millisecond}
 				var item *daily.Item
 				var err error
 				if kind == "meme" {

@@ -76,13 +76,14 @@ func run() error {
 	client := &meme.Client{HTTP: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, BaseURL: "https://meme-api.com", Subreddits: cfg.Subreddits}
 	provider := &content.Provider{Memes: client, History: store, Facts: &content.Wikipedia{HTTP: client.HTTP, Endpoint: "https://en.wikipedia.org/w/api.php", Titles: cfg.FactWikiTitles, Now: time.Now}}
 
-	fallback := &content.Fallback{Log: log, AttemptTimeout: 30 * time.Second}
-	aiHTTP := &http.Client{Timeout: 25 * time.Second, CheckRedirect: client.HTTP.CheckRedirect}
+	fallback := &content.Fallback{Log: log, PrimaryTimeout: content.GeminiSelectionTimeout, SecondaryTimeout: content.GroqSelectionTimeout}
+	geminiHTTP := &http.Client{Timeout: content.GeminiRequestTimeout, CheckRedirect: client.HTTP.CheckRedirect}
+	groqHTTP := &http.Client{Timeout: content.GroqRequestTimeout, CheckRedirect: client.HTTP.CheckRedirect}
 	if cfg.GeminiKey != "" {
-		fallback.Primary = &gemini.Client{HTTP: aiHTTP, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Reviews: store, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now}
+		fallback.Primary = &gemini.Client{HTTP: geminiHTTP, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Reviews: store, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now}
 	}
 	if cfg.GroqKey != "" {
-		fallback.Secondary = &groq.Client{HTTP: aiHTTP, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Reviews: store, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now}
+		fallback.Secondary = &groq.Client{HTTP: groqHTTP, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Reviews: store, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now}
 	}
 	if fallback.Primary != nil || fallback.Secondary != nil {
 		provider.Editor = fallback

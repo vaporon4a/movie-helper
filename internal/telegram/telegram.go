@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/vaporon4a/movie-helper/internal/content"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
@@ -90,7 +91,7 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 	// Preview needs time for sources and both AI providers, plus the final reply.
 	if u.Message != nil {
 		if cmd, _ := Command(u.Message.Text, h.Username); cmd == "/preview" {
-			timeout = 115 * time.Second
+			timeout = content.PreviewTimeout
 		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -169,7 +170,7 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 			h.reply(ctx, chat, "Автоматический подбор не подключён.")
 			return
 		}
-		fetchCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		fetchCtx, cancel := context.WithTimeout(ctx, content.FetchTimeout)
 		items, e := h.Provider.Candidates(fetchCtx, args, chat)
 		cancel()
 		if e != nil {

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vaporon4a/movie-helper/internal/content"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 )
@@ -97,7 +98,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 			return e
 		}
 		if !approved && s.Provider != nil {
-			fetchCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+			fetchCtx, cancel := context.WithTimeout(ctx, content.FetchTimeout)
 			candidates, e := s.Provider.Candidates(fetchCtx, sc.Kind, sc.ChatID)
 			cancel()
 			if e != nil {

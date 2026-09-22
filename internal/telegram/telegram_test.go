@@ -234,7 +234,7 @@ func TestPreviewUsesGeminiProviderWithoutQueueOrSchedule(t *testing.T) {
 	if p.calls != 2 || len(a.photos) != 1 || !strings.Contains(a.photos[0].Caption, "Предпросмотр") || !strings.Contains(a.messages[len(a.messages)-1].Text, "Предпросмотр") {
 		t.Fatal("preview not delivered")
 	}
-	if p.remaining < 80*time.Second {
+	if p.remaining < 230*time.Second {
 		t.Fatal("handler deadline prevents fallback", p.remaining)
 	}
 	q, err := h.Store.Queue(ctx, -1, 0)
