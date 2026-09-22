@@ -56,6 +56,9 @@ func TestAuthorizationChatIsolationAndReplay(t *testing.T) {
 	h, a := handler(t)
 	ctx := context.Background()
 	h.Handle(ctx, nil, update(1, -1, 7, "/suggest_fact Миниатюры в кино | https://example.org/fact"))
+	if p.remaining < 80*time.Second {
+		t.Fatal("handler deadline prevents fallback", p.remaining)
+	}
 	q, err := h.Store.Queue(ctx, -1, 0)
 	if err != nil || len(q) != 1 {
 		t.Fatal(q, err)
@@ -197,13 +200,17 @@ func TestModerationCommandPermissionsAndSettings(t *testing.T) {
 }
 
 type previewProvider struct {
-	calls int
-	empty bool
-	err   error
+	remaining time.Duration
+	calls     int
+	empty     bool
+	err       error
 }
 
-func (p *previewProvider) Candidates(_ context.Context, kind string, chat int64) ([]daily.Item, error) {
+func (p *previewProvider) Candidates(ctx context.Context, kind string, chat int64) ([]daily.Item, error) {
 	p.calls++
+	if deadline, ok := ctx.Deadline(); ok {
+		p.remaining = time.Until(deadline)
+	}
 	if p.empty || p.err != nil {
 		return nil, p.err
 	}
@@ -229,6 +236,9 @@ func TestPreviewUsesGeminiProviderWithoutQueueOrSchedule(t *testing.T) {
 	h.Handle(ctx, nil, update(5, -1, 42, "/preview fact"))
 	if p.calls != 2 || len(a.photos) != 1 || !strings.Contains(a.photos[0].Caption, "Предпросмотр") || !strings.Contains(a.messages[len(a.messages)-1].Text, "Предпросмотр") {
 		t.Fatal("preview not delivered")
+	}
+	if p.remaining < 80*time.Second {
+		t.Fatal("handler deadline prevents fallback", p.remaining)
 	}
 	q, err := h.Store.Queue(ctx, -1, 0)
 	if err != nil || len(q) != 0 {

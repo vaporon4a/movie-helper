@@ -86,7 +86,14 @@ func Command(text, username string) (string, string) {
 	return strings.ToLower(cmd), args
 }
 func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
-	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	timeout := 25 * time.Second
+	// Preview needs time for sources and both AI providers, plus the final reply.
+	if u.Message != nil {
+		if cmd, _ := Command(u.Message.Text, h.Username); cmd == "/preview" {
+			timeout = 115 * time.Second
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if u.MyChatMember != nil {
 		m := u.MyChatMember
