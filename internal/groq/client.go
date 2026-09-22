@@ -90,13 +90,13 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 		} `json:"choices"`
 	}
 	if err = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&response); err != nil {
-		return result, errors.New("invalid Groq response")
+		return result, &ai.ValidationError{Reason: "groq_invalid_response_json"}
 	}
 	if len(response.Choices) != 1 || response.Choices[0].Finish != "stop" || response.Choices[0].Message.Refusal != "" {
-		return result, errors.New("Groq did not finish a selection")
+		return result, &ai.ValidationError{Reason: "groq_incomplete_selection"}
 	}
 	if err = json.Unmarshal([]byte(response.Choices[0].Message.Content), &result); err != nil || result.Index == nil {
-		return result, errors.New("invalid Groq selection")
+		return result, &ai.ValidationError{Reason: "groq_invalid_selection_json"}
 	}
 	return result, nil
 }

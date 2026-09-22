@@ -50,6 +50,22 @@ func TestProviderDeadlinesLeaveTimeForFallback(t *testing.T) {
 		t.Fatal("provider deadline truncated", err, primary.remaining, secondary.remaining)
 	}
 }
+
+func TestFailureReasonDoesNotExposeUpstreamDetails(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{errors.New("secret upstream body and URL"), "source_or_connection_failed"},
+		{&gemini.HTTPError{Status: 503}, "http_503"},
+		{&ai.ValidationError{Reason: "meme_review_count_or_index"}, "invalid_selection:meme_review_count_or_index"},
+		{ai.ErrDailyLimit, "daily_limit"},
+	} {
+		if got := failureReason(tc.err); got != tc.want {
+			t.Fatal(got)
+		}
+	}
+}
 func TestFallbackErrorsLimitsAndTimeout(t *testing.T) {
 	for _, tc := range []struct {
 		name string

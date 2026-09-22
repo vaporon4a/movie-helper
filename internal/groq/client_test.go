@@ -102,7 +102,7 @@ func TestVisionPayloadSelectionAndBudget(t *testing.T) {
 		if n != 1 {
 			t.Fatalf("sent %d images", n)
 		}
-		return response(200, answer(`{"index":0,"text":"invented","evidence":"","reviews":[{"index":0,"reason":"accepted","detail":"Понятная шутка"}]}`, "stop")), nil
+		return response(200, answer(`{"index":0,"text":"invented","evidence":"","reviews":{"0":{"reason":"accepted","detail":"Понятная шутка"}}}`, "stop")), nil
 	}, b)
 	items := []daily.Item{{Image: "https://i.redd.it/a.png", Key: "a"}, {Image: "https://i.redd.it/b.png", Key: "b"}, {Image: "https://i.redd.it/c.png", Key: "c"}}
 	item, err := c.SelectMeme(context.Background(), items)

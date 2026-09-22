@@ -80,10 +80,10 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 		} `json:"candidates"`
 	}
 	if err = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&response); err != nil {
-		return result, errors.New("invalid Gemini response")
+		return result, &ai.ValidationError{Reason: "gemini_invalid_response_json"}
 	}
 	if len(response.Candidates) != 1 || response.Candidates[0].Finish != "STOP" {
-		return result, errors.New("Gemini did not finish a selection")
+		return result, &ai.ValidationError{Reason: "gemini_incomplete_selection"}
 	}
 	var text strings.Builder
 	for _, p := range response.Candidates[0].Content.Parts {
@@ -92,7 +92,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 		}
 	}
 	if err = json.Unmarshal([]byte(text.String()), &result); err != nil || result.Index == nil {
-		return result, errors.New("invalid Gemini selection")
+		return result, &ai.ValidationError{Reason: "gemini_invalid_selection_json"}
 	}
 	return result, nil
 }

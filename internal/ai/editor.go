@@ -4,7 +4,6 @@ package ai
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -59,14 +58,14 @@ func (c *Editor) Fact(ctx context.Context, articles []Article) (*daily.Item, err
 		return nil, err
 	}
 	if result.Index == nil {
-		return nil, errors.New("AI selection has no index")
+		return nil, &ValidationError{Reason: "selection_missing_index"}
 	}
 	n := *result.Index
 	if n == -1 {
 		return nil, nil
 	}
 	if n < 0 || n >= len(articles) || !strings.Contains(articles[n].Text, result.Evidence) || utf8.RuneCountInString(result.Evidence) < 20 || utf8.RuneCountInString(result.Evidence) > 200 || len(strings.Fields(result.Evidence)) > 20 || len(strings.Fields(result.Text)) > 40 || strings.TrimSpace(result.Text) == "" {
-		return nil, errors.New("AI fact lacks source evidence")
+		return nil, &ValidationError{Reason: "fact_source_evidence"}
 	}
 	a := articles[n]
 	i := &daily.Item{Kind: daily.Fact, Text: strings.TrimSpace(result.Text) + "\n\n" + a.Attribution, Source: a.URL, Key: a.Key}

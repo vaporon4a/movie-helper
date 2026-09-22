@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/vaporon4a/movie-helper/internal/ai"
 	"github.com/vaporon4a/movie-helper/internal/content"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
@@ -389,6 +390,10 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 	h.reply(ctx, chat, "Готово. Изменения расписания действуют со следующего будущего времени публикации.")
 }
 func previewError(err error) (string, string) {
+	var validation *ai.ValidationError
+	if errors.As(err, &validation) {
+		return "AI вернул неполный или противоречивый результат проверки. Материал не опубликован. Попробуйте ещё раз.", "invalid_ai_selection"
+	}
 	if errors.Is(err, gemini.ErrDailyLimit) {
 		return "Подбор остановлен: дневной лимит AI-провайдера исчерпан или отключён. Счётчики обновятся в 00:00 UTC; предпросмотр и рубрики используют одни и те же лимиты.", "local_daily_limit"
 	}
