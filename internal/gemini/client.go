@@ -32,6 +32,7 @@ type Client struct {
 	Budget              Budget
 	DailyLimit          int
 	Now                 func() time.Time
+	Reviews             ai.ReviewCache
 }
 type Article = ai.Article
 
@@ -47,8 +48,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	body := map[string]any{
 		"systemInstruction": map[string]any{"parts": []ai.Part{{Text: instruction + ai.SourceInstruction}}},
 		"contents":          []any{map[string]any{"role": "user", "parts": parts}},
-		"generationConfig": map[string]any{"maxOutputTokens": 4096, "responseMimeType": "application/json", "responseJsonSchema": map[string]any{
-			"type": "object", "properties": map[string]any{"index": map[string]any{"type": "integer"}, "text": map[string]any{"type": "string"}, "evidence": map[string]any{"type": "string"}}, "required": []string{"index", "text", "evidence"}}},
+		"generationConfig":  map[string]any{"maxOutputTokens": 4096, "responseMimeType": "application/json", "responseJsonSchema": ai.SelectionSchema(parts)},
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -98,10 +98,10 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 }
 
 func (c *Client) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Item, error) {
-	e := &ai.Editor{HTTP: c.HTTP, Generator: c, MaxImages: 4}
+	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "gemini:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 4}
 	return e.SelectMeme(ctx, items)
 }
 func (c *Client) Fact(ctx context.Context, articles []Article) (*daily.Item, error) {
-	e := &ai.Editor{HTTP: c.HTTP, Generator: c, MaxImages: 4}
+	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "gemini:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 4}
 	return e.Fact(ctx, articles)
 }

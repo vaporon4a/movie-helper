@@ -79,10 +79,10 @@ func run() error {
 	fallback := &content.Fallback{Log: log, AttemptTimeout: 30 * time.Second}
 	aiHTTP := &http.Client{Timeout: 25 * time.Second, CheckRedirect: client.HTTP.CheckRedirect}
 	if cfg.GeminiKey != "" {
-		fallback.Primary = &gemini.Client{HTTP: aiHTTP, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now}
+		fallback.Primary = &gemini.Client{HTTP: aiHTTP, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Reviews: store, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now}
 	}
 	if cfg.GroqKey != "" {
-		fallback.Secondary = &groq.Client{HTTP: aiHTTP, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now}
+		fallback.Secondary = &groq.Client{HTTP: aiHTTP, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Reviews: store, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now}
 	}
 	if fallback.Primary != nil || fallback.Secondary != nil {
 		provider.Editor = fallback

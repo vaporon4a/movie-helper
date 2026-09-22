@@ -1,10 +1,12 @@
 package groq
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"strings"
@@ -40,13 +42,17 @@ func client(rt transport, b *budget) *Client {
 }
 
 func TestVisionPayloadSelectionAndBudget(t *testing.T) {
-	png, _ := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=")
+	var fixture bytes.Buffer
+	if err := png.Encode(&fixture, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	imageBytes := fixture.Bytes()
 	b := &budget{allowed: true}
 	images, calls := 0, 0
 	c := client(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host == "i.redd.it" {
 			images++
-			return response(200, string(png)), nil
+			return response(200, string(imageBytes)), nil
 		}
 		calls++
 		if r.URL.Path != "/openai/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer test-secret" || r.Header.Get("x-goog-api-key") != "" {
@@ -74,7 +80,7 @@ func TestVisionPayloadSelectionAndBudget(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		if req.Model != cModel || req.Max != 512 || req.Reasoning != "none" || req.Format.Type != "json_schema" || !req.Format.Schema.Strict || req.Format.Schema.Schema.Additional || len(req.Format.Schema.Schema.Required) != 3 || len(req.Messages) != 2 {
+		if req.Model != cModel || req.Max != 512 || req.Reasoning != "none" || req.Format.Type != "json_schema" || !req.Format.Schema.Strict || req.Format.Schema.Schema.Additional || len(req.Format.Schema.Schema.Required) != 4 || len(req.Messages) != 2 {
 			t.Fatal("invalid generation options")
 		}
 		var parts []struct {
@@ -93,14 +99,14 @@ func TestVisionPayloadSelectionAndBudget(t *testing.T) {
 				}
 			}
 		}
-		if n != 2 {
+		if n != 1 {
 			t.Fatalf("sent %d images", n)
 		}
-		return response(200, answer(`{"index":1,"text":"invented","evidence":""}`, "stop")), nil
+		return response(200, answer(`{"index":0,"text":"invented","evidence":"","reviews":[{"index":0,"reason":"accepted","detail":"Понятная шутка"}]}`, "stop")), nil
 	}, b)
 	items := []daily.Item{{Image: "https://i.redd.it/a.png", Key: "a"}, {Image: "https://i.redd.it/b.png", Key: "b"}, {Image: "https://i.redd.it/c.png", Key: "c"}}
 	item, err := c.SelectMeme(context.Background(), items)
-	if err != nil || item == nil || *item != items[1] || images != 2 || calls != 1 || b.calls != 1 {
+	if err != nil || item == nil || *item != items[0] || images != 1 || calls != 1 || b.calls != 1 {
 		t.Fatal(item, err, images, calls, b.calls)
 	}
 	b.allowed = false

@@ -25,6 +25,7 @@ type Client struct {
 	Budget              ai.Budget
 	DailyLimit          int
 	Now                 func() time.Time
+	Reviews             ai.ReviewCache
 }
 
 func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Part) (ai.Selection, error) {
@@ -51,11 +52,8 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	body := map[string]any{
 		"model": c.Model, "reasoning_effort": "none", "max_completion_tokens": 512,
 		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{
-			"name": "content_selection", "strict": true, "schema": map[string]any{
-				"type": "object", "additionalProperties": false,
-				"properties": map[string]any{"index": map[string]string{"type": "integer"}, "text": map[string]string{"type": "string"}, "evidence": map[string]string{"type": "string"}},
-				"required":   []string{"index", "text", "evidence"},
-			}}},
+			"name": "content_selection", "strict": true, "schema": ai.SelectionSchema(parts),
+		}},
 		"messages": []any{
 			map[string]any{"role": "system", "content": instruction + ai.SourceInstruction},
 			map[string]any{"role": "user", "content": content},
@@ -104,11 +102,11 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 }
 
 func (c *Client) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Item, error) {
-	// Two images leave room for the prompt and output within the free 8k TPM limit.
-	e := &ai.Editor{HTTP: c.HTTP, Generator: c, MaxImages: 2}
+	// One image per batch leaves token headroom for a second candidate.
+	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 1}
 	return e.SelectMeme(ctx, items)
 }
 func (c *Client) Fact(ctx context.Context, articles []ai.Article) (*daily.Item, error) {
-	e := &ai.Editor{HTTP: c.HTTP, Generator: c, MaxImages: 2}
+	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 1}
 	return e.Fact(ctx, articles)
 }

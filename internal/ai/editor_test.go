@@ -1,8 +1,10 @@
 package ai
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"strings"
@@ -24,15 +26,19 @@ func response(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
 func TestImageRestrictionsAndActualCandidateSelection(t *testing.T) {
-	png, _ := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=")
+	var fixture bytes.Buffer
+	if err := png.Encode(&fixture, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	imageBytes := fixture.Bytes()
 	images := 0
 	c := &Editor{MaxImages: 4, Generator: generatorFunc(func(context.Context, string, []Part) (Selection, error) {
 		n := 0
-		return Selection{Index: &n, Text: "invented caption"}, nil
+		return Selection{Index: &n, Text: "invented caption", Reviews: []Review{{Index: &n, Reason: "accepted", Detail: "Понятная шутка"}}}, nil
 	}), HTTP: &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host == "i.redd.it" {
 			images++
-			return response(200, string(png)), nil
+			return response(200, string(imageBytes)), nil
 		}
 		t.Fatal("unexpected HTTP request")
 		return nil, nil

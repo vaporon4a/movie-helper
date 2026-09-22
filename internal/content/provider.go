@@ -1,4 +1,4 @@
-// Package content combines independent sources with optional Gemini selection.
+// Package content combines independent sources with optional AI selection.
 package content
 
 import (
@@ -26,7 +26,7 @@ type Provider struct {
 }
 
 func (p *Provider) Candidates(ctx context.Context, kind string, chat int64) ([]daily.Item, error) {
-	// Automatic candidates must always pass Gemini's selection.
+	// Automatic candidates must always pass AI selection.
 	if p.Editor == nil {
 		return nil, nil
 	}
