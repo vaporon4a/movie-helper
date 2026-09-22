@@ -54,10 +54,19 @@ func TestVisionPayloadSelectionAndBudget(t *testing.T) {
 		}
 		var req struct {
 			Model     string
-			Reasoning string            `json:"reasoning_effort"`
-			Max       int               `json:"max_completion_tokens"`
-			Format    map[string]string `json:"response_format"`
-			Messages  []struct {
+			Reasoning string `json:"reasoning_effort"`
+			Max       int    `json:"max_completion_tokens"`
+			Format    struct {
+				Type   string
+				Schema struct {
+					Strict bool
+					Schema struct {
+						Additional bool `json:"additionalProperties"`
+						Required   []string
+					}
+				} `json:"json_schema"`
+			} `json:"response_format"`
+			Messages []struct {
 				Role    string
 				Content json.RawMessage
 			}
@@ -65,7 +74,7 @@ func TestVisionPayloadSelectionAndBudget(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		if req.Model != cModel || req.Max != 512 || req.Reasoning != "none" || req.Format["type"] != "json_object" || len(req.Messages) != 2 {
+		if req.Model != cModel || req.Max != 512 || req.Reasoning != "none" || req.Format.Type != "json_schema" || !req.Format.Schema.Strict || req.Format.Schema.Schema.Additional || len(req.Format.Schema.Schema.Required) != 3 || len(req.Messages) != 2 {
 			t.Fatal("invalid generation options")
 		}
 		var parts []struct {

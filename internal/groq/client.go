@@ -50,7 +50,12 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	}
 	body := map[string]any{
 		"model": c.Model, "reasoning_effort": "none", "max_completion_tokens": 512,
-		"response_format": map[string]string{"type": "json_object"},
+		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{
+			"name": "content_selection", "strict": true, "schema": map[string]any{
+				"type": "object", "additionalProperties": false,
+				"properties": map[string]any{"index": map[string]string{"type": "integer"}, "text": map[string]string{"type": "string"}, "evidence": map[string]string{"type": "string"}},
+				"required":   []string{"index", "text", "evidence"},
+			}}},
 		"messages": []any{
 			map[string]any{"role": "system", "content": instruction + ai.SourceInstruction},
 			map[string]any{"role": "user", "content": content},
