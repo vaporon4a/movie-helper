@@ -57,7 +57,7 @@ type memes []daily.Item
 
 func (m memes) Candidates(context.Context) ([]daily.Item, error) { return m, nil }
 func TestProviderFiltersSeenInChat(t *testing.T) {
-	p := &Provider{Memes: memes{{Key: "seen"}, {Key: "new"}}, History: history{"seen": true}}
+	p := &Provider{Memes: memes{{Key: "seen"}, {Key: "new"}}, History: history{"seen": true}, Editor: editor{}}
 	got, err := p.Candidates(context.Background(), daily.Meme, -1)
 	if err != nil || len(got) != 1 || got[0].Key != "new" {
 		t.Fatal(got, err)

@@ -26,6 +26,10 @@ type Provider struct {
 }
 
 func (p *Provider) Candidates(ctx context.Context, kind string, chat int64) ([]daily.Item, error) {
+	// Automatic candidates must always pass Gemini's selection.
+	if p.Editor == nil {
+		return nil, nil
+	}
 	if kind == daily.Meme {
 		items, err := p.Memes.Candidates(ctx)
 		if err != nil {
@@ -41,9 +45,6 @@ func (p *Provider) Candidates(ctx context.Context, kind string, chat int64) ([]d
 				unseen = append(unseen, i)
 			}
 		}
-		if p.Editor == nil {
-			return unseen, nil
-		}
 		i, err := p.Editor.SelectMeme(ctx, unseen)
 		if err != nil {
 			return nil, err
@@ -52,9 +53,6 @@ func (p *Provider) Candidates(ctx context.Context, kind string, chat int64) ([]d
 			return nil, nil
 		}
 		return []daily.Item{*i}, nil
-	}
-	if p.Editor == nil {
-		return nil, nil
 	}
 	var articles []gemini.Article
 	if p.Facts != nil {

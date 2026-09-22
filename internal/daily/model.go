@@ -24,6 +24,7 @@ type Schedule struct {
 	ChatID            int64
 	Kind, Clock, Zone string
 	Enabled           bool
+	Moderation        bool
 	Effective         int64
 }
 

@@ -23,8 +23,12 @@ type API interface {
 	GetChatAdministrators(context.Context, *bot.GetChatAdministratorsParams) ([]models.ChatMember, error)
 	AnswerCallbackQuery(context.Context, *bot.AnswerCallbackQueryParams) (bool, error)
 }
+type ContentProvider interface {
+	Candidates(context.Context, string, int64) ([]daily.Item, error)
+}
 type Handler struct {
 	API      API
+	Provider ContentProvider
 	Store    *storage.Store
 	Allowed  map[int64]bool
 	Username string
@@ -35,6 +39,8 @@ type Handler struct {
 const help = `Киноклуб: мем дня и факты о кино.
 /id — ID текущего чата
 /settings — расписание и ошибки публикаций
+/preview meme или /preview fact — получить пробный материал сейчас
+/moderation on или /moderation off — включить или выключить ручное одобрение
 /timezone Europe/Moscow — часовой пояс
 /schedule meme 09:00 — включить мем дня
 /schedule fact 12:00 — включить факт дня
@@ -48,8 +54,19 @@ const help = `Киноклуб: мем дня и факты о кино.
 /resolve ID requeue — вернуть её материал на следующий день
 /resume — восстановить работу после потери доступа
 
-Настройка, очередь и одобрение доступны администраторам.
-Мемы: очередь → Reddit с отбором Gemini, если он подключён. Факты: очередь → Wikipedia с обработкой Gemini. Рассылка изначально выключена.`
+Настройка, предпросмотр, очередь и одобрение доступны администраторам.
+Предпросмотр использует лимит Gemini, не меняет расписание и не добавляет материал в очередь.
+По умолчанию Gemini отбирает и одобряет мемы из Reddit и факты из Wikipedia для публикации по расписанию. Ручная очередь выключена.
+/moderation on — включить очередь: новые материалы Gemini ждут /approve; публикуется только одобренное администратором.
+/moderation off — автоматический отбор Gemini; предложения участников сохраняются, но не публикуются.
+Без подходящего материала или доступного Gemini автоматический слот пропускается. Рассылка изначально выключена.`
+
+func moderationText(enabled bool) string {
+	if enabled {
+		return "Ручное одобрение включено: публикация только после /approve. Новые материалы Gemini сохраняются в /queue для следующего слота после одобрения."
+	}
+	return "Автоматический режим: Gemini отбирает и одобряет материалы. Ручная очередь выключена."
+}
 
 func Command(text, username string) (string, string) {
 	parts := strings.SplitN(strings.TrimSpace(text), " ", 2)
@@ -134,6 +151,39 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 	now := h.Now()
 	chat := m.Chat.ID
 	switch cmd {
+	case "/preview":
+		if !daily.ValidKind(args) {
+			h.reply(ctx, chat, "Формат: /preview meme или /preview fact.")
+			return
+		}
+		if h.Provider == nil {
+			h.reply(ctx, chat, "Автоматический подбор не подключён.")
+			return
+		}
+		fetchCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		items, e := h.Provider.Candidates(fetchCtx, args, chat)
+		cancel()
+		if e != nil {
+			h.Log.Warn("preview source unavailable", "chat_id", chat, "kind", args)
+			h.reply(ctx, chat, "Не удалось подготовить предпросмотр: источник или Gemini недоступен, либо исчерпан дневной лимит. Попробуйте позже.")
+			return
+		}
+		if len(items) == 0 {
+			h.reply(ctx, chat, "Подходящего материала нет. Gemini мог отклонить кандидатов; для автоматического подбора нужен GEMINI_API_KEY.")
+			return
+		}
+		i := items[0]
+		i.ChatID, i.Kind = chat, args
+		if e = i.Validate(); e != nil {
+			h.reply(ctx, chat, "Подготовленный материал не прошёл проверку формата.")
+			return
+		}
+		i.Text = "Предпросмотр · " + i.Text
+		if _, e = (Sender{API: h.API}).Send(ctx, chat, i); e != nil {
+			h.Log.Warn("preview delivery not confirmed", "chat_id", chat)
+			h.reply(ctx, chat, "Доставка предпросмотра не подтверждена. Проверьте чат перед повторной командой.")
+		}
+		return
 	case "/settings":
 		sc, e := h.Store.Schedules(ctx, chat)
 		if e != nil {
@@ -141,6 +191,9 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 			break
 		}
 		lines := []string{"Расписание (по времени чата):"}
+		if len(sc) > 0 {
+			lines = append(lines, moderationText(sc[0].Moderation))
+		}
 		for _, s := range sc {
 			zone := s.Zone
 			if zone == "" {
@@ -160,9 +213,19 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		for _, d := range issues {
 			lines = append(lines, fmt.Sprintf("Доставка #%d: %s, %s, %s", d.ID, d.Kind, d.Date, d.State))
 		}
-		lines = append(lines, "Мемы: очередь → Reddit. Факты: очередь → Wikipedia, если подключён Gemini.", "unknown: проверьте чат и выполните /resolve ID sent или /resolve ID requeue.")
+		lines = append(lines, "Источники: Reddit и Wikipedia. Автоматический отбор: Gemini.", "unknown: проверьте чат и выполните /resolve ID sent или /resolve ID requeue.")
 		h.reply(ctx, chat, strings.Join(lines, "\n"))
 		return
+	case "/moderation":
+		if args != "on" && args != "off" {
+			h.reply(ctx, chat, "Формат: /moderation on — ручное одобрение; /moderation off — автоматический отбор Gemini.")
+			return
+		}
+		err = h.Store.SetModeration(ctx, u.ID, chat, args == "on", now)
+		if err == nil {
+			h.reply(ctx, chat, moderationText(args == "on")+" Расписание сохранено; уже отправляемый пост может завершиться.")
+			return
+		}
 	case "/timezone":
 		err = h.Store.SetZone(ctx, u.ID, chat, args, now)
 	case "/schedule":
@@ -192,7 +255,7 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		var id int64
 		id, err = h.Store.Add(ctx, u.ID, i, now)
 		if err == nil {
-			h.reply(ctx, chat, fmt.Sprintf("Факт #%d предложен. Администратор: /review %d", id, id))
+			h.reply(ctx, chat, fmt.Sprintf("Факт #%d сохранён в ручную очередь. Администратор: /review %d. Очередь публикуется при /moderation on.", id, id))
 			return
 		}
 	case "/suggest_meme":
@@ -210,7 +273,7 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		var id int64
 		id, err = h.Store.Add(ctx, u.ID, i, now)
 		if err == nil {
-			h.reply(ctx, chat, fmt.Sprintf("Мем #%d предложен. Администратор: /review %d", id, id))
+			h.reply(ctx, chat, fmt.Sprintf("Мем #%d сохранён в ручную очередь. Администратор: /review %d. Очередь публикуется при /moderation on.", id, id))
 			return
 		}
 	case "/queue":
@@ -226,7 +289,7 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 			err = e
 			break
 		}
-		lines := []string{"Очередь материалов:"}
+		lines := []string{"Очередь материалов (ручное одобрение: /moderation on; автоматический режим: /moderation off):"}
 		for _, i := range items {
 			title := []rune(i.Text)
 			if len(title) > 70 {
@@ -235,7 +298,7 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 			lines = append(lines, fmt.Sprintf("#%d %s [%s] %s", i.ID, i.Kind, i.State, string(title)))
 		}
 		if len(items) == 0 {
-			lines = append(lines, "Очередь пуста. Факты можно добавить через /suggest_fact; мемы также поступают автоматически.")
+			lines = append(lines, "Очередь пуста. Gemini подбирает материалы во время включённого расписания. Можно предложить /suggest_fact или /suggest_meme.")
 		}
 		if len(items) == 10 {
 			lines = append(lines, fmt.Sprintf("Дальше: /queue %d", items[9].ID))

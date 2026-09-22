@@ -77,8 +77,9 @@ func run() error {
 	if cfg.GeminiKey != "" {
 		provider.Editor = &gemini.Client{HTTP: &http.Client{Timeout: 40 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now}
 	} else {
-		log.Warn("Gemini disabled: automatic facts and visual meme selection unavailable")
+		log.Warn("Gemini disabled: automatic publishing unavailable")
 	}
+	h.Provider = provider
 	s := &scheduler.Scheduler{Store: store, Sender: telegram.Sender{API: b}, Provider: provider, Allowed: cfg.Chats, Log: log, Now: time.Now}
 	done := make(chan struct{})
 	go func() { defer close(done); s.Run(ctx) }()

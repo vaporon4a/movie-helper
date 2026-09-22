@@ -153,8 +153,36 @@ func (s *Store) Resume(ctx context.Context, op, chat int64) error {
 		return err
 	})
 }
+func (s *Store) SetModeration(ctx context.Context, op, chat int64, enabled bool, now time.Time) error {
+	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
+		var current bool
+		if err := tx.QueryRowContext(ctx, "SELECT moderation FROM chats WHERE chat_id=?", chat).Scan(&current); err != nil {
+			return err
+		}
+		if current == enabled {
+			return nil
+		}
+		if err := cancelPending(ctx, tx, chat, ""); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE chats SET moderation=? WHERE chat_id=?", enabled, chat); err != nil {
+			return err
+		}
+		// AI approval survives mode changes, but cannot substitute for a human
+		// approval while moderation is enabled. Human submissions stay untouched.
+		from, to := "pending", "approved"
+		if enabled {
+			from, to = "approved", "pending"
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE items SET state=? WHERE chat_id=? AND ai_approved=1 AND approved_by IS NULL AND state=?", to, chat, from); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "UPDATE schedules SET effective=? WHERE chat_id=?", now.Unix(), chat)
+		return err
+	})
+}
 func (s *Store) Schedules(ctx context.Context, chat int64) ([]daily.Schedule, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT s.chat_id,s.kind,s.clock,c.zone,s.enabled AND c.active,s.effective
+	rows, err := s.db.QueryContext(ctx, `SELECT s.chat_id,s.kind,s.clock,c.zone,s.enabled AND c.active,s.effective,c.moderation
  FROM schedules s JOIN chats c USING(chat_id) WHERE (?=0 OR s.chat_id=?) ORDER BY s.chat_id,s.kind`, chat, chat)
 	if err != nil {
 		return nil, err
@@ -163,7 +191,7 @@ func (s *Store) Schedules(ctx context.Context, chat int64) ([]daily.Schedule, er
 	var out []daily.Schedule
 	for rows.Next() {
 		var x daily.Schedule
-		if err = rows.Scan(&x.ChatID, &x.Kind, &x.Clock, &x.Zone, &x.Enabled, &x.Effective); err != nil {
+		if err = rows.Scan(&x.ChatID, &x.Kind, &x.Clock, &x.Zone, &x.Enabled, &x.Effective, &x.Moderation); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -223,7 +251,7 @@ func (s *Store) Moderate(ctx context.Context, op, chat, id, user int64, approve 
 		from := "state IN ('pending','approved')"
 		if approve {
 			target = "approved"
-			from = "state='pending'"
+			from = "(state='pending' OR (state='approved' AND approved_by IS NULL))"
 		}
 		r, err := tx.ExecContext(ctx, "UPDATE items SET state=?,approved_by=?,approved_at=? WHERE id=? AND chat_id=? AND "+from, target, user, now.Unix(), id, chat)
 		if err != nil {
@@ -263,7 +291,7 @@ func (s *Store) Reserve(ctx context.Context, sc daily.Schedule, date string, dea
 	err := s.transaction(ctx, nil, func(tx *sql.Tx) error {
 		r, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deliveries(chat_id,kind,local_date,deadline,state)
   SELECT s.chat_id,s.kind,?,?,'preparing' FROM schedules s JOIN chats c USING(chat_id)
-  WHERE s.chat_id=? AND s.kind=? AND s.enabled=1 AND c.active=1 AND s.effective=? AND c.zone=? AND s.clock=?`, date, deadline, sc.ChatID, sc.Kind, sc.Effective, sc.Zone, sc.Clock)
+  WHERE s.chat_id=? AND s.kind=? AND s.enabled=1 AND c.active=1 AND s.effective=? AND c.zone=? AND s.clock=? AND c.moderation=?`, date, deadline, sc.ChatID, sc.Kind, sc.Effective, sc.Zone, sc.Clock, sc.Moderation)
 		if err != nil {
 			return err
 		}
@@ -279,11 +307,12 @@ func (s *Store) Attach(ctx context.Context, id int64, candidate *daily.Item, now
 	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
 		var chat int64
 		var kind string
-		if err := tx.QueryRowContext(ctx, "SELECT chat_id,kind FROM deliveries WHERE id=? AND state='preparing'", id).Scan(&chat, &kind); err != nil {
+		var moderation bool
+		if err := tx.QueryRowContext(ctx, "SELECT d.chat_id,d.kind,c.moderation FROM deliveries d JOIN chats c USING(chat_id) WHERE d.id=? AND d.state='preparing'", id).Scan(&chat, &kind, &moderation); err != nil {
 			return err
 		}
 		var item int64
-		err := tx.QueryRowContext(ctx, "SELECT id FROM items WHERE chat_id=? AND kind=? AND state='approved' ORDER BY id LIMIT 1", chat, kind).Scan(&item)
+		err := tx.QueryRowContext(ctx, "SELECT id FROM items WHERE chat_id=? AND kind=? AND state='approved' AND ((? AND approved_by IS NOT NULL) OR (NOT ? AND ai_approved=1)) ORDER BY id LIMIT 1", chat, kind, moderation, moderation).Scan(&item)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
@@ -294,13 +323,17 @@ func (s *Store) Attach(ctx context.Context, id int64, candidate *daily.Item, now
 			if err = i.Validate(); err != nil {
 				return err
 			}
-			r, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at)
-   VALUES(?,?,?,?,?,?,0,'approved',?)`, chat, kind, i.Text, i.Source, i.Image, i.Key, now.Unix())
+			state := "approved"
+			if moderation {
+				state = "pending"
+			}
+			r, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,ai_approved)
+   VALUES(?,?,?,?,?,?,0,?,?,1)`, chat, kind, i.Text, i.Source, i.Image, i.Key, state, now.Unix())
 			if e != nil {
 				return e
 			}
 			n, _ := r.RowsAffected()
-			if n > 0 {
+			if n > 0 && !moderation {
 				item, e = r.LastInsertId()
 				if e != nil {
 					return e
@@ -320,7 +353,9 @@ func (s *Store) Attach(ctx context.Context, id int64, candidate *daily.Item, now
 }
 func (s *Store) HasApproved(ctx context.Context, chat int64, kind string) (bool, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE chat_id=? AND kind=? AND state='approved'", chat, kind).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM items i JOIN chats c USING(chat_id)
+ WHERE i.chat_id=? AND i.kind=? AND i.state='approved'
+ AND ((c.moderation=1 AND i.approved_by IS NOT NULL) OR (c.moderation=0 AND i.ai_approved=1))`, chat, kind).Scan(&n)
 	return n > 0, err
 }
 func (s *Store) Pending(ctx context.Context) ([]daily.Delivery, error) {

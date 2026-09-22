@@ -35,6 +35,7 @@ func setup(t *testing.T, s *Store, chat int64) {
 	ctx := context.Background()
 	must(t, s.EnsureChat(ctx, chat))
 	must(t, s.SetZone(ctx, chat*10, chat, "UTC", testNow))
+	must(t, s.SetModeration(ctx, chat*10-2, chat, true, testNow))
 	must(t, s.SetSchedule(ctx, chat*10-1, chat, "fact", "09:00", true, testNow))
 }
 func reserve(t *testing.T, s *Store) int64 {
@@ -250,5 +251,65 @@ func TestAPIBudgetPersistsAcrossRestart(t *testing.T) {
 	must(t, err)
 	if allowed {
 		t.Fatal("zero limit allowed request")
+	}
+}
+
+func TestModerationMigrationPreservesExistingData(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	p, err := s.migrator()
+	must(t, err)
+	_, err = p.DownTo(ctx, 2)
+	must(t, err)
+	_, err = s.db.Exec("INSERT INTO chats(chat_id,zone) VALUES(-1,'UTC')")
+	must(t, err)
+	_, err = s.db.Exec(`INSERT INTO items(chat_id,kind,text,source,content_key,author_id,state,created_at,approved_by) VALUES(-1,'fact','Old fact','https://example.org','old',42,'approved',1,42)`)
+	must(t, err)
+	_, err = p.Up(ctx)
+	must(t, err)
+	var moderation, ai bool
+	var text string
+	must(t, s.db.QueryRow("SELECT moderation FROM chats WHERE chat_id=-1").Scan(&moderation))
+	must(t, s.db.QueryRow("SELECT text,ai_approved FROM items WHERE chat_id=-1").Scan(&text, &ai))
+	if moderation || ai || text != "Old fact" {
+		t.Fatal(moderation, ai, text)
+	}
+	approved, err := s.HasApproved(ctx, -1, daily.Fact)
+	must(t, err)
+	if approved {
+		t.Fatal("legacy human item treated as Gemini approved")
+	}
+	must(t, s.SetModeration(ctx, 100, -1, true, testNow))
+	approved, err = s.HasApproved(ctx, -1, daily.Fact)
+	must(t, err)
+	if !approved {
+		t.Fatal("existing human approval lost")
+	}
+	_, err = p.DownTo(ctx, 2)
+	must(t, err)
+	must(t, s.db.QueryRow("SELECT text FROM items WHERE chat_id=-1").Scan(&text))
+	if text != "Old fact" {
+		t.Fatal("downgrade lost item")
+	}
+}
+
+func TestModerationPersistsAndIsolatesChats(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "db")
+	s, err := Open(ctx, path)
+	must(t, err)
+	must(t, s.EnsureChat(ctx, -1))
+	must(t, s.EnsureChat(ctx, -2))
+	must(t, s.SetModeration(ctx, 1, -1, true, testNow))
+	must(t, s.Close())
+	s, err = Open(ctx, path)
+	must(t, err)
+	defer s.Close()
+	rows, err := s.Schedules(ctx, 0)
+	must(t, err)
+	for _, r := range rows {
+		if r.Moderation != (r.ChatID == -1) {
+			t.Fatal(r)
+		}
 	}
 }

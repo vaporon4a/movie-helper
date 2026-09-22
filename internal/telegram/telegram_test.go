@@ -161,3 +161,98 @@ func TestBootstrapAllowsIDButNoGroupMutations(t *testing.T) {
 		t.Fatal("bootstrap created group state", err)
 	}
 }
+
+func TestModerationCommandPermissionsAndSettings(t *testing.T) {
+	h, a := handler(t)
+	ctx := context.Background()
+	h.Handle(ctx, nil, update(1, -1, 7, "/moderation on"))
+	rows, err := h.Store.Schedules(ctx, -1)
+	if err != nil || rows[0].Moderation {
+		t.Fatal("nonadmin changed mode", err)
+	}
+	a.adminErr = errors.New("offline")
+	h.Handle(ctx, nil, update(2, -1, 42, "/moderation on"))
+	rows, _ = h.Store.Schedules(ctx, -1)
+	if rows[0].Moderation {
+		t.Fatal("admin lookup failed open")
+	}
+	a.adminErr = nil
+	h.Handle(ctx, nil, update(3, -1, 42, "/moderation on"))
+	h.Handle(ctx, nil, update(4, -1, 7, "/settings"))
+	if !strings.Contains(a.messages[len(a.messages)-1].Text, "Ручное одобрение включено") {
+		t.Fatal("settings omitted moderation")
+	}
+	h.Handle(ctx, nil, update(5, -1, 42, "/moderation invalid"))
+	rows, _ = h.Store.Schedules(ctx, -1)
+	if !rows[0].Moderation {
+		t.Fatal("invalid input changed mode")
+	}
+	h.Handle(ctx, nil, update(6, -1, 42, "/moderation off"))
+	h.Handle(ctx, nil, update(7, -1, 7, "/settings"))
+	if !strings.Contains(a.messages[len(a.messages)-1].Text, "Автоматический режим") {
+		t.Fatal("settings omitted automatic mode")
+	}
+}
+
+type previewProvider struct {
+	calls int
+	empty bool
+	err   error
+}
+
+func (p *previewProvider) Candidates(_ context.Context, kind string, chat int64) ([]daily.Item, error) {
+	p.calls++
+	if p.empty || p.err != nil {
+		return nil, p.err
+	}
+	return []daily.Item{{Kind: kind, ChatID: chat, Text: "Пробный материал", Image: "file-id", Source: "https://example.org", Key: "preview"}}, nil
+}
+func TestPreviewUsesGeminiProviderWithoutQueueOrSchedule(t *testing.T) {
+	h, a := handler(t)
+	p := &previewProvider{}
+	h.Provider = p
+	ctx := context.Background()
+	for _, cmd := range []string{"/preview meme", "/preview fact"} {
+		h.Handle(ctx, nil, update(1, -1, 7, cmd))
+	}
+	if p.calls != 0 {
+		t.Fatal("nonadmin spent API budget")
+	}
+	h.Handle(ctx, nil, update(2, -3, 42, "/preview meme"))
+	h.Handle(ctx, nil, update(3, -1, 42, "/preview invalid"))
+	if p.calls != 0 {
+		t.Fatal("invalid or unallowed preview fetched content")
+	}
+	h.Handle(ctx, nil, update(4, -1, 42, "/preview meme"))
+	h.Handle(ctx, nil, update(5, -1, 42, "/preview fact"))
+	if p.calls != 2 || len(a.photos) != 1 || !strings.Contains(a.photos[0].Caption, "Предпросмотр") || !strings.Contains(a.messages[len(a.messages)-1].Text, "Предпросмотр") {
+		t.Fatal("preview not delivered")
+	}
+	q, err := h.Store.Queue(ctx, -1, 0)
+	if err != nil || len(q) != 0 {
+		t.Fatal("preview queued item", q, err)
+	}
+	seen, err := h.Store.Seen(ctx, -1, daily.Meme, "preview")
+	if err != nil || seen {
+		t.Fatal("preview marked item published")
+	}
+	rows, err := h.Store.Schedules(ctx, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Enabled || r.Moderation || r.Zone != "" {
+			t.Fatal("preview changed settings", r)
+		}
+	}
+	p.empty = true
+	h.Handle(ctx, nil, update(6, -1, 42, "/preview meme"))
+	if len(a.photos) != 1 || !strings.Contains(a.messages[len(a.messages)-1].Text, "Подходящего материала нет") {
+		t.Fatal("empty result bypassed")
+	}
+	p.err = errors.New("upstream secret")
+	h.Handle(ctx, nil, update(7, -1, 42, "/preview fact"))
+	if strings.Contains(a.messages[len(a.messages)-1].Text, "upstream secret") || !strings.Contains(a.messages[len(a.messages)-1].Text, "Не удалось") {
+		t.Fatal("unsafe error handling")
+	}
+}

@@ -45,14 +45,110 @@ func (s *sender) Send(context.Context, int64, daily.Item) (int, error) {
 	return 123, s.err
 }
 
-type provider struct{ calls int }
+type provider struct {
+	calls int
+	hook  func()
+}
 
 func (p *provider) Candidates(_ context.Context, kind string, _ int64) ([]daily.Item, error) {
 	p.calls++
+	if p.hook != nil {
+		p.hook()
+	}
 	if kind != daily.Meme {
 		return nil, nil
 	}
 	return []daily.Item{{Kind: daily.Meme, Text: "Мем", Image: "https://i.redd.it/test.jpg", Source: "https://redd.it/test", Key: "reddit:test"}}, nil
+}
+
+func TestModerationWaitsForApproval(t *testing.T) {
+	s, send, n := fixture(t)
+	ctx := context.Background()
+	if err := s.Store.SetModeration(ctx, 10, -1, true, *n); err != nil {
+		t.Fatal(err)
+	}
+	*n = n.Add(time.Hour)
+	tick(t, s)
+	q, err := s.Store.Queue(ctx, -1, 0)
+	if err != nil || len(q) != 1 || q[0].State != "pending" || send.calls != 0 {
+		t.Fatal(q, err, send.calls)
+	}
+	if err = s.Store.Moderate(ctx, 11, -1, q[0].ID, 42, true, *n); err != nil {
+		t.Fatal(err)
+	}
+	tick(t, s)
+	if send.calls != 0 {
+		t.Fatal("approval sent outside next scheduled slot")
+	}
+	*n = n.Add(24 * time.Hour)
+	tick(t, s)
+	if send.calls != 1 || s.Provider.(*provider).calls != 1 {
+		t.Fatal("approved queue was not used")
+	}
+}
+
+func TestAutomaticModeIgnoresHumanQueue(t *testing.T) {
+	s, send, n := fixture(t)
+	ctx := context.Background()
+	id, err := s.Store.Add(ctx, 10, daily.Item{ChatID: -1, AuthorID: 42, Kind: daily.Meme, Image: "file-id", Key: "manual"}, *n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Store.Moderate(ctx, 11, -1, id, 42, true, *n); err != nil {
+		t.Fatal(err)
+	}
+	*n = n.Add(time.Hour)
+	tick(t, s)
+	item, err := s.Store.Item(ctx, -1, id)
+	if err != nil || item.State != "approved" || send.calls != 1 || s.Provider.(*provider).calls != 1 {
+		t.Fatal(item, err, send.calls)
+	}
+}
+
+func TestModeChangeDuringFetchCancelsSlot(t *testing.T) {
+	s, send, n := fixture(t)
+	s.Provider.(*provider).hook = func() {
+		if err := s.Store.SetModeration(context.Background(), 10, -1, true, *n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	*n = n.Add(time.Hour)
+	tick(t, s)
+	tick(t, s)
+	if send.calls != 0 {
+		t.Fatal("published after moderation enabled")
+	}
+}
+
+func TestModeChangeCancelsRetryAndRequiresHumanApproval(t *testing.T) {
+	s, send, n := fixture(t)
+	ctx := context.Background()
+	*n = n.Add(time.Hour)
+	send.err = &daily.SendError{Kind: "retry", After: 30 * time.Second}
+	tick(t, s)
+	if err := s.Store.SetModeration(ctx, 10, -1, true, *n); err != nil {
+		t.Fatal(err)
+	}
+	q, err := s.Store.Queue(ctx, -1, 0)
+	if err != nil || len(q) != 1 || q[0].State != "pending" {
+		t.Fatal(q, err)
+	}
+	*n = n.Add(30 * time.Second)
+	tick(t, s)
+	*n = n.Add(24 * time.Hour)
+	tick(t, s)
+	if send.calls != 1 {
+		t.Fatal("AI approval bypassed human moderation")
+	}
+	if err = s.Store.SetModeration(ctx, 11, -1, false, *n); err != nil {
+		t.Fatal(err)
+	}
+	send.err = nil
+	*n = n.Add(24 * time.Hour)
+	tick(t, s)
+	if send.calls != 2 {
+		t.Fatal("AI approved item lost after switching back")
+	}
 }
 func fixture(t *testing.T) (*Scheduler, *sender, *time.Time) {
 	t.Helper()
