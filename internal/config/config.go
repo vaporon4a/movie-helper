@@ -63,7 +63,7 @@ func Parse(get func(string) string) (Config, error) {
 	c.GeminiKey = strings.TrimSpace(get("GEMINI_API_KEY"))
 	c.GeminiModel = get("GEMINI_MODEL")
 	if c.GeminiModel == "" {
-		c.GeminiModel = "gemini-2.5-flash"
+		c.GeminiModel = "gemini-3.6-flash"
 	}
 	if !regexp.MustCompile(`^[a-zA-Z0-9._-]+$`).MatchString(c.GeminiModel) {
 		return c, errors.New("invalid GEMINI_MODEL")

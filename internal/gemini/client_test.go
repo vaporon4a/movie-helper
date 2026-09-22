@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -34,7 +35,7 @@ func answer(s string) string {
 	return string(b)
 }
 func testClient(rt transport, b *budget) *Client {
-	return &Client{HTTP: &http.Client{Transport: rt}, BaseURL: "https://gemini.invalid/v1beta", Key: "secret", Model: "gemini-2.5-flash", Budget: b, DailyLimit: 6, Now: time.Now}
+	return &Client{HTTP: &http.Client{Transport: rt}, BaseURL: "https://gemini.invalid/v1beta", Key: "secret", Model: "gemini-3.6-flash", Budget: b, DailyLimit: 6, Now: time.Now}
 }
 
 func TestFactProvenanceAndBudget(t *testing.T) {
@@ -108,5 +109,24 @@ func TestImageRestrictionsAndActualCandidateSelection(t *testing.T) {
 	c.HTTP.Transport = transport(func(*http.Request) (*http.Response, error) { return response(200, strings.Repeat("x", (2<<20)+1)), nil })
 	if _, err := c.image(context.Background(), items[0].Image); err == nil {
 		t.Fatal("large image accepted")
+	}
+}
+
+func TestHTTPFailuresAndLocalBudgetAreDistinct(t *testing.T) {
+	for _, code := range []int{401, 403, 404, 429, 503} {
+		c := testClient(func(*http.Request) (*http.Response, error) { return response(code, "secret upstream body"), nil }, &budget{allowed: true})
+		_, err := c.generate(context.Background(), "test", nil)
+		var httpErr *HTTPError
+		if !errors.As(err, &httpErr) || httpErr.Status != code || strings.Contains(err.Error(), "secret") {
+			t.Fatal(code, err)
+		}
+	}
+	c := testClient(func(*http.Request) (*http.Response, error) {
+		t.Fatal("request after budget exhausted")
+		return nil, nil
+	}, &budget{})
+	_, err := c.generate(context.Background(), "test", nil)
+	if !errors.Is(err, ErrDailyLimit) {
+		t.Fatal(err)
 	}
 }

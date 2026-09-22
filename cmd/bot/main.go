@@ -83,7 +83,7 @@ func run() error {
 	s := &scheduler.Scheduler{Store: store, Sender: telegram.Sender{API: b}, Provider: provider, Allowed: cfg.Chats, Log: log, Now: time.Now}
 	done := make(chan struct{})
 	go func() { defer close(done); s.Run(ctx) }()
-	log.Info("bot started", "allowed_chats", len(cfg.Chats))
+	log.Info("bot started", "allowed_chats", len(cfg.Chats), "gemini_model", cfg.GeminiModel, "gemini_enabled", cfg.GeminiKey != "")
 	b.Start(ctx)
 	cancel()
 	<-done

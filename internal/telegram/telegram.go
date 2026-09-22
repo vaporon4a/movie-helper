@@ -14,6 +14,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
+	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 )
 
@@ -164,8 +165,9 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		items, e := h.Provider.Candidates(fetchCtx, args, chat)
 		cancel()
 		if e != nil {
-			h.Log.Warn("preview source unavailable", "chat_id", chat, "kind", args)
-			h.reply(ctx, chat, "Не удалось подготовить предпросмотр: источник или Gemini недоступен, либо исчерпан дневной лимит. Попробуйте позже.")
+			message, reason := previewError(e)
+			h.Log.Warn("preview source unavailable", "chat_id", chat, "kind", args, "reason", reason)
+			h.reply(ctx, chat, message)
 			return
 		}
 		if len(items) == 0 {
@@ -362,6 +364,27 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		return
 	}
 	h.reply(ctx, chat, "Готово. Изменения расписания действуют со следующего будущего времени публикации.")
+}
+func previewError(err error) (string, string) {
+	if errors.Is(err, gemini.ErrDailyLimit) {
+		return "Дневной лимит запросов бота к Gemini исчерпан. Он обновится в 00:00 UTC; предпросмотр и рубрики используют общий лимит.", "local_daily_limit"
+	}
+	var status *gemini.HTTPError
+	if errors.As(err, &status) {
+		switch status.Status {
+		case 404:
+			return "Выбранная модель Gemini недоступна для этого API-ключа. Нужно обновить GEMINI_MODEL в настройках бота.", "gemini_model_unavailable"
+		case 401, 403:
+			return "Gemini отклонил доступ. Проверьте API-ключ и разрешения проекта Google AI Studio.", "gemini_access_denied"
+		case 429:
+			return "Gemini вернул ограничение квоты Google (429). Проверьте квоты проекта в Google AI Studio; внутренний лимит бота — отдельный.", "gemini_quota"
+		case 503:
+			return "Gemini временно недоступен (503). Попробуйте позже; этот запрос учтён в дневном лимите бота.", "gemini_unavailable"
+		default:
+			return "Запрос к Gemini завершился ошибкой. Код HTTP: " + strconv.Itoa(status.Status) + ".", "gemini_http_" + strconv.Itoa(status.Status)
+		}
+	}
+	return "Не удалось получить или обработать материал для предпросмотра. Попробуйте позже.", "source_or_generation_failed"
 }
 func (h *Handler) callback(ctx context.Context, u *models.Update) {
 	q := u.CallbackQuery

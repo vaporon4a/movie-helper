@@ -14,6 +14,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
+	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 )
 
@@ -254,5 +255,24 @@ func TestPreviewUsesGeminiProviderWithoutQueueOrSchedule(t *testing.T) {
 	h.Handle(ctx, nil, update(7, -1, 42, "/preview fact"))
 	if strings.Contains(a.messages[len(a.messages)-1].Text, "upstream secret") || !strings.Contains(a.messages[len(a.messages)-1].Text, "Не удалось") {
 		t.Fatal("unsafe error handling")
+	}
+}
+
+func TestPreviewErrorsExplainModelAccessAndQuotas(t *testing.T) {
+	for _, tc := range []struct {
+		err          error
+		reason, want string
+	}{
+		{gemini.ErrDailyLimit, "local_daily_limit", "00:00 UTC"},
+		{&gemini.HTTPError{Status: 404}, "gemini_model_unavailable", "GEMINI_MODEL"},
+		{&gemini.HTTPError{Status: 403}, "gemini_access_denied", "API-ключ"},
+		{&gemini.HTTPError{Status: 429}, "gemini_quota", "квоты Google"},
+		{&gemini.HTTPError{Status: 503}, "gemini_unavailable", "503"},
+		{errors.New("private upstream body"), "source_or_generation_failed", "Не удалось"},
+	} {
+		message, reason := previewError(fmt.Errorf("wrapped: %w", tc.err))
+		if reason != tc.reason || !strings.Contains(message, tc.want) || strings.Contains(message, "private") {
+			t.Fatal(message, reason)
+		}
 	}
 }

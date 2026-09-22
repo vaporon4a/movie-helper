@@ -74,7 +74,7 @@ FACT_WIKI_TITLES='Alien (film)|The Matrix|Jurassic Park (film)'
 
 ### Gemini
 
-Ключ создаётся в [Google AI Studio](https://aistudio.google.com/apikey). Модель задаётся `GEMINI_MODEL`, по умолчанию `gemini-2.5-flash`; используется REST `generateContent` со структурированным JSON-ответом. Выбранная замена должна поддерживать изображения и JSON Schema.
+Ключ создаётся в [Google AI Studio](https://aistudio.google.com/apikey). Модель задаётся `GEMINI_MODEL`, по умолчанию `gemini-3.6-flash`; используется REST `generateContent` со структурированным JSON-ответом. Выбранная замена должна поддерживать изображения и JSON Schema.
 
 `GEMINI_DAILY_REQUEST_LIMIT=6` — общий предел **попыток** обращения ко всем чатам за UTC-сутки. Счётчик хранится в SQLite и переживает перезапуск; ошибки тоже расходуют попытку. `0` блокирует вызовы модели. Для одного чата с двумя рубриками обычно нужно до двух вызовов в день. Это ограничение числа запросов, а не бюджета в деньгах: проверьте [тариф модели](https://ai.google.dev/gemini-api/docs/pricing), [квоты проекта](https://ai.google.dev/gemini-api/docs/rate-limits), [доступность региона](https://ai.google.dev/gemini-api/docs/available-regions) и [условия обработки данных](https://ai.google.dev/gemini-api/terms).
 
