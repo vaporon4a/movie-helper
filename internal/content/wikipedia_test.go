@@ -53,6 +53,26 @@ func TestWikipediaLimitsFetchAndSkipsUnavailable(t *testing.T) {
 	}
 }
 
+func TestWikipediaRetryMovesToOtherTitles(t *testing.T) {
+	var titles []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		titles = append(titles, r.URL.Query().Get("titles"))
+		w.WriteHeader(503)
+	}))
+	defer srv.Close()
+	w := &Wikipedia{HTTP: srv.Client(), Endpoint: srv.URL, Titles: []string{"a", "b", "c", "d", "e", "f"}, Now: func() time.Time { return time.Unix(0, 0) }}
+	_, _ = w.Articles(context.Background(), -1, history{})
+	_, _ = w.Articles(WithPreparationAttempt(context.Background(), 1), -1, history{})
+	if len(titles) != 6 {
+		t.Fatal(titles)
+	}
+	for i, want := range w.Titles {
+		if titles[i] != want {
+			t.Fatal(titles)
+		}
+	}
+}
+
 type memes []daily.Item
 
 func (m memes) Candidates(context.Context) ([]daily.Item, error) { return m, nil }

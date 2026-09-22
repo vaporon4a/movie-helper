@@ -34,7 +34,7 @@ func Parse(get func(string) string) (Config, error) {
 	chats := strings.TrimSpace(get("ALLOWED_CHAT_IDS"))
 	// Explicit onboarding mode: /id and private help work, all groups are denied.
 	if chats != "bootstrap" {
-		for _, part := range strings.Split(chats, ",") {
+		for part := range strings.SplitSeq(chats, ",") {
 			id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
 			if err != nil || id >= 0 {
 				return c, errors.New("ALLOWED_CHAT_IDS must list negative group IDs or be bootstrap")
@@ -47,7 +47,7 @@ func Parse(get func(string) string) (Config, error) {
 	if subs == "" {
 		subs = "RUSSIANMemeSub"
 	}
-	for _, sub := range strings.Split(subs, ",") {
+	for sub := range strings.SplitSeq(subs, ",") {
 		sub = strings.TrimSpace(sub)
 		if !regexp.MustCompile(`^[A-Za-z0-9_]{2,30}$`).MatchString(sub) {
 			return c, errors.New("invalid MEME_SUBREDDITS")
@@ -70,7 +70,7 @@ func Parse(get func(string) string) (Config, error) {
 	if !regexp.MustCompile(`^[a-zA-Z0-9._-]+$`).MatchString(c.GeminiModel) {
 		return c, errors.New("invalid GEMINI_MODEL")
 	}
-	c.GeminiDailyLimit = 6
+	c.GeminiDailyLimit = 20
 	if raw := get("GEMINI_DAILY_REQUEST_LIMIT"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 || n > 100 {
@@ -87,7 +87,7 @@ func Parse(get func(string) string) (Config, error) {
 	if !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`).MatchString(c.GroqModel) {
 		return c, errors.New("invalid GROQ_MODEL")
 	}
-	c.GroqDailyLimit = 6
+	c.GroqDailyLimit = 20
 	if raw := get("GROQ_DAILY_REQUEST_LIMIT"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 || n > 100 {
@@ -101,7 +101,7 @@ func Parse(get func(string) string) (Config, error) {
 		titles = "Alien (film)|Jurassic Park (film)|The Matrix|Back to the Future|Jaws (film)|Blade Runner|The Terminator|Titanic (1997 film)|The Truman Show|The Grand Budapest Hotel|Mad Max: Fury Road|Who Framed Roger Rabbit|The Thing (1982 film)|Raiders of the Lost Ark|The Princess Bride (film)|Groundhog Day (film)|Ghostbusters|The Fifth Element|Interstellar (film)|Inception"
 	}
 	seen := make(map[string]bool)
-	for _, title := range strings.Split(titles, "|") {
+	for title := range strings.SplitSeq(titles, "|") {
 		title = strings.TrimSpace(title)
 		if title == "" || len(title) > 200 || strings.ContainsAny(title, "\r\n") {
 			return c, errors.New("invalid FACT_WIKI_TITLES")

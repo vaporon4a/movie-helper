@@ -212,9 +212,9 @@ func TestRetryAfterAndExpiry(t *testing.T) {
 	}
 	s, send, n = fixture(t)
 	*n = n.Add(time.Hour)
-	send.err = &daily.SendError{Kind: "retry", After: 2 * time.Hour}
+	send.err = &daily.SendError{Kind: "retry", After: 7 * time.Hour}
 	tick(t, s)
-	*n = n.Add(2 * time.Hour)
+	*n = n.Add(7 * time.Hour)
 	tick(t, s)
 	if send.calls != 1 {
 		t.Fatal("expired retry")
@@ -239,12 +239,12 @@ func TestUnknownNeverRetried(t *testing.T) {
 }
 func TestMissedWindowAndActivation(t *testing.T) {
 	s, send, n := fixture(t)
-	*n = n.Add(2 * time.Hour)
+	*n = n.Add(7 * time.Hour)
 	tick(t, s)
 	if send.calls != 0 {
 		t.Fatal("old slot caught up")
 	}
-	*n = n.Add(-time.Hour)
+	*n = n.Add(-6 * time.Hour)
 	if e := s.Store.SetSchedule(context.Background(), 3, -1, "meme", "09:00", true, *n); e != nil {
 		t.Fatal(e)
 	}

@@ -11,6 +11,7 @@ import (
 
 const Meme = "meme"
 const Fact = "fact"
+const MaxPreparationAttempts = 6
 
 var ErrDuplicate = errors.New("operation already processed")
 var ErrConflict = errors.New("item unavailable or state changed")
@@ -29,6 +30,7 @@ type Schedule struct {
 }
 
 type Delivery struct {
+	FetchAttempts                     int
 	ID, ChatID, Deadline, NextAttempt int64
 	Kind, Date, State                 string
 	Item                              Item

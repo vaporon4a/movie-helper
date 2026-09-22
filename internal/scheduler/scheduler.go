@@ -82,42 +82,38 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		if e != nil {
 			return e
 		}
-		if now.Before(slot) || !now.Before(slot.Add(time.Hour)) || slot.Unix() <= sc.Effective {
+		deadline := preparationDeadline(slot)
+		if now.Before(slot) || !now.Before(deadline) || slot.Unix() <= sc.Effective {
 			continue
 		}
-		id, e := s.Store.Reserve(ctx, sc, slot.Format("2006-01-02"), slot.Add(time.Hour).Unix())
-		if e != nil {
+		if _, e = s.Store.Reserve(ctx, sc, slot.Format("2006-01-02"), slot.Unix(), deadline.Unix()); e != nil {
 			return e
 		}
-		if id == 0 {
+	}
+	preparing, err := s.Store.Preparing(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range preparing {
+		now = s.Now()
+		if !s.Allowed[d.ChatID] || now.Unix() >= d.Deadline || d.FetchAttempts >= daily.MaxPreparationAttempts {
+			if err := s.Store.DeferPreparation(ctx, d.ID, time.Time{}); err != nil {
+				return err
+			}
 			continue
 		}
-		var candidate *daily.Item
-		approved, e := s.Store.HasApproved(ctx, sc.ChatID, sc.Kind)
-		if e != nil {
-			return e
+		if now.Unix() < d.NextAttempt {
+			continue
 		}
-		if !approved && s.Provider != nil {
-			fetchCtx, cancel := context.WithTimeout(ctx, content.FetchTimeout)
-			candidates, e := s.Provider.Candidates(fetchCtx, sc.Kind, sc.ChatID)
-			cancel()
-			if e != nil {
-				s.Log.Warn("content source unavailable", "chat_id", sc.ChatID)
-			}
-			for _, i := range candidates {
-				seen, e := s.Store.Seen(ctx, sc.ChatID, sc.Kind, i.Key)
-				if e != nil {
-					return e
-				}
-				if !seen {
-					candidate = &i
-					break
-				}
-			}
+		claimed, err := s.Store.ClaimPreparation(ctx, d.ID, now)
+		if err != nil {
+			return err
 		}
-		if e = s.Store.Attach(ctx, id, candidate, s.Now()); e != nil {
-			// A settings change may have cancelled this slot during the network fetch.
-			s.Log.Warn("slot preparation stopped", "delivery_id", id)
+		if !claimed {
+			continue
+		}
+		if err := s.prepare(ctx, d); err != nil {
+			return err
 		}
 	}
 	pending, err := s.Store.Pending(ctx)
@@ -148,15 +144,11 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		forbidden := false
 		if sendErr != nil {
 			state = "unknown"
-			var typed *daily.SendError
-			if errors.As(sendErr, &typed) {
+			if typed, ok := errors.AsType[*daily.SendError](sendErr); ok {
 				switch typed.Kind {
 				case "retry":
 					state = "retry"
-					delay := typed.After
-					if delay < time.Second {
-						delay = time.Second
-					}
+					delay := max(typed.After, time.Second)
 					next = s.Now().Add(delay).Unix()
 					if next >= d.Deadline {
 						state = "cancelled"
@@ -181,5 +173,78 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// Never publish a delayed daily item on the next local calendar day.
+func preparationDeadline(slot time.Time) time.Time {
+	y, m, d := slot.Date()
+	midnight := time.Date(y, m, d+1, 0, 0, 0, 0, slot.Location())
+	end := slot.Add(6 * time.Hour)
+	if midnight.Before(end) {
+		end = midnight
+	}
+	return end
+}
+
+func preparationDelay(attempt int) time.Duration {
+	delays := []time.Duration{5 * time.Minute, 15 * time.Minute, 30 * time.Minute, time.Hour, 2 * time.Hour}
+	if attempt < 1 || attempt > len(delays) {
+		return 0
+	}
+	return delays[attempt-1]
+}
+
+func (s *Scheduler) prepare(ctx context.Context, d daily.Delivery) (err error) {
+	finished := false
+	defer func() {
+		if finished {
+			return
+		}
+		delay := preparationDelay(d.FetchAttempts + 1)
+		next := s.Now().Add(delay)
+		if delay == 0 || next.Unix() >= d.Deadline {
+			next = time.Time{}
+		}
+		persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if e := s.Store.DeferPreparation(persist, d.ID, next); e != nil {
+			err = e
+			return
+		}
+		s.Log.Info("content preparation deferred", "delivery_id", d.ID, "attempt", d.FetchAttempts+1, "retry", !next.IsZero(), "next_attempt", next)
+	}()
+	approved, err := s.Store.HasApproved(ctx, d.ChatID, d.Kind)
+	if err != nil {
+		return err
+	}
+	var candidate *daily.Item
+	if !approved && s.Provider != nil {
+		fetchCtx, cancel := context.WithTimeout(ctx, content.FetchTimeout)
+		candidates, e := s.Provider.Candidates(content.WithPreparationAttempt(fetchCtx, d.FetchAttempts), d.Kind, d.ChatID)
+		cancel()
+		if e != nil {
+			s.Log.Warn("content source unavailable", "chat_id", d.ChatID, "kind", d.Kind)
+			return nil
+		}
+		for _, i := range candidates {
+			seen, e := s.Store.Seen(ctx, d.ChatID, d.Kind, i.Key)
+			if e != nil {
+				return e
+			}
+			if !seen {
+				candidate = &i
+				break
+			}
+		}
+	}
+	if !approved && candidate == nil {
+		return nil
+	}
+	if e := s.Store.Attach(ctx, d.ID, candidate, s.Now()); e != nil {
+		s.Log.Warn("slot preparation stopped", "delivery_id", d.ID)
+		return nil
+	}
+	finished = true
 	return nil
 }

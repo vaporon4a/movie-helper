@@ -45,7 +45,7 @@ func reserve(t *testing.T, s *Store) int64 {
 	must(t, e)
 	for _, x := range sc {
 		if x.Kind == daily.Fact {
-			id, e := s.Reserve(ctx, x, "2026-09-22", testNow.Add(2*time.Hour).Unix())
+			id, e := s.Reserve(ctx, x, "2026-09-22", testNow.Add(time.Hour).Unix(), testNow.Add(2*time.Hour).Unix())
 			must(t, e)
 			return id
 		}

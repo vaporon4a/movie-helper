@@ -29,7 +29,7 @@ func (w *Wikipedia) Articles(ctx context.Context, chat int64, history History) (
 	if len(w.Titles) == 0 {
 		return articles, nil
 	}
-	start := int(w.Now().UTC().Unix()/86400) % len(w.Titles)
+	start := (int(w.Now().UTC().Unix()/86400) + 3*preparationAttempt(ctx)) % len(w.Titles)
 	var lastErr error
 	attempts := 0
 	for n := 0; n < len(w.Titles) && attempts < 3; n++ {
@@ -116,7 +116,7 @@ func (w *Wikipedia) article(ctx context.Context, title string) (*gemini.Article,
 func production(extract string) string {
 	var lines []string
 	inside := false
-	for _, line := range strings.Split(extract, "\n") {
+	for line := range strings.SplitSeq(extract, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "== ") && strings.HasSuffix(line, " ==") {
 			if inside {

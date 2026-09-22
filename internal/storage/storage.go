@@ -276,22 +276,18 @@ func (s *Store) Recover(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, "UPDATE deliveries SET state='unknown' WHERE state='sending'"); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE items SET state='approved' WHERE state='reserved' AND id IN
-   (SELECT item_id FROM deliveries WHERE state='preparing')`); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx, "UPDATE deliveries SET state='skipped' WHERE state='preparing'")
+		_, err := tx.ExecContext(ctx, "UPDATE deliveries SET fetch_claimed=0,next_attempt=MAX(next_attempt,strftime('%s','now')+300) WHERE state='preparing' AND fetch_claimed=1")
 		return err
 	})
 }
 
 // Reserve freezes a local-day slot before fetching from an external provider.
-func (s *Store) Reserve(ctx context.Context, sc daily.Schedule, date string, deadline int64) (int64, error) {
+func (s *Store) Reserve(ctx context.Context, sc daily.Schedule, date string, slot, deadline int64) (int64, error) {
 	var id int64
 	err := s.transaction(ctx, nil, func(tx *sql.Tx) error {
-		r, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deliveries(chat_id,kind,local_date,deadline,state)
-  SELECT s.chat_id,s.kind,?,?,'preparing' FROM schedules s JOIN chats c USING(chat_id)
-  WHERE s.chat_id=? AND s.kind=? AND s.enabled=1 AND c.active=1 AND s.effective=? AND c.zone=? AND s.clock=? AND c.moderation=?`, date, deadline, sc.ChatID, sc.Kind, sc.Effective, sc.Zone, sc.Clock, sc.Moderation)
+		r, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deliveries(chat_id,kind,local_date,slot_at,deadline,state)
+  SELECT s.chat_id,s.kind,?,?,?,'preparing' FROM schedules s JOIN chats c USING(chat_id)
+  WHERE s.chat_id=? AND s.kind=? AND s.enabled=1 AND c.active=1 AND s.effective=? AND c.zone=? AND s.clock=? AND c.moderation=?`, date, slot, deadline, sc.ChatID, sc.Kind, sc.Effective, sc.Zone, sc.Clock, sc.Moderation)
 		if err != nil {
 			return err
 		}
@@ -308,7 +304,7 @@ func (s *Store) Attach(ctx context.Context, id int64, candidate *daily.Item, now
 		var chat int64
 		var kind string
 		var moderation bool
-		if err := tx.QueryRowContext(ctx, "SELECT d.chat_id,d.kind,c.moderation FROM deliveries d JOIN chats c USING(chat_id) WHERE d.id=? AND d.state='preparing'", id).Scan(&chat, &kind, &moderation); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT d.chat_id,d.kind,c.moderation FROM deliveries d JOIN chats c USING(chat_id) WHERE d.id=? AND d.state='preparing' AND d.deadline>?", id, now.Unix()).Scan(&chat, &kind, &moderation); err != nil {
 			return err
 		}
 		var item int64
@@ -347,7 +343,7 @@ func (s *Store) Attach(ctx context.Context, id int64, candidate *daily.Item, now
 		if _, err = tx.ExecContext(ctx, "UPDATE items SET state='reserved' WHERE id=?", item); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='ready',item_id=? WHERE id=?", item, id)
+		_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='ready',item_id=?,next_attempt=0,fetch_claimed=0 WHERE id=?", item, id)
 		return err
 	})
 }
@@ -388,7 +384,7 @@ func (s *Store) Pending(ctx context.Context) ([]daily.Delivery, error) {
 }
 func (s *Store) Claim(ctx context.Context, id int64, now time.Time) (bool, error) {
 	r, err := s.db.ExecContext(ctx, `UPDATE deliveries SET state='sending' WHERE id=? AND state IN ('ready','retry') AND next_attempt<=? AND deadline>?
- AND EXISTS (SELECT 1 FROM schedules s JOIN chats c USING(chat_id) WHERE s.chat_id=deliveries.chat_id AND s.kind=deliveries.kind AND s.enabled=1 AND c.active=1 AND s.effective < deliveries.deadline-3600)`, id, now.Unix(), now.Unix())
+ AND EXISTS (SELECT 1 FROM schedules s JOIN chats c USING(chat_id) WHERE s.chat_id=deliveries.chat_id AND s.kind=deliveries.kind AND s.enabled=1 AND c.active=1 AND s.effective < deliveries.slot_at)`, id, now.Unix(), now.Unix())
 	if err != nil {
 		return false, err
 	}
@@ -427,7 +423,7 @@ func (s *Store) Finish(ctx context.Context, id int64, state string, message int,
 	})
 }
 func (s *Store) Issues(ctx context.Context, chat int64) ([]daily.Delivery, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,kind,local_date,state FROM deliveries WHERE chat_id=? AND state IN ('unknown','failed') ORDER BY id DESC LIMIT 10`, chat)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,kind,local_date,state,next_attempt,fetch_attempts FROM deliveries WHERE chat_id=? AND state IN ('unknown','failed','preparing','skipped') ORDER BY id DESC LIMIT 10`, chat)
 	if err != nil {
 		return nil, err
 	}
@@ -436,7 +432,7 @@ func (s *Store) Issues(ctx context.Context, chat int64) ([]daily.Delivery, error
 	for rows.Next() {
 		var d daily.Delivery
 		d.ChatID = chat
-		if err = rows.Scan(&d.ID, &d.Kind, &d.Date, &d.State); err != nil {
+		if err = rows.Scan(&d.ID, &d.Kind, &d.Date, &d.State, &d.NextAttempt, &d.FetchAttempts); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

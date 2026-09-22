@@ -62,7 +62,7 @@ const help = `Киноклуб: мем дня и факты о кино.
 По умолчанию AI отбирает и одобряет мемы из Reddit и факты из Wikipedia для публикации по расписанию. Ручная очередь выключена.
 /moderation on — включить очередь: новые материалы AI ждут /approve; публикуется только одобренное администратором.
 /moderation off — автоматический отбор AI; предложения участников сохраняются, но не публикуются.
-Без подходящего материала или доступного AI автоматический слот пропускается. Рассылка изначально выключена.`
+При сбое или отсутствии материала бот повторяет подбор до 6 раз в течение 6 часов, до конца дня. Рассылка изначально выключена.`
 
 func moderationText(enabled bool) string {
 	if enabled {
@@ -222,6 +222,20 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 			break
 		}
 		for _, d := range issues {
+			if d.State == "preparing" {
+				when := "ожидается подбор"
+				if d.NextAttempt > now.Unix() {
+					zone := time.UTC
+					if len(sc) > 0 {
+						if loc, e := time.LoadLocation(sc[0].Zone); e == nil {
+							zone = loc
+						}
+					}
+					when = "следующая попытка в " + time.Unix(d.NextAttempt, 0).In(zone).Format("15:04 MST")
+				}
+				lines = append(lines, fmt.Sprintf("Подбор #%d: %s, попыток %d/%d; %s", d.ID, d.Kind, d.FetchAttempts, daily.MaxPreparationAttempts, when))
+				continue
+			}
 			lines = append(lines, fmt.Sprintf("Доставка #%d: %s, %s, %s", d.ID, d.Kind, d.Date, d.State))
 		}
 		lines = append(lines, "Источники: Reddit и Wikipedia. Автоматический отбор: Gemini с резервом Groq (если настроен).", "unknown: проверьте чат и выполните /resolve ID sent или /resolve ID requeue.")
@@ -379,8 +393,7 @@ func previewError(err error) (string, string) {
 		return "Подбор остановлен: дневной лимит AI-провайдера исчерпан или отключён. Счётчики обновятся в 00:00 UTC; предпросмотр и рубрики используют одни и те же лимиты.", "local_daily_limit"
 	}
 
-	var groqStatus *groq.HTTPError
-	if errors.As(err, &groqStatus) {
+	if groqStatus, ok := errors.AsType[*groq.HTTPError](err); ok {
 		switch groqStatus.Status {
 		case 401, 403:
 			return "Groq отклонил доступ. Проверьте GROQ_API_KEY и разрешения проекта.", "groq_access_denied"
@@ -394,8 +407,7 @@ func previewError(err error) (string, string) {
 			return "Запрос к Groq завершился ошибкой. Код HTTP: " + strconv.Itoa(groqStatus.Status) + ".", "groq_http_" + strconv.Itoa(groqStatus.Status)
 		}
 	}
-	var status *gemini.HTTPError
-	if errors.As(err, &status) {
+	if status, ok := errors.AsType[*gemini.HTTPError](err); ok {
 		switch status.Status {
 		case 404:
 			return "Выбранная модель Gemini недоступна для этого API-ключа. Нужно обновить GEMINI_MODEL в настройках бота.", "gemini_model_unavailable"
@@ -487,9 +499,8 @@ func (s Sender) Send(ctx context.Context, chat int64, i daily.Item) (int, error)
 	return m.ID, nil
 }
 func classify(err error) error {
-	var rate *bot.TooManyRequestsError
 	var migrate *bot.MigrateError
-	if errors.As(err, &rate) {
+	if rate, ok := errors.AsType[*bot.TooManyRequestsError](err); ok {
 		return &daily.SendError{Kind: "retry", After: time.Duration(rate.RetryAfter) * time.Second}
 	}
 	if errors.Is(err, bot.ErrorForbidden) || errors.Is(err, bot.ErrorUnauthorized) || errors.As(err, &migrate) {
