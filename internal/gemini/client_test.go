@@ -32,7 +32,7 @@ func answer(s string) string {
 	return string(b)
 }
 func testClient(rt transport, b *budget) *Client {
-	return &Client{HTTP: &http.Client{Transport: rt}, BaseURL: "https://gemini.invalid/v1beta", Key: "secret", Model: "gemini-3.6-flash", Budget: b, DailyLimit: 6, Now: time.Now}
+	return &Client{HTTP: &http.Client{Transport: rt}, BaseURL: "https://gemini.invalid/v1beta", Key: "secret", Model: "gemini-3.8-flash", Budget: b, DailyLimit: 6, Now: time.Now}
 }
 
 func TestFactProvenanceAndBudget(t *testing.T) {
