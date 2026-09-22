@@ -29,13 +29,18 @@ func Parse(get func(string) string) (Config, error) {
 	if c.DBPath == "" {
 		c.DBPath = "data/movie-helper.db"
 	}
-	for _, part := range strings.Split(get("ALLOWED_CHAT_IDS"), ",") {
-		id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
-		if err != nil || id >= 0 {
-			return c, errors.New("ALLOWED_CHAT_IDS must list negative group IDs")
+	chats := strings.TrimSpace(get("ALLOWED_CHAT_IDS"))
+	// Explicit onboarding mode: /id and private help work, all groups are denied.
+	if chats != "bootstrap" {
+		for _, part := range strings.Split(chats, ",") {
+			id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+			if err != nil || id >= 0 {
+				return c, errors.New("ALLOWED_CHAT_IDS must list negative group IDs or be bootstrap")
+			}
+			c.Chats[id] = true
 		}
-		c.Chats[id] = true
 	}
+
 	subs := get("MEME_SUBREDDITS")
 	if subs == "" {
 		subs = "RUSSIANMemeSub"

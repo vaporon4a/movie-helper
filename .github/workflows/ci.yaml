@@ -5,6 +5,15 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Deploy to server after successful checks and publish'
+        type: boolean
+        default: false
+      allowed_chat_ids:
+        description: 'Group IDs, bootstrap, or empty to preserve current setting'
+        type: string
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -21,6 +30,7 @@ jobs:
           test -z "$(gofmt -l cmd internal)"
           go vet ./...
           go test -race ./...
+          python3 -m unittest discover -s deploy -p "test_*.py"
       - name: Validate Compose
         env:
           BOT_TOKEN: '123:ci-placeholder'
@@ -30,6 +40,8 @@ jobs:
         run: docker build -t movie-helper:test .
   publish:
     needs: check
+    outputs:
+      digest: ${{ steps.image.outputs.digest }}
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
@@ -42,8 +54,38 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - id: image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: true
           tags: ghcr.io/vaporon4a/movie-helper:sha-${{ github.sha }}
+
+  deploy:
+    needs: publish
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    concurrency:
+      group: movie-helper-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Deploy exact published image
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_RELEASE: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          BOT_IMAGE: ghcr.io/vaporon4a/movie-helper@${{ needs.publish.outputs.digest }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ALLOWED_CHAT_IDS: ${{ inputs.allowed_chat_ids || vars.ALLOWED_CHAT_IDS }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 deploy/send.py

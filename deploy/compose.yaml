@@ -1,0 +1,25 @@
+name: movie-helper
+services:
+  bot:
+    image: ${BOT_IMAGE:?Image digest is required}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 45s
+    env_file:
+      - path: runtime.env
+        format: raw
+    environment:
+      DB_PATH: /data/movie-helper.db
+    volumes:
+      - bot-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  bot-data:
+    name: movie-helper-data

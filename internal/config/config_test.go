@@ -26,3 +26,18 @@ func TestConfiguration(t *testing.T) {
 		t.Fatal(c, err)
 	}
 }
+
+func TestBootstrapDeniesEveryChat(t *testing.T) {
+	c, err := Parse(func(key string) string {
+		if key == "BOT_TOKEN" {
+			return "123:test"
+		}
+		if key == "ALLOWED_CHAT_IDS" {
+			return "bootstrap"
+		}
+		return ""
+	})
+	if err != nil || len(c.Chats) != 0 {
+		t.Fatalf("bootstrap must allow no groups: %v %v", c.Chats, err)
+	}
+}

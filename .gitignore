@@ -40,3 +40,8 @@ go.work.sum
 *.db-*
 *.db.lock
 /backups/
+
+# Deployment tooling
+__pycache__/
+*.pyc
+/deploy/runtime.env

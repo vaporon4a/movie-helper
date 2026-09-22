@@ -143,3 +143,21 @@ func TestSenderAndErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestBootstrapAllowsIDButNoGroupMutations(t *testing.T) {
+	h, api := handler(t)
+	h.Allowed = map[int64]bool{}
+	h.Handle(context.Background(), nil, update(1, -123, 42, "/id@film_bot"))
+	if len(api.messages) != 1 || api.messages[0].Text != "ID чата: -123" {
+		t.Fatal("bootstrap must support discovery")
+	}
+	h.Handle(context.Background(), nil, update(2, -123, 42, "/timezone UTC"))
+	h.Handle(context.Background(), nil, update(3, -123, 42, "/suggest_fact text | https://example.org"))
+	if len(api.messages) != 1 {
+		t.Fatal("bootstrap unexpectedly allowed group commands")
+	}
+	schedules, err := h.Store.Schedules(context.Background(), 0)
+	if err != nil || len(schedules) != 0 {
+		t.Fatal("bootstrap created group state", err)
+	}
+}
