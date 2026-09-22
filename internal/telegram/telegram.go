@@ -15,6 +15,7 @@ import (
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
+	"github.com/vaporon4a/movie-helper/internal/groq"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 )
 
@@ -56,17 +57,17 @@ const help = `Киноклуб: мем дня и факты о кино.
 /resume — восстановить работу после потери доступа
 
 Настройка, предпросмотр, очередь и одобрение доступны администраторам.
-Предпросмотр использует лимит Gemini, не меняет расписание и не добавляет материал в очередь.
-По умолчанию Gemini отбирает и одобряет мемы из Reddit и факты из Wikipedia для публикации по расписанию. Ручная очередь выключена.
-/moderation on — включить очередь: новые материалы Gemini ждут /approve; публикуется только одобренное администратором.
-/moderation off — автоматический отбор Gemini; предложения участников сохраняются, но не публикуются.
-Без подходящего материала или доступного Gemini автоматический слот пропускается. Рассылка изначально выключена.`
+Предпросмотр использует дневные лимиты AI, не меняет расписание и не добавляет материал в очередь.
+По умолчанию AI отбирает и одобряет мемы из Reddit и факты из Wikipedia для публикации по расписанию. Ручная очередь выключена.
+/moderation on — включить очередь: новые материалы AI ждут /approve; публикуется только одобренное администратором.
+/moderation off — автоматический отбор AI; предложения участников сохраняются, но не публикуются.
+Без подходящего материала или доступного AI автоматический слот пропускается. Рассылка изначально выключена.`
 
 func moderationText(enabled bool) string {
 	if enabled {
-		return "Ручное одобрение включено: публикация только после /approve. Новые материалы Gemini сохраняются в /queue для следующего слота после одобрения."
+		return "Ручное одобрение включено: публикация только после /approve. Новые материалы AI сохраняются в /queue для следующего слота после одобрения."
 	}
-	return "Автоматический режим: Gemini отбирает и одобряет материалы. Ручная очередь выключена."
+	return "Автоматический режим: AI отбирает и одобряет материалы. Ручная очередь выключена."
 }
 
 func Command(text, username string) (string, string) {
@@ -171,7 +172,7 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 			return
 		}
 		if len(items) == 0 {
-			h.reply(ctx, chat, "Подходящего материала нет. Gemini мог отклонить кандидатов; для автоматического подбора нужен GEMINI_API_KEY.")
+			h.reply(ctx, chat, "Подходящего материала нет. AI мог отклонить кандидатов; для автоматического подбора нужен ключ Gemini или Groq.")
 			return
 		}
 		i := items[0]
@@ -215,12 +216,12 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		for _, d := range issues {
 			lines = append(lines, fmt.Sprintf("Доставка #%d: %s, %s, %s", d.ID, d.Kind, d.Date, d.State))
 		}
-		lines = append(lines, "Источники: Reddit и Wikipedia. Автоматический отбор: Gemini.", "unknown: проверьте чат и выполните /resolve ID sent или /resolve ID requeue.")
+		lines = append(lines, "Источники: Reddit и Wikipedia. Автоматический отбор: Gemini с резервом Groq (если настроен).", "unknown: проверьте чат и выполните /resolve ID sent или /resolve ID requeue.")
 		h.reply(ctx, chat, strings.Join(lines, "\n"))
 		return
 	case "/moderation":
 		if args != "on" && args != "off" {
-			h.reply(ctx, chat, "Формат: /moderation on — ручное одобрение; /moderation off — автоматический отбор Gemini.")
+			h.reply(ctx, chat, "Формат: /moderation on — ручное одобрение; /moderation off — автоматический отбор AI.")
 			return
 		}
 		err = h.Store.SetModeration(ctx, u.ID, chat, args == "on", now)
@@ -300,7 +301,7 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 			lines = append(lines, fmt.Sprintf("#%d %s [%s] %s", i.ID, i.Kind, i.State, string(title)))
 		}
 		if len(items) == 0 {
-			lines = append(lines, "Очередь пуста. Gemini подбирает материалы во время включённого расписания. Можно предложить /suggest_fact или /suggest_meme.")
+			lines = append(lines, "Очередь пуста. AI подбирает материалы во время включённого расписания. Можно предложить /suggest_fact или /suggest_meme.")
 		}
 		if len(items) == 10 {
 			lines = append(lines, fmt.Sprintf("Дальше: /queue %d", items[9].ID))
@@ -367,7 +368,23 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 }
 func previewError(err error) (string, string) {
 	if errors.Is(err, gemini.ErrDailyLimit) {
-		return "Дневной лимит запросов бота к Gemini исчерпан. Он обновится в 00:00 UTC; предпросмотр и рубрики используют общий лимит.", "local_daily_limit"
+		return "Подбор остановлен: дневной лимит AI-провайдера исчерпан или отключён. Счётчики обновятся в 00:00 UTC; предпросмотр и рубрики используют одни и те же лимиты.", "local_daily_limit"
+	}
+
+	var groqStatus *groq.HTTPError
+	if errors.As(err, &groqStatus) {
+		switch groqStatus.Status {
+		case 401, 403:
+			return "Groq отклонил доступ. Проверьте GROQ_API_KEY и разрешения проекта.", "groq_access_denied"
+		case 404:
+			return "Выбранная модель Groq недоступна. Проверьте GROQ_MODEL.", "groq_model_unavailable"
+		case 429:
+			return "Groq вернул ограничение квоты (429). Подождите минуту и проверьте лимиты в Groq Console.", "groq_quota"
+		case 503:
+			return "Groq временно недоступен (503). Попробуйте позже; попытка учтена в дневном лимите бота.", "groq_unavailable"
+		default:
+			return "Запрос к Groq завершился ошибкой. Код HTTP: " + strconv.Itoa(groqStatus.Status) + ".", "groq_http_" + strconv.Itoa(groqStatus.Status)
+		}
 	}
 	var status *gemini.HTTPError
 	if errors.As(err, &status) {

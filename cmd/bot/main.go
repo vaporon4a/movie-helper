@@ -16,6 +16,7 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/config"
 	"github.com/vaporon4a/movie-helper/internal/content"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
+	"github.com/vaporon4a/movie-helper/internal/groq"
 	"github.com/vaporon4a/movie-helper/internal/meme"
 	"github.com/vaporon4a/movie-helper/internal/scheduler"
 	"github.com/vaporon4a/movie-helper/internal/storage"
@@ -74,16 +75,26 @@ func run() error {
 	h.Username = me.Username
 	client := &meme.Client{HTTP: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, BaseURL: "https://meme-api.com", Subreddits: cfg.Subreddits}
 	provider := &content.Provider{Memes: client, History: store, Facts: &content.Wikipedia{HTTP: client.HTTP, Endpoint: "https://en.wikipedia.org/w/api.php", Titles: cfg.FactWikiTitles, Now: time.Now}}
+
+	fallback := &content.Fallback{Log: log, AttemptTimeout: 30 * time.Second}
+	aiHTTP := &http.Client{Timeout: 25 * time.Second, CheckRedirect: client.HTTP.CheckRedirect}
 	if cfg.GeminiKey != "" {
-		provider.Editor = &gemini.Client{HTTP: &http.Client{Timeout: 40 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now}
-	} else {
-		log.Warn("Gemini disabled: automatic publishing unavailable")
+		fallback.Primary = &gemini.Client{HTTP: aiHTTP, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now}
 	}
+	if cfg.GroqKey != "" {
+		fallback.Secondary = &groq.Client{HTTP: aiHTTP, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now}
+	}
+	if fallback.Primary != nil || fallback.Secondary != nil {
+		provider.Editor = fallback
+	} else {
+		log.Warn("AI disabled: automatic publishing unavailable")
+	}
+
 	h.Provider = provider
 	s := &scheduler.Scheduler{Store: store, Sender: telegram.Sender{API: b}, Provider: provider, Allowed: cfg.Chats, Log: log, Now: time.Now}
 	done := make(chan struct{})
 	go func() { defer close(done); s.Run(ctx) }()
-	log.Info("bot started", "allowed_chats", len(cfg.Chats), "gemini_model", cfg.GeminiModel, "gemini_enabled", cfg.GeminiKey != "")
+	log.Info("bot started", "allowed_chats", len(cfg.Chats), "gemini_model", cfg.GeminiModel, "gemini_enabled", cfg.GeminiKey != "", "groq_model", cfg.GroqModel, "groq_enabled", cfg.GroqKey != "")
 	b.Start(ctx)
 	cancel()
 	<-done

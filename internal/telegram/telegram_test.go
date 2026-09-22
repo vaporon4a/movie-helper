@@ -15,6 +15,7 @@ import (
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
+	"github.com/vaporon4a/movie-helper/internal/groq"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 )
 
@@ -263,6 +264,9 @@ func TestPreviewErrorsExplainModelAccessAndQuotas(t *testing.T) {
 		err          error
 		reason, want string
 	}{
+		{&groq.HTTPError{Status: 429}, "groq_quota", "Groq"},
+		{&groq.HTTPError{Status: 401}, "groq_access_denied", "GROQ_API_KEY"},
+		{&groq.HTTPError{Status: 503}, "groq_unavailable", "503"},
 		{gemini.ErrDailyLimit, "local_daily_limit", "00:00 UTC"},
 		{&gemini.HTTPError{Status: 404}, "gemini_model_unavailable", "GEMINI_MODEL"},
 		{&gemini.HTTPError{Status: 403}, "gemini_access_denied", "API-ключ"},

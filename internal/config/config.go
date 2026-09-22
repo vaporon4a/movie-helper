@@ -12,6 +12,8 @@ import (
 type Config struct {
 	GeminiKey, GeminiModel string
 	GeminiDailyLimit       int
+	GroqKey, GroqModel     string
+	GroqDailyLimit         int
 	FactWikiTitles         []string
 	Token, DBPath          string
 	Chats                  map[int64]bool
@@ -76,6 +78,24 @@ func Parse(get func(string) string) (Config, error) {
 		}
 		c.GeminiDailyLimit = n
 	}
+
+	c.GroqKey = strings.TrimSpace(get("GROQ_API_KEY"))
+	c.GroqModel = get("GROQ_MODEL")
+	if c.GroqModel == "" {
+		c.GroqModel = "qwen/qwen3.8-27b"
+	}
+	if !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`).MatchString(c.GroqModel) {
+		return c, errors.New("invalid GROQ_MODEL")
+	}
+	c.GroqDailyLimit = 6
+	if raw := get("GROQ_DAILY_REQUEST_LIMIT"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 || n > 100 {
+			return c, errors.New("GROQ_DAILY_REQUEST_LIMIT must be 0..100")
+		}
+		c.GroqDailyLimit = n
+	}
+
 	titles := get("FACT_WIKI_TITLES")
 	if titles == "" {
 		titles = "Alien (film)|Jurassic Park (film)|The Matrix|Back to the Future|Jaws (film)|Blade Runner|The Terminator|Titanic (1997 film)|The Truman Show|The Grand Budapest Hotel|Mad Max: Fury Road|Who Framed Roger Rabbit|The Thing (1982 film)|Raiders of the Lost Ark|The Princess Bride (film)|Groundhog Day (film)|Ghostbusters|The Fifth Element|Interstellar (film)|Inception"

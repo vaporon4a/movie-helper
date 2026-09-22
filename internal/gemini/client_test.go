@@ -2,7 +2,6 @@ package gemini
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/vaporon4a/movie-helper/internal/daily"
 )
 
 type transport func(*http.Request) (*http.Response, error)
@@ -78,44 +75,10 @@ func TestFactRejectsInventedEvidenceAndMalformedOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestImageRestrictionsAndActualCandidateSelection(t *testing.T) {
-	png, _ := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=")
-	images := 0
-	c := testClient(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Host == "i.redd.it" {
-			images++
-			return response(200, string(png)), nil
-		}
-		return response(200, answer(`{"index":0,"text":"invented caption","evidence":""}`)), nil
-	}, &budget{allowed: true})
-	for _, raw := range []string{"http://i.redd.it/x.png", "https://evil.test/x.png", "https://i.redd.it:443/x.png", "https://x@i.redd.it/x.png"} {
-		if _, err := c.image(context.Background(), raw); err == nil {
-			t.Fatal("accepted", raw)
-		}
-	}
-	items := []daily.Item{{Key: "a", Image: "https://i.redd.it/a.png", Text: "Original"}}
-	got, err := c.SelectMeme(context.Background(), items)
-	if err != nil || got == nil || *got != items[0] || images != 1 {
-		t.Fatal(got, err, images)
-	}
-	c.HTTP.Transport = transport(func(*http.Request) (*http.Response, error) {
-		r := response(302, "")
-		r.Header.Set("Location", "https://evil.test/a.png")
-		return r, nil
-	})
-	if _, err := c.image(context.Background(), items[0].Image); err == nil {
-		t.Fatal("redirect accepted")
-	}
-	c.HTTP.Transport = transport(func(*http.Request) (*http.Response, error) { return response(200, strings.Repeat("x", (2<<20)+1)), nil })
-	if _, err := c.image(context.Background(), items[0].Image); err == nil {
-		t.Fatal("large image accepted")
-	}
-}
-
 func TestHTTPFailuresAndLocalBudgetAreDistinct(t *testing.T) {
 	for _, code := range []int{401, 403, 404, 429, 503} {
 		c := testClient(func(*http.Request) (*http.Response, error) { return response(code, "secret upstream body"), nil }, &budget{allowed: true})
-		_, err := c.generate(context.Background(), "test", nil)
+		_, err := c.Generate(context.Background(), "test", nil)
 		var httpErr *HTTPError
 		if !errors.As(err, &httpErr) || httpErr.Status != code || strings.Contains(err.Error(), "secret") {
 			t.Fatal(code, err)
@@ -125,7 +88,7 @@ func TestHTTPFailuresAndLocalBudgetAreDistinct(t *testing.T) {
 		t.Fatal("request after budget exhausted")
 		return nil, nil
 	}, &budget{})
-	_, err := c.generate(context.Background(), "test", nil)
+	_, err := c.Generate(context.Background(), "test", nil)
 	if !errors.Is(err, ErrDailyLimit) {
 		t.Fatal(err)
 	}
