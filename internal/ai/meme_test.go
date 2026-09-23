@@ -24,8 +24,6 @@ func (r reviewCache) RejectMeme(_ context.Context, scope, key string, _ time.Tim
 	return nil
 }
 
-//go:fix inline
-func index(n int) *int { return new(n) }
 func decision(reason string) Selection {
 	n := -1
 	if reason == "accepted" {
