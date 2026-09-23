@@ -130,9 +130,10 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		return
 	}
 	if m.Chat.Type == models.ChatTypePrivate {
-		if cmd == "/start" || cmd == "/help" {
+		switch cmd {
+		case "/start", "/help":
 			h.reply(ctx, m.Chat.ID, help)
-		} else if cmd == "/help_admin" {
+		case "/help_admin":
 			h.reply(ctx, m.Chat.ID, helpAdmin)
 		}
 		return

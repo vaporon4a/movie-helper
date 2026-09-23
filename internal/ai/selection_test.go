@@ -7,7 +7,8 @@ import (
 
 func TestReviewSchemaHasExactlyOneFieldPerImage(t *testing.T) {
 	for _, count := range []int{1, 4} {
-		parts := []Part{{Text: "candidates"}}
+		parts := make([]Part, 1, 1+count)
+		parts[0] = Part{Text: "candidates"}
 		for range count {
 			parts = append(parts, Part{Inline: &Inline{}})
 		}

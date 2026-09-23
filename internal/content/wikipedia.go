@@ -86,6 +86,7 @@ func (w *Wikipedia) takeTitles(chat int64, eligible []string) []string {
 	}
 	if len(remaining) == 0 {
 		remaining = unique
+		// #nosec G404 -- content rotation does not require cryptographic randomness.
 		rand.Shuffle(len(remaining), func(i, j int) {
 			remaining[i], remaining[j] = remaining[j], remaining[i]
 		})

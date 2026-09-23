@@ -31,6 +31,10 @@ jobs:
           go vet ./...
           go test -race ./...
           python3 -m unittest discover -s deploy -p "test_*.py"
+      - name: Lint
+        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
+        with:
+          version: v2.13.2
       - name: Validate Compose
         env:
           BOT_TOKEN: '123:ci-placeholder'

@@ -41,7 +41,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_, err = p.Up(ctx)
 	}
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
@@ -60,7 +60,7 @@ func (s *Store) transaction(ctx context.Context, operation *int64, f func(*sql.T
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if operation != nil {
 		r, e := tx.ExecContext(ctx, "INSERT OR IGNORE INTO operations(update_id) VALUES(?)", *operation)
 		if e != nil {
@@ -360,18 +360,16 @@ func (s *Store) Pending(ctx context.Context) ([]daily.Delivery, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	var out []daily.Delivery
 	for rows.Next() {
 		var d daily.Delivery
 		if err = rows.Scan(&d.ID, &d.ChatID, &d.Kind, &d.Date, &d.Deadline, &d.NextAttempt, &d.State, &d.Item.ID); err != nil {
-			rows.Close()
 			return nil, err
 		}
 		out = append(out, d)
 	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
+	if err = rows.Err(); err != nil {
 		return nil, err
 	}
 	for n := range out {

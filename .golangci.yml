@@ -1,0 +1,114 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - bodyclose
+    - errcheck
+    - gocognit
+    - goconst
+    - gosec
+    - ineffassign
+    - misspell
+    - nakedret
+    - nolintlint
+    - prealloc
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - unused
+
+  settings:
+    gocognit:
+      min-complexity: 15
+
+    errcheck:
+      check-type-assertions: false
+      check-blank: false
+      exclude-functions:
+        - (*os.File).Close
+        - (*database/sql.Rows).Close
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+
+    goconst:
+      min-len: 3
+      min-occurrences: 5
+      ignore-tests: true
+      ignore-string-values:
+        - '(?s)^\s*(SELECT|WITH|UPDATE|DELETE|INSERT)\b'
+
+    misspell:
+      locale: US
+      ignore-rules:
+        - cancelled
+
+    nakedret:
+      max-func-lines: 1
+
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: false
+
+    gosec:
+      includes:
+        - G101
+        - G102
+        - G103
+        - G104
+        - G106
+        - G107
+        - G108
+        - G109
+        - G110
+        - G201
+        - G202
+        - G203
+        - G204
+        - G301
+        - G302
+        - G303
+        - G304
+        - G305
+        - G306
+        - G307
+        - G401
+        - G402
+        - G403
+        - G404
+        - G501
+        - G502
+        - G503
+        - G504
+        - G505
+        - G601
+
+  exclusions:
+    generated: strict
+    rules:
+      - text: "ST1000"
+        linters:
+          - staticcheck
+      - path: "_test.go"
+        linters:
+          - errcheck
+          - gocognit
+          - goconst
+          - gosec
+      # Existing complex functions are tracked as a baseline. New functions
+      # still have to stay below the backend project's threshold of 15.
+      - text: 'func .*(`run`|Fact|SelectMeme|Parse|selectItem|Candidates|Generate|Tick|prepare|Attach|Handle)'
+        linters:
+          - gocognit
+      # These existing protocol/schema strings are clearer next to their use.
+      - text: 'string `(type|approved|sent)` has'
+        linters:
+          - goconst
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

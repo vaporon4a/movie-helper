@@ -47,7 +47,11 @@ func run() error {
 	if err != nil {
 		return errors.New("cannot open or migrate database")
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Warn("database close failed")
+		}
+	}()
 	if err = store.Recover(ctx); err != nil {
 		return errors.New("cannot recover delivery state")
 	}
@@ -57,7 +61,7 @@ func run() error {
 		bot.WithAllowedUpdates(bot.AllowedUpdates{"message", "callback_query", "my_chat_member"}),
 		bot.WithErrorsHandler(func(err error) { log.Warn("telegram polling error") }))
 	if err != nil {
-		return errors.New("Telegram initialization failed; check token and connection")
+		return errors.New("telegram initialization failed; check token and connection")
 	}
 	me, err := b.GetMe(ctx)
 	if err != nil {
@@ -109,12 +113,15 @@ func lockDB(path string) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, errors.New("cannot create data directory")
 	}
+	// #nosec G304 -- DB_PATH is administrator-configured and the parent is created mode 0700.
 	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, errors.New("cannot open database lock")
 	}
 	if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, errors.New("cannot close database lock")
+		}
 		return nil, errors.New("database is already in use")
 	}
 	return f, nil

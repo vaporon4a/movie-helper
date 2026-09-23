@@ -79,7 +79,7 @@ func run() error {
 	if err != nil {
 		return errors.New("cannot open diagnostic database")
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	requestTimeout, selectionTimeout := content.GroqRequestTimeout, content.GroqSelectionTimeout
 	if *provider == "gemini" {
 		requestTimeout, selectionTimeout = content.GeminiRequestTimeout, content.GeminiSelectionTimeout
@@ -87,6 +87,7 @@ func run() error {
 	h := &http.Client{Timeout: requestTimeout, Transport: measuredTransport{http.DefaultTransport}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	var items []daily.Item
 	path := filepath.Join(*state, "candidates.json")
+	// #nosec G304 -- path is confined to the explicitly supplied diagnostic directory.
 	data, err := os.ReadFile(path)
 	if err == nil {
 		if json.Unmarshal(data, &items) != nil {

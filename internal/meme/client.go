@@ -46,7 +46,7 @@ func (c *Client) Candidates(ctx context.Context) ([]daily.Item, error) {
 			continue
 		}
 		if r.StatusCode != http.StatusOK {
-			r.Body.Close()
+			_ = r.Body.Close()
 			lastErr = fmt.Errorf("meme provider status %d", r.StatusCode)
 			continue
 		}
@@ -54,7 +54,9 @@ func (c *Client) Candidates(ctx context.Context) ([]daily.Item, error) {
 			Memes []post `json:"memes"`
 		}
 		err = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body)
-		r.Body.Close()
+		if closeErr := r.Body.Close(); err == nil {
+			err = closeErr
+		}
 		if err != nil {
 			lastErr = errors.New("invalid meme response")
 			continue

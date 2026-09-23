@@ -40,7 +40,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	var result ai.Selection
 	allowed, err := c.Budget.AllowAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
 	if err != nil {
-		return result, errors.New("Gemini budget unavailable")
+		return result, errors.New("gemini budget unavailable")
 	}
 	if !allowed {
 		return result, ErrDailyLimit
@@ -62,7 +62,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	req.Header.Set("Content-Type", "application/json")
 	r, err := c.HTTP.Do(req)
 	if err != nil {
-		return result, errors.New("Gemini connection failed")
+		return result, errors.New("gemini connection failed")
 	}
 	defer r.Body.Close()
 	if r.StatusCode != 200 {

@@ -35,7 +35,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	}
 	allowed, err := c.Budget.AllowAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
 	if err != nil {
-		return result, errors.New("Groq budget unavailable")
+		return result, errors.New("groq budget unavailable")
 	}
 	if !allowed {
 		return result, ai.ErrDailyLimit
@@ -74,7 +74,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	r, err := client.Do(req)
 	if err != nil {
-		return result, errors.New("Groq connection failed")
+		return result, errors.New("groq connection failed")
 	}
 	defer r.Body.Close()
 	if r.StatusCode != 200 {
