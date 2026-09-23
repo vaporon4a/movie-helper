@@ -103,7 +103,7 @@ func run() error {
 		return err
 	}
 	var workers sync.WaitGroup
-	workers.Go(func() { ; s.Run(ctx) })
+	workers.Go(func() { s.Run(ctx) })
 	if err = startMovieClub(ctx, cfg, store, b, handler, log, redirect, &workers); err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func startMovieClub(ctx context.Context, cfg config.Config, store *storage.Store
 	if err != nil {
 		return err
 	}
-	workers.Go(func() { ; coordinator.Run(ctx) })
+	workers.Go(func() { coordinator.Run(ctx) })
 	return nil
 }
 
