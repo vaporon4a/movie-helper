@@ -40,15 +40,24 @@ type Handler struct {
 	Now      func() time.Time
 }
 
-const help = `Киноклуб: мем дня и факты о кино.
-/id — ID текущего чата
-/settings — расписание и ошибки публикаций
-/preview meme или /preview fact — получить пробный материал сейчас
-/moderation on или /moderation off — включить или выключить ручное одобрение
+const help = `🎬 Мем дня и интересный факт о кино — автоматически.
+
+/settings — настройки и расписание
+/preview meme — попробовать мем
+/preview fact — попробовать факт
 /timezone Europe/Moscow — часовой пояс
 /schedule meme 09:00 — включить мем дня
 /schedule fact 12:00 — включить факт дня
 /pause meme или /pause fact — выключить рубрику
+/help_admin — модерация и служебные команды
+
+Управление доступно администраторам. В новом чате задайте часовой пояс и включите расписание.`
+
+const helpAdmin = `Модерация и служебные команды.
+
+/id — ID текущего чата
+/moderation on — включить ручное одобрение
+/moderation off — вернуть автоматический отбор AI
 /suggest_meme — ответьте этой командой на одно фото
 /suggest_fact Текст факта | https://источник — предложить факт
 /queue — очередь (следующая страница: /queue последний_ID)
@@ -57,6 +66,7 @@ const help = `Киноклуб: мем дня и факты о кино.
 /resolve ID sent — подтвердить неопределённую доставку
 /resolve ID requeue — вернуть её материал на следующий день
 /resume — восстановить работу после потери доступа
+/help — расписание и основные команды
 
 Настройка, предпросмотр, очередь и одобрение доступны администраторам.
 Предпросмотр использует дневные лимиты AI, не меняет расписание и не добавляет материал в очередь.
@@ -122,6 +132,8 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 	if m.Chat.Type == models.ChatTypePrivate {
 		if cmd == "/start" || cmd == "/help" {
 			h.reply(ctx, m.Chat.ID, help)
+		} else if cmd == "/help_admin" {
+			h.reply(ctx, m.Chat.ID, helpAdmin)
 		}
 		return
 	}
@@ -148,6 +160,10 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 	}
 	if cmd == "/start" || cmd == "/help" {
 		h.reply(ctx, m.Chat.ID, help)
+		return
+	}
+	if cmd == "/help_admin" {
+		h.reply(ctx, m.Chat.ID, helpAdmin)
 		return
 	}
 	if m.From == nil || m.From.IsBot || m.SenderChat != nil {
