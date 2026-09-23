@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
@@ -18,10 +19,11 @@ import (
 // Wikipedia provides production sections, with attribution to a specific revision.
 // Titles are configuration, never user-supplied URLs. One fact per title per chat.
 type Wikipedia struct {
-	HTTP     *http.Client
-	Endpoint string
-	Titles   []string
-	Now      func() time.Time
+	HTTP      *http.Client
+	Endpoint  string
+	Titles    []string
+	mu        sync.Mutex
+	remaining map[int64][]string
 }
 
 func (w *Wikipedia) Articles(ctx context.Context, chat int64, history History) ([]gemini.Article, error) {
@@ -29,11 +31,8 @@ func (w *Wikipedia) Articles(ctx context.Context, chat int64, history History) (
 	if len(w.Titles) == 0 {
 		return articles, nil
 	}
-	start := (int(w.Now().UTC().Unix()/86400) + 3*preparationAttempt(ctx)) % len(w.Titles)
-	var lastErr error
-	attempts := 0
-	for n := 0; n < len(w.Titles) && attempts < 3; n++ {
-		title := w.Titles[(start+n)%len(w.Titles)]
+	var eligible []string
+	for _, title := range w.Titles {
 		key := "wikipedia:" + title
 		seen, err := history.Seen(ctx, chat, daily.Fact, key)
 		if err != nil {
@@ -42,14 +41,17 @@ func (w *Wikipedia) Articles(ctx context.Context, chat int64, history History) (
 		if seen {
 			continue
 		}
-		attempts++
+		eligible = append(eligible, title)
+	}
+	var lastErr error
+	for _, title := range w.takeTitles(chat, eligible) {
 		a, err := w.article(ctx, title)
 		if err != nil {
 			lastErr = err
 			continue
 		}
 		if a != nil {
-			a.Key = key
+			a.Key = "wikipedia:" + title
 			articles = append(articles, *a)
 		}
 	}
@@ -57,6 +59,40 @@ func (w *Wikipedia) Articles(ctx context.Context, chat int64, history History) (
 		return nil, lastErr
 	}
 	return articles, nil
+}
+
+// Reserve distinct titles before fetching so concurrent previews and retries
+// advance the same chat's shuffled cycle. Publication history remains in SQLite;
+// this temporary rotation restarts when the process restarts.
+func (w *Wikipedia) takeTitles(chat int64, eligible []string) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.remaining == nil {
+		w.remaining = make(map[int64][]string)
+	}
+	valid := make(map[string]bool, len(eligible))
+	var unique []string
+	for _, title := range eligible {
+		if !valid[title] {
+			valid[title] = true
+			unique = append(unique, title)
+		}
+	}
+	var remaining []string
+	for _, title := range w.remaining[chat] {
+		if valid[title] {
+			remaining = append(remaining, title)
+		}
+	}
+	if len(remaining) == 0 {
+		remaining = unique
+		rand.Shuffle(len(remaining), func(i, j int) {
+			remaining[i], remaining[j] = remaining[j], remaining[i]
+		})
+	}
+	n := min(3, len(remaining))
+	w.remaining[chat] = remaining[n:]
+	return remaining[:n]
 }
 
 func (w *Wikipedia) article(ctx context.Context, title string) (*gemini.Article, error) {

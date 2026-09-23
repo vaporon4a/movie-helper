@@ -74,7 +74,7 @@ func run() error {
 	h.API = b
 	h.Username = me.Username
 	client := &meme.Client{HTTP: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, BaseURL: "https://meme-api.com", Subreddits: cfg.Subreddits}
-	provider := &content.Provider{Memes: client, History: store, Facts: &content.Wikipedia{HTTP: client.HTTP, Endpoint: "https://en.wikipedia.org/w/api.php", Titles: cfg.FactWikiTitles, Now: time.Now}}
+	provider := &content.Provider{Memes: client, History: store, Facts: &content.Wikipedia{HTTP: client.HTTP, Endpoint: "https://en.wikipedia.org/w/api.php", Titles: cfg.FactWikiTitles}}
 
 	fallback := &content.Fallback{Log: log, PrimaryTimeout: content.GeminiSelectionTimeout, SecondaryTimeout: content.GroqSelectionTimeout}
 	geminiHTTP := &http.Client{Timeout: content.GeminiRequestTimeout, CheckRedirect: client.HTTP.CheckRedirect}

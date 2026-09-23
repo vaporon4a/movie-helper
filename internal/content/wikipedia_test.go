@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/vaporon4a/movie-helper/internal/daily"
 )
@@ -25,7 +25,7 @@ func TestWikipediaOnlyProductionAndRevision(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"query": map[string]any{"pages": []any{map[string]any{"title": "Alien (film)", "extract": "Plot spoiler\n== Plot ==\nmore plot\n== Production ==\n=== Filming ===\nThe production used miniature models and practical effects. The team constructed detailed sets to create the interior of a spaceship.\n== Reception ==\nOpinion", "revisions": []any{map[string]any{"revid": 123}}}}}})
 	}))
 	defer srv.Close()
-	w := &Wikipedia{HTTP: srv.Client(), Endpoint: srv.URL, Titles: []string{"Alien (film)"}, Now: time.Now}
+	w := &Wikipedia{HTTP: srv.Client(), Endpoint: srv.URL, Titles: []string{"Alien (film)"}}
 	a, err := w.Articles(context.Background(), -1, history{})
 	if err != nil || len(a) != 1 {
 		t.Fatalf("articles %v %v", a, err)
@@ -43,7 +43,7 @@ func TestWikipediaLimitsFetchAndSkipsUnavailable(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(503) }))
 	defer srv.Close()
-	w := &Wikipedia{HTTP: srv.Client(), Endpoint: srv.URL, Titles: []string{"a", "b", "c", "d"}, Now: time.Now}
+	w := &Wikipedia{HTTP: srv.Client(), Endpoint: srv.URL, Titles: []string{"a", "b", "c", "d"}}
 	a, err := w.Articles(context.Background(), -1, history{})
 	if err == nil || len(a) != 0 || calls != 3 {
 		t.Fatalf("%d %v %v", calls, a, err)
@@ -53,23 +53,77 @@ func TestWikipediaLimitsFetchAndSkipsUnavailable(t *testing.T) {
 	}
 }
 
-func TestWikipediaRetryMovesToOtherTitles(t *testing.T) {
+func TestWikipediaPreviewsAndRetriesRotateTitles(t *testing.T) {
 	var titles []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		titles = append(titles, r.URL.Query().Get("titles"))
 		w.WriteHeader(503)
 	}))
 	defer srv.Close()
-	w := &Wikipedia{HTTP: srv.Client(), Endpoint: srv.URL, Titles: []string{"a", "b", "c", "d", "e", "f"}, Now: func() time.Time { return time.Unix(0, 0) }}
-	_, _ = w.Articles(context.Background(), -1, history{})
-	_, _ = w.Articles(WithPreparationAttempt(context.Background(), 1), -1, history{})
-	if len(titles) != 6 {
-		t.Fatal(titles)
-	}
-	for i, want := range w.Titles {
-		if titles[i] != want {
-			t.Fatal(titles)
+	w := &Wikipedia{HTTP: srv.Client(), Endpoint: srv.URL, Titles: []string{"a", "b", "c", "d", "e", "f"}}
+	for _, chat := range []int64{-1, -2} {
+		for cycle := 0; cycle < 2; cycle++ {
+			titles = nil
+			_, _ = w.Articles(context.Background(), chat, history{})
+			_, _ = w.Articles(context.Background(), chat, history{})
+			seen := map[string]bool{}
+			for _, title := range titles {
+				if seen[title] {
+					t.Fatalf("film repeated before cycle completed: %v", titles)
+				}
+				seen[title] = true
+			}
+			if len(seen) != len(w.Titles) {
+				t.Fatalf("cycle omitted films: %v", titles)
+			}
 		}
+	}
+}
+
+func TestWikipediaRotationFiltersNewHistory(t *testing.T) {
+	var titles []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		titles = append(titles, r.URL.Query().Get("titles"))
+		w.WriteHeader(503)
+	}))
+	defer srv.Close()
+	w := &Wikipedia{HTTP: srv.Client(), Endpoint: srv.URL, Titles: []string{"a", "b", "c", "d", "e", "f", "g"}}
+	_, _ = w.Articles(context.Background(), -1, history{})
+	seen := history{}
+	for _, title := range w.Titles {
+		seen["wikipedia:"+title] = true
+	}
+	titles = nil
+	_, err := w.Articles(context.Background(), -1, seen)
+	if err != nil || len(titles) != 0 {
+		t.Fatalf("published titles fetched from remaining rotation: %v %v", titles, err)
+	}
+}
+
+func TestWikipediaConcurrentRotationAndShortFinalBatch(t *testing.T) {
+	w := &Wikipedia{}
+	titles := []string{"a", "b", "c", "d", "e", "f", "g"}
+	results := make(chan []string, 3)
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Go(func() { results <- w.takeTitles(-1, titles) })
+	}
+	wg.Wait()
+	close(results)
+	seen := map[string]bool{}
+	for batch := range results {
+		if len(batch) == 0 || len(batch) > 3 {
+			t.Fatalf("unexpected batch size: %v", batch)
+		}
+		for _, title := range batch {
+			if seen[title] {
+				t.Fatalf("concurrent requests repeated %q", title)
+			}
+			seen[title] = true
+		}
+	}
+	if len(seen) != len(titles) {
+		t.Fatal("incomplete cycle", seen)
 	}
 }
 

@@ -221,7 +221,7 @@ func (s *Scheduler) prepare(ctx context.Context, d daily.Delivery) (err error) {
 	var candidate *daily.Item
 	if !approved && s.Provider != nil {
 		fetchCtx, cancel := context.WithTimeout(ctx, content.FetchTimeout)
-		candidates, e := s.Provider.Candidates(content.WithPreparationAttempt(fetchCtx, d.FetchAttempts), d.Kind, d.ChatID)
+		candidates, e := s.Provider.Candidates(fetchCtx, d.Kind, d.ChatID)
 		cancel()
 		if e != nil {
 			s.Log.Warn("content source unavailable", "chat_id", d.ChatID, "kind", d.Kind)
