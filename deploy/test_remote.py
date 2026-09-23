@@ -7,7 +7,8 @@ from unittest.mock import patch
 import remote
 
 IMAGE = 'ghcr.io/vaporon4a/movie-helper@sha256:' + 'a' * 64
-PAYLOAD = {'bot_token': '123:test', 'image': IMAGE, 'gemini_api_key': 'quoted"$value', 'groq_api_key': 'groq"$value'}
+PAYLOAD = {'bot_token': '123:test', 'image': IMAGE, 'gemini_api_key': 'quoted"$value',
+           'groq_api_key': 'groq"$value', 'tmdb_api_token': 'tmdb"$value'}
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -21,9 +22,11 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn('ALLOWED_CHAT_IDS=-5,-6\n', value)
         self.assertIn('GEMINI_API_KEY=quoted"$value\n', value)
         self.assertIn('GROQ_API_KEY=groq"$value\n', value)
+        self.assertIn('TMDB_API_TOKEN=tmdb"$value\n', value)
 
     def test_reject_line_injection_bad_ids_and_image(self):
         for change in ({'bot_token': ''}, {'gemini_api_key': 'x\nINJECT=y'}, {'groq_api_key': 'x\nINJECT=y'},
+                       {'tmdb_api_token': 'x\nINJECT=y'},
                        {'allowed_chat_ids': '123'}, {'allowed_chat_ids': '-1\nX=y'},
                        {'allowed_chat_ids': str(-(2**64))}):
             with self.subTest(change=change), self.assertRaises(remote.DeployError):

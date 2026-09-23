@@ -51,7 +51,8 @@ def runtime_settings(data, previous=None):
             raise DeployError('Invalid ALLOWED_CHAT_IDS')
         chats = ','.join(parts)
     settings = {'BOT_TOKEN': token, 'GEMINI_API_KEY': data.get('gemini_api_key', ''),
-                'GROQ_API_KEY': data.get('groq_api_key', ''), 'ALLOWED_CHAT_IDS': chats}
+                'GROQ_API_KEY': data.get('groq_api_key', ''),
+                'TMDB_API_TOKEN': data.get('tmdb_api_token', ''), 'ALLOWED_CHAT_IDS': chats}
     # raw env_file preserves dollar signs and quotes. Reject line injection.
     for value in settings.values():
         if not isinstance(value, str) or any(c in value for c in '\r\n\x00'):

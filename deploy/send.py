@@ -24,6 +24,7 @@ def main():
         'image': os.environ['BOT_IMAGE'], 'bot_token': os.environ['BOT_TOKEN'],
         'gemini_api_key': os.environ.get('GEMINI_API_KEY', ''),
         'groq_api_key': os.environ.get('GROQ_API_KEY', ''),
+        'tmdb_api_token': os.environ.get('TMDB_API_TOKEN', ''),
         'allowed_chat_ids': os.environ.get('ALLOWED_CHAT_IDS', ''),
         'registry_user': os.environ['GITHUB_ACTOR'],
         'registry_token': os.environ['REGISTRY_TOKEN'],

@@ -14,6 +14,7 @@ type Config struct {
 	GeminiDailyLimit       int
 	GroqKey, GroqModel     string
 	GroqDailyLimit         int
+	TMDBToken              string
 	FactWikiTitles         []string
 	Token, DBPath          string
 	Chats                  map[int64]bool
@@ -94,6 +95,10 @@ func Parse(get func(string) string) (Config, error) {
 			return c, errors.New("GROQ_DAILY_REQUEST_LIMIT must be 0..100")
 		}
 		c.GroqDailyLimit = n
+	}
+	c.TMDBToken = strings.TrimSpace(get("TMDB_API_TOKEN"))
+	if strings.ContainsAny(c.TMDBToken, "\r\n") || len(c.TMDBToken) > 4096 {
+		return c, errors.New("invalid TMDB_API_TOKEN")
 	}
 
 	titles := get("FACT_WIKI_TITLES")

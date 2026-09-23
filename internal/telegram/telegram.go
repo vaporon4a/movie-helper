@@ -18,12 +18,16 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
+	"github.com/vaporon4a/movie-helper/internal/movieclub"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 )
 
 type API interface {
 	SendMessage(context.Context, *bot.SendMessageParams) (*models.Message, error)
 	SendPhoto(context.Context, *bot.SendPhotoParams) (*models.Message, error)
+	SendPoll(context.Context, *bot.SendPollParams) (*models.Message, error)
+	StopPoll(context.Context, *bot.StopPollParams) (*models.Poll, error)
+	SendMediaGroup(context.Context, *bot.SendMediaGroupParams) ([]*models.Message, error)
 	GetChatAdministrators(context.Context, *bot.GetChatAdministratorsParams) ([]models.ChatMember, error)
 	AnswerCallbackQuery(context.Context, *bot.AnswerCallbackQueryParams) (bool, error)
 }
@@ -31,13 +35,14 @@ type ContentProvider interface {
 	Candidates(context.Context, string, int64) ([]daily.Item, error)
 }
 type Handler struct {
-	API      API
-	Provider ContentProvider
-	Store    *storage.Store
-	Allowed  map[int64]bool
-	Username string
-	Log      *slog.Logger
-	Now      func() time.Time
+	API       API
+	Provider  ContentProvider
+	MovieClub *movieclub.Runner
+	Store     *storage.Store
+	Allowed   map[int64]bool
+	Username  string
+	Log       *slog.Logger
+	Now       func() time.Time
 }
 
 const help = `🎬 Мем дня и интересный факт о кино — автоматически.
@@ -49,6 +54,11 @@ const help = `🎬 Мем дня и интересный факт о кино �
 /schedule meme 09:00 — включить мем дня
 /schedule fact 12:00 — включить факт дня
 /pause meme или /pause fact — выключить рубрику
+/genre_poll 10m — запустить пробный опрос жанров
+/movie_schedule genre wed 19:00 — еженедельный киноопрос
+/movie_pause genre [wed] — выключить киноопросы
+/movie_settings — расписание и состояние киноопросов
+/about — источники и правила подбора фильмов
 /help_admin — модерация и служебные команды
 
 Управление доступно администраторам. В новом чате задайте часовой пояс и включите расписание.`
@@ -65,6 +75,7 @@ const helpAdmin = `Модерация и служебные команды.
 /approve ID или /reject ID — одобрить или убрать материал
 /resolve ID sent — подтвердить неопределённую доставку
 /resolve ID requeue — вернуть её материал на следующий день
+/movie_resolve ID sent|retry|cancel — разрешить неопределённое состояние киноопроса
 /resume — восстановить работу после потери доступа
 /help — расписание и основные команды
 
@@ -74,6 +85,14 @@ const helpAdmin = `Модерация и служебные команды.
 /moderation on — включить очередь: новые материалы AI ждут /approve; публикуется только одобренное администратором.
 /moderation off — автоматический отбор AI; предложения участников сохраняются, но не публикуются.
 При сбое или отсутствии материала бот повторяет подбор до 6 раз в течение 6 часов, до конца дня. Рассылка изначально выключена.`
+
+const about = `Подборки для киновечера
+
+Бот запускает анонимный опрос из 10 жанров. Через 24 часа он останавливает голосование и публикует до 20 популярных фильмов победившего жанра. При равенстве могут учитываться два жанра.
+
+Названия, описания, рейтинги и постеры получены через TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+Недавно предложенные фильмы не повторяются 90 дней. Голоса хранятся только как итоговые числа по вариантам; данные о голосовавших не сохраняются.`
 
 func moderationText(enabled bool) string {
 	if enabled {
@@ -116,6 +135,18 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		}
 		return
 	}
+	if u.Poll != nil {
+		if h.MovieClub != nil && u.Poll.IsClosed {
+			votes := make([]int, len(u.Poll.Options))
+			for i, option := range u.Poll.Options {
+				votes[i] = option.VoterCount
+			}
+			if err := h.MovieClub.PollClosed(ctx, u.Poll.ID, votes); err != nil && !errors.Is(err, movieclub.ErrConflict) {
+				h.Log.Warn("movie poll update not applied")
+			}
+		}
+		return
+	}
 	if u.CallbackQuery != nil {
 		h.callback(ctx, u)
 		return
@@ -133,6 +164,8 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		switch cmd {
 		case "/start", "/help":
 			h.reply(ctx, m.Chat.ID, help)
+		case "/about":
+			h.reply(ctx, m.Chat.ID, about)
 		case "/help_admin":
 			h.reply(ctx, m.Chat.ID, helpAdmin)
 		}
@@ -165,6 +198,10 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 	}
 	if cmd == "/help_admin" {
 		h.reply(ctx, m.Chat.ID, helpAdmin)
+		return
+	}
+	if cmd == "/about" {
+		h.reply(ctx, m.Chat.ID, about)
 		return
 	}
 	if m.From == nil || m.From.IsBot || m.SenderChat != nil {
@@ -282,6 +319,88 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		err = h.Store.SetSchedule(ctx, u.ID, chat, args, "09:00", false, now)
 	case "/resume":
 		err = h.Store.Resume(ctx, u.ID, chat)
+	case "/genre_poll":
+		if h.MovieClub == nil {
+			h.reply(ctx, chat, "Киноопросы выключены: на сервере не настроен TMDB_API_TOKEN.")
+			return
+		}
+		duration := 24 * time.Hour
+		if args != "" {
+			duration, err = time.ParseDuration(args)
+			if err != nil {
+				h.reply(ctx, chat, "Формат: /genre_poll 10m. Допустимо от 5m до 24h.")
+				return
+			}
+		}
+		var id int64
+		id, err = h.MovieClub.Start(ctx, u.ID, chat, duration)
+		if err == nil {
+			h.reply(ctx, chat, fmt.Sprintf("Киноопрос #%d запланирован на %s.", id, duration))
+			return
+		}
+	case "/movie_schedule":
+		if h.MovieClub == nil {
+			h.reply(ctx, chat, "Киноопросы выключены: на сервере не настроен TMDB_API_TOKEN.")
+			return
+		}
+		a := strings.Fields(args)
+		if len(a) != 3 || a[0] != movieclub.Genre {
+			h.reply(ctx, chat, "Формат: /movie_schedule genre wed 19:00. Сначала задайте /timezone.")
+			return
+		}
+		weekday, ok := movieclub.ParseWeekday(a[1])
+		if !ok {
+			h.reply(ctx, chat, "День недели: mon..sun или пн..вс.")
+			return
+		}
+		err = h.MovieClub.SetSchedule(ctx, u.ID, chat, weekday, a[2], true)
+	case "/movie_pause":
+		if h.MovieClub == nil {
+			h.reply(ctx, chat, "Киноопросы выключены: на сервере не настроен TMDB_API_TOKEN.")
+			return
+		}
+		a := strings.Fields(args)
+		if len(a) < 1 || len(a) > 2 || a[0] != movieclub.Genre {
+			h.reply(ctx, chat, "Формат: /movie_pause genre или /movie_pause genre wed.")
+			return
+		}
+		if len(a) == 1 {
+			err = h.MovieClub.PauseSchedules(ctx, u.ID, chat)
+		} else {
+			weekday, ok := movieclub.ParseWeekday(a[1])
+			if !ok {
+				h.reply(ctx, chat, "День недели: mon..sun или пн..вс.")
+				return
+			}
+			err = h.MovieClub.SetSchedule(ctx, u.ID, chat, weekday, "00:00", false)
+		}
+	case "/movie_settings":
+		if h.MovieClub == nil {
+			h.reply(ctx, chat, "Киноопросы выключены: на сервере не настроен TMDB_API_TOKEN.")
+			return
+		}
+		var text string
+		text, err = h.MovieClub.Settings(ctx, chat)
+		if err == nil {
+			h.reply(ctx, chat, text)
+			return
+		}
+	case "/movie_resolve":
+		if h.MovieClub == nil {
+			h.reply(ctx, chat, "Киноопросы выключены: на сервере не настроен TMDB_API_TOKEN.")
+			return
+		}
+		a := strings.Fields(args)
+		if len(a) != 2 || (a[1] != "sent" && a[1] != "retry" && a[1] != "cancel") {
+			h.reply(ctx, chat, "Формат: /movie_resolve ID sent|retry|cancel.")
+			return
+		}
+		id, parseErr := strconv.ParseInt(a[0], 10, 64)
+		if parseErr != nil {
+			err = parseErr
+			break
+		}
+		err = h.MovieClub.Resolve(ctx, u.ID, chat, id, a[1])
 	case "/suggest_fact":
 		text, source, ok := strings.Cut(args, "|")
 		if !ok {
@@ -396,8 +515,12 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 		return
 	}
 	if err != nil {
-		if errors.Is(err, daily.ErrDuplicate) {
+		if errors.Is(err, daily.ErrDuplicate) || errors.Is(err, movieclub.ErrDuplicate) {
 			h.reply(ctx, chat, "Уже обработано или такой материал уже есть.")
+			return
+		}
+		if errors.Is(err, movieclub.ErrActiveRound) {
+			h.reply(ctx, chat, "В этом чате уже идёт киноопрос или публикуется его результат.")
 			return
 		}
 		h.Log.Warn("command not applied", "command", cmd)
@@ -446,11 +569,24 @@ func previewError(err error) (string, string) {
 }
 func (h *Handler) callback(ctx context.Context, u *models.Update) {
 	q := u.CallbackQuery
+	if q.Message.Message == nil {
+		return
+	}
 	m := q.Message.Message
 	if m == nil || !h.Allowed[m.Chat.ID] || q.From.IsBot {
 		return
 	}
 	_, _ = h.API.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{CallbackQueryID: q.ID})
+	if raw, ok := strings.CutPrefix(q.Data, "movie_more:"); ok {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || h.MovieClub == nil {
+			return
+		}
+		if err = h.MovieClub.More(ctx, m.Chat.ID, id); err != nil {
+			h.reply(ctx, m.Chat.ID, "Дополнительная подборка уже отправлена или сейчас недоступна.")
+		}
+		return
+	}
 	if !h.admin(ctx, m.Chat.ID, q.From.ID) {
 		h.reply(ctx, m.Chat.ID, "Одобрять материалы может администратор чата.")
 		return

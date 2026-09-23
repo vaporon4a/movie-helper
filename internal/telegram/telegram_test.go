@@ -16,12 +16,16 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
+	"github.com/vaporon4a/movie-helper/internal/movieclub"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 )
 
 type fakeAPI struct {
 	messages            []*bot.SendMessageParams
 	photos              []*bot.SendPhotoParams
+	polls               []*bot.SendPollParams
+	stops               []*bot.StopPollParams
+	mediaGroups         []*bot.SendMediaGroupParams
 	adminErr, errorSend error
 }
 
@@ -32,6 +36,22 @@ func (a *fakeAPI) SendMessage(_ context.Context, p *bot.SendMessageParams) (*mod
 func (a *fakeAPI) SendPhoto(_ context.Context, p *bot.SendPhotoParams) (*models.Message, error) {
 	a.photos = append(a.photos, p)
 	return &models.Message{ID: 99}, a.errorSend
+}
+func (a *fakeAPI) SendPoll(_ context.Context, p *bot.SendPollParams) (*models.Message, error) {
+	a.polls = append(a.polls, p)
+	return &models.Message{ID: 99, Poll: &models.Poll{ID: "poll-99"}}, a.errorSend
+}
+func (a *fakeAPI) StopPoll(_ context.Context, p *bot.StopPollParams) (*models.Poll, error) {
+	a.stops = append(a.stops, p)
+	return &models.Poll{}, a.errorSend
+}
+func (a *fakeAPI) SendMediaGroup(_ context.Context, p *bot.SendMediaGroupParams) ([]*models.Message, error) {
+	a.mediaGroups = append(a.mediaGroups, p)
+	messages := make([]*models.Message, len(p.Media))
+	for i := range messages {
+		messages[i] = &models.Message{ID: 99 + i}
+	}
+	return messages, a.errorSend
 }
 func (a *fakeAPI) GetChatAdministrators(context.Context, *bot.GetChatAdministratorsParams) ([]models.ChatMember, error) {
 	return []models.ChatMember{{Type: models.ChatMemberTypeOwner, Owner: &models.ChatMemberOwner{User: &models.User{ID: 42}}}}, a.adminErr
@@ -145,6 +165,61 @@ func TestSenderAndErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestMovieCommandsCreateIsolatedRoundAndSchedule(t *testing.T) {
+	h, _ := handler(t)
+	h.MovieClub = &movieclub.Runner{Store: h.Store, Allowed: h.Allowed, Log: h.Log, Now: h.Now}
+	ctx := context.Background()
+	h.Handle(ctx, nil, update(100, -1, 42, "/timezone UTC"))
+	h.Handle(ctx, nil, update(101, -1, 42, "/movie_schedule genre wed 19:00"))
+	schedules, err := h.Store.MovieSchedules(ctx, -1)
+	if err != nil || len(schedules) != 1 || schedules[0].Weekday != int(time.Wednesday) {
+		t.Fatalf("schedules = %#v, %v", schedules, err)
+	}
+	h.Handle(ctx, nil, update(102, -1, 42, "/genre_poll 10m"))
+	rounds, err := h.Store.LatestMovieRounds(ctx, -1)
+	if err != nil || len(rounds) != 1 || rounds[0].State != movieclub.StatePlanned {
+		t.Fatalf("rounds = %#v, %v", rounds, err)
+	}
+	// Replayed Telegram update must not start a second poll.
+	h.Handle(ctx, nil, update(102, -1, 42, "/genre_poll 10m"))
+	rounds, _ = h.Store.LatestMovieRounds(ctx, -1)
+	if len(rounds) != 1 {
+		t.Fatalf("replay created rounds: %#v", rounds)
+	}
+	if other, _ := h.Store.LatestMovieRounds(ctx, -2); len(other) != 0 {
+		t.Fatalf("round crossed chat: %#v", other)
+	}
+}
+
+func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
+	api := &fakeAPI{}
+	sender := MovieSender{API: api}
+	labels := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+	if _, _, err := sender.OpenPoll(context.Background(), -1, labels, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.polls) != 1 || api.polls[0].IsAnonymous == nil || !*api.polls[0].IsAnonymous || !api.polls[0].AllowsRevoting {
+		t.Fatalf("poll = %#v", api.polls)
+	}
+	movies := make([]movieclub.Recommendation, 10)
+	for i := range movies {
+		movies[i] = movieclub.Recommendation{Movie: movieclub.Movie{ID: int64(i + 1), Title: fmt.Sprintf("Фильм %d", i+1), PosterPath: fmt.Sprintf("/%d.jpg", i+1), Rating: 7}}
+	}
+	if _, err := sender.SendMovies(context.Background(), -1, movies, testCatalog{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.mediaGroups) != 1 || len(api.mediaGroups[0].Media) != 10 {
+		t.Fatalf("media groups = %#v", api.mediaGroups)
+	}
+}
+
+type testCatalog struct{}
+
+func (testCatalog) Discover(context.Context, int64, int, int) ([]movieclub.Movie, error) {
+	return nil, nil
+}
+func (testCatalog) PosterURL(path string) string { return "https://img.example" + path }
 
 func TestBootstrapAllowsIDButNoGroupMutations(t *testing.T) {
 	h, api := handler(t)

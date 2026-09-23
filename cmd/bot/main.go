@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 	_ "time/tzdata"
@@ -18,9 +19,11 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
 	"github.com/vaporon4a/movie-helper/internal/meme"
+	"github.com/vaporon4a/movie-helper/internal/movieclub"
 	"github.com/vaporon4a/movie-helper/internal/scheduler"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 	"github.com/vaporon4a/movie-helper/internal/telegram"
+	"github.com/vaporon4a/movie-helper/internal/tmdb"
 )
 
 func main() {
@@ -55,10 +58,13 @@ func run() error {
 	if err = store.Recover(ctx); err != nil {
 		return errors.New("cannot recover delivery state")
 	}
+	if err = store.RecoverMovieRounds(ctx); err != nil {
+		return errors.New("cannot recover movie poll state")
+	}
 	h := &telegram.Handler{Store: store, Allowed: cfg.Chats, Log: log, Now: time.Now}
 	b, err := bot.New(cfg.Token, bot.WithDefaultHandler(h.Handle), bot.WithWorkers(1), bot.WithNotAsyncHandlers(),
 		bot.WithHTTPClient(25*time.Second, &http.Client{Timeout: 35 * time.Second}),
-		bot.WithAllowedUpdates(bot.AllowedUpdates{"message", "callback_query", "my_chat_member"}),
+		bot.WithAllowedUpdates(bot.AllowedUpdates{"message", "callback_query", "my_chat_member", "poll"}),
 		bot.WithErrorsHandler(func(err error) { log.Warn("telegram polling error") }))
 	if err != nil {
 		return errors.New("telegram initialization failed; check token and connection")
@@ -97,12 +103,27 @@ func run() error {
 
 	h.Provider = provider
 	s := &scheduler.Scheduler{Store: store, Sender: telegram.Sender{API: b}, Provider: provider, Allowed: cfg.Chats, Log: log, Now: time.Now}
-	done := make(chan struct{})
-	go func() { defer close(done); s.Run(ctx) }()
-	log.Info("bot started", "allowed_chats", len(cfg.Chats), "gemini_model", cfg.GeminiModel, "gemini_enabled", cfg.GeminiKey != "", "groq_model", cfg.GroqModel, "groq_enabled", cfg.GroqKey != "")
+	var workers sync.WaitGroup
+	workers.Add(1)
+	go func() { defer workers.Done(); s.Run(ctx) }()
+	if cfg.TMDBToken != "" {
+		tmdbClient := &tmdb.Client{HTTP: &http.Client{Timeout: 15 * time.Second, CheckRedirect: client.HTTP.CheckRedirect}, BaseURL: "https://api.themoviedb.org/3", Token: cfg.TMDBToken, Log: log}
+		loadCtx, loadCancel := context.WithTimeout(ctx, 10*time.Second)
+		if loadErr := tmdbClient.LoadConfiguration(loadCtx); loadErr != nil {
+			log.Warn("tmdb image configuration unavailable; using default image host")
+		}
+		loadCancel()
+		movies := &movieclub.Runner{Store: store, Telegram: telegram.MovieSender{API: b}, Catalog: tmdbClient, Allowed: cfg.Chats, Log: log, Now: time.Now}
+		h.MovieClub = movies
+		workers.Add(1)
+		go func() { defer workers.Done(); movies.Run(ctx) }()
+	} else {
+		log.Warn("movie polls disabled: TMDB_API_TOKEN is missing")
+	}
+	log.Info("bot started", "allowed_chats", len(cfg.Chats), "gemini_model", cfg.GeminiModel, "gemini_enabled", cfg.GeminiKey != "", "groq_model", cfg.GroqModel, "groq_enabled", cfg.GroqKey != "", "tmdb_enabled", cfg.TMDBToken != "")
 	b.Start(ctx)
 	cancel()
-	<-done
+	workers.Wait()
 	log.Info("bot stopped")
 	return nil
 }
