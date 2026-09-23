@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ func TestMovieSchedulesAllowEveryWeekdayAndCancelOnlyPlannedRound(t *testing.T) 
 
 	options := movieclub.GenreOptions(1)
 	wed := time.Date(2026, 9, 23, 19, 0, 0, 0, time.UTC)
-	roundID, err := store.ReserveMovieRound(ctx, -1, wed.Unix(), wed.Add(24*time.Hour).Unix(), options)
+	roundID, err := store.ReserveMovieRound(ctx, movieclub.Genre, -1, wed.Unix(), wed.Add(24*time.Hour).Unix(), options)
 	must(t, err)
 	// Editing the Wednesday slot invalidates the unpublished planned snapshot.
 	must(t, store.SetMovieSchedule(ctx, 200, -1, int(time.Wednesday), "20:00", true, testNow.Add(time.Minute)))
@@ -35,21 +36,64 @@ func TestMovieSchedulesAllowEveryWeekdayAndCancelOnlyPlannedRound(t *testing.T) 
 	}
 }
 
+func TestMovieRoundRejectsInvalidAndConcurrentTransitions(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	setup(t, store, -1)
+	roundID, err := store.StartMovieRound(ctx, movieclub.Genre, 400, -1, testNow, 10*time.Minute, movieclub.GenreOptions(4))
+	must(t, err)
+
+	if _, err = store.ClaimMovieRound(ctx, roundID, movieclub.StatePlanned, movieclub.StatePublished, testNow); err == nil {
+		t.Fatal("invalid transition planned -> published was accepted")
+	}
+
+	results := make(chan bool, 2)
+	errorsOut := make(chan error, 2)
+	var workers sync.WaitGroup
+	for range 2 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			claimed, claimErr := store.ClaimMovieRound(ctx, roundID, movieclub.StatePlanned, movieclub.StatePollCreating, testNow)
+			results <- claimed
+			errorsOut <- claimErr
+		}()
+	}
+	workers.Wait()
+	close(results)
+	close(errorsOut)
+
+	claimed := 0
+	for result := range results {
+		if result {
+			claimed++
+		}
+	}
+	for claimErr := range errorsOut {
+		if claimErr != nil {
+			t.Fatal(claimErr)
+		}
+	}
+	if claimed != 1 {
+		t.Fatalf("concurrent claims = %d, want 1", claimed)
+	}
+}
+
 func TestMovieRoundIsolationTransitionsAndRecovery(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
 	setup(t, store, -1)
 	setup(t, store, -2)
 	options := movieclub.GenreOptions(2)
-	roundID, err := store.StartMovieRound(ctx, 300, -1, testNow, 10*time.Minute, options)
+	roundID, err := store.StartMovieRound(ctx, movieclub.Genre, 300, -1, testNow, 10*time.Minute, options)
 	must(t, err)
 	if _, err = store.MovieRound(ctx, -2, roundID); err == nil {
 		t.Fatal("round crossed chat boundary")
 	}
-	if _, err = store.StartMovieRound(ctx, 301, -1, testNow.Add(time.Minute), 10*time.Minute, options); !errors.Is(err, movieclub.ErrActiveRound) {
+	if _, err = store.StartMovieRound(ctx, movieclub.Genre, 301, -1, testNow.Add(time.Minute), 10*time.Minute, options); !errors.Is(err, movieclub.ErrActiveRound) {
 		t.Fatalf("second active round error = %v", err)
 	}
-	skippedID, err := store.ReserveMovieRound(ctx, -1, testNow.Add(time.Hour).Unix(), testNow.Add(25*time.Hour).Unix(), options)
+	skippedID, err := store.ReserveMovieRound(ctx, movieclub.Genre, -1, testNow.Add(time.Hour).Unix(), testNow.Add(25*time.Hour).Unix(), options)
 	must(t, err)
 	if skippedID != 0 {
 		t.Fatalf("scheduled overlap returned round %d", skippedID)

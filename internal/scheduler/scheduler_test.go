@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 	_ "time/tzdata"
@@ -50,6 +51,10 @@ type provider struct {
 	hook  func()
 }
 
+func storeOf(s *Scheduler) *storage.Store {
+	return s.Store.(*storage.Store)
+}
+
 func (p *provider) Candidates(_ context.Context, kind string, _ int64) ([]daily.Item, error) {
 	p.calls++
 	if p.hook != nil {
@@ -64,16 +69,16 @@ func (p *provider) Candidates(_ context.Context, kind string, _ int64) ([]daily.
 func TestModerationWaitsForApproval(t *testing.T) {
 	s, send, n := fixture(t)
 	ctx := context.Background()
-	if err := s.Store.SetModeration(ctx, 10, -1, true, *n); err != nil {
+	if err := storeOf(s).SetModeration(ctx, 10, -1, true, *n); err != nil {
 		t.Fatal(err)
 	}
 	*n = n.Add(time.Hour)
 	tick(t, s)
-	q, err := s.Store.Queue(ctx, -1, 0)
+	q, err := storeOf(s).Queue(ctx, -1, 0)
 	if err != nil || len(q) != 1 || q[0].State != "pending" || send.calls != 0 {
 		t.Fatal(q, err, send.calls)
 	}
-	if err = s.Store.Moderate(ctx, 11, -1, q[0].ID, 42, true, *n); err != nil {
+	if err = storeOf(s).Moderate(ctx, 11, -1, q[0].ID, 42, true, *n); err != nil {
 		t.Fatal(err)
 	}
 	tick(t, s)
@@ -90,16 +95,16 @@ func TestModerationWaitsForApproval(t *testing.T) {
 func TestAutomaticModeIgnoresHumanQueue(t *testing.T) {
 	s, send, n := fixture(t)
 	ctx := context.Background()
-	id, err := s.Store.Add(ctx, 10, daily.Item{ChatID: -1, AuthorID: 42, Kind: daily.Meme, Image: "file-id", Key: "manual"}, *n)
+	id, err := storeOf(s).Add(ctx, 10, daily.Item{ChatID: -1, AuthorID: 42, Kind: daily.Meme, Image: "file-id", Key: "manual"}, *n)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Store.Moderate(ctx, 11, -1, id, 42, true, *n); err != nil {
+	if err = storeOf(s).Moderate(ctx, 11, -1, id, 42, true, *n); err != nil {
 		t.Fatal(err)
 	}
 	*n = n.Add(time.Hour)
 	tick(t, s)
-	item, err := s.Store.Item(ctx, -1, id)
+	item, err := storeOf(s).Item(ctx, -1, id)
 	if err != nil || item.State != "approved" || send.calls != 1 || s.Provider.(*provider).calls != 1 {
 		t.Fatal(item, err, send.calls)
 	}
@@ -108,7 +113,7 @@ func TestAutomaticModeIgnoresHumanQueue(t *testing.T) {
 func TestModeChangeDuringFetchCancelsSlot(t *testing.T) {
 	s, send, n := fixture(t)
 	s.Provider.(*provider).hook = func() {
-		if err := s.Store.SetModeration(context.Background(), 10, -1, true, *n); err != nil {
+		if err := storeOf(s).SetModeration(context.Background(), 10, -1, true, *n); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -126,10 +131,10 @@ func TestModeChangeCancelsRetryAndRequiresHumanApproval(t *testing.T) {
 	*n = n.Add(time.Hour)
 	send.err = &daily.SendError{Kind: "retry", After: 30 * time.Second}
 	tick(t, s)
-	if err := s.Store.SetModeration(ctx, 10, -1, true, *n); err != nil {
+	if err := storeOf(s).SetModeration(ctx, 10, -1, true, *n); err != nil {
 		t.Fatal(err)
 	}
-	q, err := s.Store.Queue(ctx, -1, 0)
+	q, err := storeOf(s).Queue(ctx, -1, 0)
 	if err != nil || len(q) != 1 || q[0].State != "pending" {
 		t.Fatal(q, err)
 	}
@@ -140,7 +145,7 @@ func TestModeChangeCancelsRetryAndRequiresHumanApproval(t *testing.T) {
 	if send.calls != 1 {
 		t.Fatal("AI approval bypassed human moderation")
 	}
-	if err = s.Store.SetModeration(ctx, 11, -1, false, *n); err != nil {
+	if err = storeOf(s).SetModeration(ctx, 11, -1, false, *n); err != nil {
 		t.Fatal(err)
 	}
 	send.err = nil
@@ -182,7 +187,7 @@ func TestSendOnceAndNoRepeatNextDay(t *testing.T) {
 	if send.calls != 1 {
 		t.Fatal(send.calls)
 	}
-	if e := s.Store.Recover(context.Background()); e != nil {
+	if e := storeOf(s).Recover(context.Background()); e != nil {
 		t.Fatal(e)
 	}
 	tick(t, s)
@@ -193,6 +198,33 @@ func TestSendOnceAndNoRepeatNextDay(t *testing.T) {
 	tick(t, s)
 	if send.calls != 1 {
 		t.Fatal("same meme reused")
+	}
+}
+
+func TestConcurrentTicksPublishOnce(t *testing.T) {
+	s, send, now := fixture(t)
+	*now = now.Add(time.Hour)
+	start := make(chan struct{})
+	errorsOut := make(chan error, 2)
+	var workers sync.WaitGroup
+	for range 2 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			errorsOut <- s.Tick(context.Background())
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(errorsOut)
+	for err := range errorsOut {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if send.calls != 1 {
+		t.Fatalf("concurrent ticks sent %d messages", send.calls)
 	}
 }
 func TestRetryAfterAndExpiry(t *testing.T) {
@@ -225,14 +257,14 @@ func TestUnknownNeverRetried(t *testing.T) {
 	*n = n.Add(time.Hour)
 	send.err = &daily.SendError{Kind: "unknown"}
 	tick(t, s)
-	if e := s.Store.Recover(context.Background()); e != nil {
+	if e := storeOf(s).Recover(context.Background()); e != nil {
 		t.Fatal(e)
 	}
 	tick(t, s)
 	if send.calls != 1 {
 		t.Fatal(send.calls)
 	}
-	issues, e := s.Store.Issues(context.Background(), -1)
+	issues, e := storeOf(s).Issues(context.Background(), -1)
 	if e != nil || len(issues) != 1 || issues[0].State != "unknown" {
 		t.Fatal(issues, e)
 	}
@@ -245,7 +277,7 @@ func TestMissedWindowAndActivation(t *testing.T) {
 		t.Fatal("old slot caught up")
 	}
 	*n = n.Add(-6 * time.Hour)
-	if e := s.Store.SetSchedule(context.Background(), 3, -1, "meme", "09:00", true, *n); e != nil {
+	if e := storeOf(s).SetSchedule(context.Background(), 3, -1, "meme", "09:00", true, *n); e != nil {
 		t.Fatal(e)
 	}
 	tick(t, s)
@@ -264,7 +296,7 @@ func TestForbiddenSuspendsAndPermanentDoesNot(t *testing.T) {
 			if send.calls != 1 {
 				t.Fatal(send.calls)
 			}
-			sc, e := s.Store.Schedules(context.Background(), -1)
+			sc, e := storeOf(s).Schedules(context.Background(), -1)
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -279,10 +311,10 @@ func TestForbiddenSuspendsAndPermanentDoesNot(t *testing.T) {
 func TestEmptyFactQueueAndDisallowedChat(t *testing.T) {
 	s, send, n := fixture(t)
 	ctx := context.Background()
-	if e := s.Store.SetSchedule(ctx, 3, -1, "meme", "09:00", false, *n); e != nil {
+	if e := storeOf(s).SetSchedule(ctx, 3, -1, "meme", "09:00", false, *n); e != nil {
 		t.Fatal(e)
 	}
-	if e := s.Store.SetSchedule(ctx, 4, -1, "fact", "09:00", true, *n); e != nil {
+	if e := storeOf(s).SetSchedule(ctx, 4, -1, "fact", "09:00", true, *n); e != nil {
 		t.Fatal(e)
 	}
 	*n = n.Add(time.Hour)

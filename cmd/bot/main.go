@@ -14,8 +14,10 @@ import (
 	_ "time/tzdata"
 
 	"github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/config"
 	"github.com/vaporon4a/movie-helper/internal/content"
+	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
 	"github.com/vaporon4a/movie-helper/internal/meme"
@@ -61,8 +63,12 @@ func run() error {
 	if err = store.RecoverMovieRounds(ctx); err != nil {
 		return errors.New("cannot recover movie poll state")
 	}
-	h := &telegram.Handler{Store: store, Allowed: cfg.Chats, Log: log, Now: time.Now}
-	b, err := bot.New(cfg.Token, bot.WithDefaultHandler(h.Handle), bot.WithWorkers(1), bot.WithNotAsyncHandlers(),
+	var handler *telegram.Handler
+	b, err := bot.New(cfg.Token, bot.WithDefaultHandler(func(handlerCtx context.Context, telegramBot *bot.Bot, update *models.Update) {
+		if handler != nil {
+			handler.Handle(handlerCtx, telegramBot, update)
+		}
+	}), bot.WithWorkers(1), bot.WithNotAsyncHandlers(),
 		bot.WithHTTPClient(25*time.Second, &http.Client{Timeout: 35 * time.Second}),
 		bot.WithAllowedUpdates(bot.AllowedUpdates{"message", "callback_query", "my_chat_member", "poll"}),
 		bot.WithErrorsHandler(func(err error) { log.Warn("telegram polling error") }))
@@ -81,50 +87,90 @@ func run() error {
 	if wh.URL != "" {
 		return errors.New("webhook is active; remove it before running polling")
 	}
-	h.API = b
-	h.Username = me.Username
-	client := &meme.Client{HTTP: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, BaseURL: "https://meme-api.com", Subreddits: cfg.Subreddits}
-	provider := &content.Provider{Memes: client, History: store, Facts: &content.Wikipedia{HTTP: client.HTTP, Endpoint: "https://en.wikipedia.org/w/api.php", Titles: cfg.FactWikiTitles}}
+	redirect := func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	provider := buildContentProvider(cfg, store, log, redirect)
 
-	fallback := &content.Fallback{Log: log, PrimaryTimeout: content.GeminiSelectionTimeout, SecondaryTimeout: content.GroqSelectionTimeout}
-	geminiHTTP := &http.Client{Timeout: content.GeminiRequestTimeout, CheckRedirect: client.HTTP.CheckRedirect}
-	groqHTTP := &http.Client{Timeout: content.GroqRequestTimeout, CheckRedirect: client.HTTP.CheckRedirect}
-	if cfg.GeminiKey != "" {
-		fallback.Primary = &gemini.Client{HTTP: geminiHTTP, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Reviews: store, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now}
+	dailyService, err := daily.NewService(store, provider, log)
+	if err != nil {
+		return err
 	}
-	if cfg.GroqKey != "" {
-		fallback.Secondary = &groq.Client{HTTP: groqHTTP, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Reviews: store, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now}
+	handler, err = telegram.NewHandler(b, dailyService, cfg.Chats, me.Username, log, time.Now)
+	if err != nil {
+		return err
 	}
-	if fallback.Primary != nil || fallback.Secondary != nil {
-		provider.Editor = fallback
-	} else {
-		log.Warn("AI disabled: automatic publishing unavailable")
+	s, err := scheduler.New(store, telegram.Sender{API: b}, provider, cfg.Chats, log, time.Now)
+	if err != nil {
+		return err
 	}
-
-	h.Provider = provider
-	s := &scheduler.Scheduler{Store: store, Sender: telegram.Sender{API: b}, Provider: provider, Allowed: cfg.Chats, Log: log, Now: time.Now}
 	var workers sync.WaitGroup
 	workers.Add(1)
 	go func() { defer workers.Done(); s.Run(ctx) }()
-	if cfg.TMDBToken != "" {
-		tmdbClient := &tmdb.Client{HTTP: &http.Client{Timeout: 15 * time.Second, CheckRedirect: client.HTTP.CheckRedirect}, BaseURL: "https://api.themoviedb.org/3", Token: cfg.TMDBToken, Log: log}
-		loadCtx, loadCancel := context.WithTimeout(ctx, 10*time.Second)
-		if loadErr := tmdbClient.LoadConfiguration(loadCtx); loadErr != nil {
-			log.Warn("tmdb image configuration unavailable; using default image host")
-		}
-		loadCancel()
-		movies := &movieclub.Runner{Store: store, Telegram: telegram.MovieSender{API: b}, Catalog: tmdbClient, Allowed: cfg.Chats, Log: log, Now: time.Now}
-		h.MovieClub = movies
-		workers.Add(1)
-		go func() { defer workers.Done(); movies.Run(ctx) }()
-	} else {
-		log.Warn("movie polls disabled: TMDB_API_TOKEN is missing")
+	if err = startMovieClub(ctx, cfg, store, b, handler, log, redirect, &workers); err != nil {
+		return err
 	}
 	log.Info("bot started", "allowed_chats", len(cfg.Chats), "gemini_model", cfg.GeminiModel, "gemini_enabled", cfg.GeminiKey != "", "groq_model", cfg.GroqModel, "groq_enabled", cfg.GroqKey != "", "tmdb_enabled", cfg.TMDBToken != "")
 	b.Start(ctx)
 	cancel()
 	workers.Wait()
 	log.Info("bot stopped")
+	return nil
+}
+
+func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Logger, redirect func(*http.Request, []*http.Request) error) *content.Provider {
+	sourceHTTP := &http.Client{Timeout: 12 * time.Second, CheckRedirect: redirect}
+	memes := &meme.Client{HTTP: sourceHTTP, BaseURL: "https://meme-api.com", Subreddits: cfg.Subreddits}
+	provider := &content.Provider{
+		Memes: memes, History: store,
+		Facts: &content.Wikipedia{HTTP: sourceHTTP, Endpoint: "https://en.wikipedia.org/w/api.php", Titles: cfg.FactWikiTitles},
+	}
+	fallback := &content.Fallback{Log: log, PrimaryTimeout: content.GeminiSelectionTimeout, SecondaryTimeout: content.GroqSelectionTimeout}
+	if cfg.GeminiKey != "" {
+		fallback.Primary = &gemini.Client{HTTP: &http.Client{Timeout: content.GeminiRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Reviews: store, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now}
+	}
+	if cfg.GroqKey != "" {
+		fallback.Secondary = &groq.Client{HTTP: &http.Client{Timeout: content.GroqRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Reviews: store, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now}
+	}
+	if fallback.Primary != nil || fallback.Secondary != nil {
+		provider.Editor = fallback
+	} else {
+		log.Warn("AI disabled: automatic publishing unavailable")
+	}
+	return provider
+}
+
+func startMovieClub(ctx context.Context, cfg config.Config, store *storage.Store, api telegram.API, handler *telegram.Handler, log *slog.Logger, redirect func(*http.Request, []*http.Request) error, workers *sync.WaitGroup) error {
+	if cfg.TMDBToken == "" {
+		log.Warn("movie polls disabled: TMDB_API_TOKEN is missing")
+		return nil
+	}
+	tmdbClient := &tmdb.Client{HTTP: &http.Client{Timeout: 15 * time.Second, CheckRedirect: redirect}, BaseURL: "https://api.themoviedb.org/3", Token: cfg.TMDBToken, Log: log}
+	loadCtx, loadCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer loadCancel()
+	if err := tmdbClient.LoadConfiguration(loadCtx); err != nil {
+		log.Warn("tmdb image configuration unavailable; using default image host")
+	}
+	movieSender, err := telegram.NewMovieSender(api, tmdbClient.PosterURL)
+	if err != nil {
+		return err
+	}
+	genreScenario, err := movieclub.NewGenreScenario(tmdbClient, store)
+	if err != nil {
+		return err
+	}
+	scenarios, err := movieclub.NewScenarioSet(genreScenario)
+	if err != nil {
+		return err
+	}
+	handler.MovieClub, err = movieclub.NewService(store, movieSender, genreScenario, log, time.Now)
+	if err != nil {
+		return err
+	}
+	coordinator, err := movieclub.NewCoordinator(store, movieSender, scenarios, cfg.Chats, log, time.Now)
+	if err != nil {
+		return err
+	}
+	workers.Add(1)
+	go func() { defer workers.Done(); coordinator.Run(ctx) }()
 	return nil
 }
 

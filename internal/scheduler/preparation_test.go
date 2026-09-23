@@ -32,10 +32,10 @@ func TestPreparationRetriesBothKindsAndSurvivesRestart(t *testing.T) {
 				s, send, n := fixture(t)
 				ctx := context.Background()
 				if kind == daily.Fact {
-					if err := s.Store.SetSchedule(ctx, 3, -1, daily.Meme, "09:00", false, *n); err != nil {
+					if err := storeOf(s).SetSchedule(ctx, 3, -1, daily.Meme, "09:00", false, *n); err != nil {
 						t.Fatal(err)
 					}
-					if err := s.Store.SetSchedule(ctx, 4, -1, daily.Fact, "09:00", true, *n); err != nil {
+					if err := storeOf(s).SetSchedule(ctx, 4, -1, daily.Fact, "09:00", true, *n); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -47,12 +47,12 @@ func TestPreparationRetriesBothKindsAndSurvivesRestart(t *testing.T) {
 				if p.calls != 1 || send.calls != 0 {
 					t.Fatal("retried immediately", p.calls, send.calls)
 				}
-				rows, err := s.Store.Preparing(ctx)
+				rows, err := storeOf(s).Preparing(ctx)
 				if err != nil || len(rows) != 1 || rows[0].FetchAttempts != 1 || rows[0].NextAttempt != n.Add(5*time.Minute).Unix() {
 					t.Fatal(rows, err)
 				}
 				// Startup recovery and a fresh scheduler preserve the retry deadline.
-				if err := s.Store.Recover(ctx); err != nil {
+				if err := storeOf(s).Recover(ctx); err != nil {
 					t.Fatal(err)
 				}
 				fresh := &Scheduler{Store: s.Store, Sender: send, Provider: p, Allowed: s.Allowed, Log: s.Log, Now: s.Now}
@@ -84,7 +84,7 @@ func TestPreparationBoundedAndCancelled(t *testing.T) {
 	}
 	*n = n.Add(time.Minute)
 	tick(t, s)
-	rows, err := s.Store.Preparing(context.Background())
+	rows, err := storeOf(s).Preparing(context.Background())
 	if err != nil || len(rows) != 0 || p.calls != 6 || send.calls != 0 {
 		t.Fatal(rows, err, p.calls, send.calls)
 	}
@@ -93,7 +93,7 @@ func TestPreparationBoundedAndCancelled(t *testing.T) {
 	s.Provider = p
 	*n = n.Add(time.Hour)
 	tick(t, s)
-	if err := s.Store.SetSchedule(context.Background(), 3, -1, daily.Meme, "09:00", false, *n); err != nil {
+	if err := storeOf(s).SetSchedule(context.Background(), 3, -1, daily.Meme, "09:00", false, *n); err != nil {
 		t.Fatal(err)
 	}
 	*n = n.Add(10 * time.Minute)

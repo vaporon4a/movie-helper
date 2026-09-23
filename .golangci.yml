@@ -101,7 +101,7 @@ linters:
           - gosec
       # Existing complex functions are tracked as a baseline. New functions
       # still have to stay below the backend project's threshold of 15.
-      - text: 'func .*(`run`|Fact|SelectMeme|Parse|selectItem|Candidates|Generate|Tick|prepare|Attach|Handle)'
+      - text: 'func .*(`run`|Fact|SelectMeme|Parse|selectItem|Candidates|Generate|Attach)'
         linters:
           - gocognit
       # These existing protocol/schema strings are clearer next to their use.

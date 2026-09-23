@@ -7,30 +7,41 @@ import (
 	"time"
 )
 
+type Feature string
+type State string
+type DeliveryKind string
+type ResolveAction string
+type OptionKind string
+
 const (
-	Genre = "genre"
+	Genre       Feature    = "genre"
+	Reference   Feature    = "reference"
+	OptionGenre OptionKind = "genre"
+	OptionMovie OptionKind = "movie"
 
-	DeliveryRetry     = "retry"
-	DeliveryForbidden = "forbidden"
-	DeliveryPermanent = "permanent"
-	DeliveryUnknown   = "unknown"
+	DeliveryRetry     DeliveryKind = "retry"
+	DeliveryForbidden DeliveryKind = "forbidden"
+	DeliveryPermanent DeliveryKind = "permanent"
+	DeliveryUnknown   DeliveryKind = "unknown"
 
-	ResolveSent   = "sent"
-	ResolveRetry  = "retry"
-	ResolveCancel = "cancel"
+	ResolveSent   ResolveAction = "sent"
+	ResolveRetry  ResolveAction = "retry"
+	ResolveCancel ResolveAction = "cancel"
 
-	StatePlanned      = "planned"
-	StatePollCreating = "poll_creating"
-	StateOpen         = "open"
-	StateClosing      = "closing"
-	StateSelecting    = "selecting"
-	StateReady        = "ready"
-	StatePublishing   = "publishing"
-	StatePublished    = "published"
-	StateCancelled    = "cancelled"
-	StateFailed       = "failed"
-	StateUnknown      = "unknown"
+	StatePlanned      State = "planned"
+	StatePollCreating State = "poll_creating"
+	StateOpen         State = "open"
+	StateClosing      State = "closing"
+	StateSelecting    State = "selecting"
+	StateReady        State = "ready"
+	StatePublishing   State = "publishing"
+	StatePublished    State = "published"
+	StateCancelled    State = "cancelled"
+	StateFailed       State = "failed"
+	StateUnknown      State = "unknown"
 )
+
+func (f Feature) Valid() bool { return f == Genre || f == Reference }
 
 var (
 	ErrActiveRound = errors.New("movie poll already active")
@@ -41,7 +52,8 @@ var (
 
 type Schedule struct {
 	ID, ChatID, Effective int64
-	Feature, Clock, Zone  string
+	Feature               Feature
+	Clock, Zone           string
 	Weekday               int
 	Enabled               bool
 }
@@ -49,7 +61,8 @@ type Schedule struct {
 type Option struct {
 	RoundID, ProviderID int64
 	Position, Votes     int
-	Kind, Label         string
+	Kind                OptionKind
+	Label               string
 }
 
 type Movie struct {
@@ -70,17 +83,31 @@ type Recommendation struct {
 type Round struct {
 	ID, ChatID, SlotAt, OpenedAt, ClosesAt, NextAttempt int64
 	PollMessageID, PublishStage                         int
-	Feature, State, PollID, Winner, ResultText          string
+	Feature                                             Feature
+	State                                               State
+	PollID, Winner, ResultText                          string
 	ErrorCode, Page2State                               string
 	Options                                             []Option
 }
 
+type SettingsView struct {
+	Schedules []Schedule
+	Rounds    []Round
+}
+
+type Summary struct {
+	Feature Feature
+	Winner  string
+	Movies  []Recommendation
+	NoVotes bool
+}
+
 type DeliveryError struct {
-	Kind  string
+	Kind  DeliveryKind
 	After time.Duration
 }
 
-func (e *DeliveryError) Error() string { return "movie delivery: " + e.Kind }
+func (e *DeliveryError) Error() string { return "movie delivery: " + string(e.Kind) }
 
 type Catalog interface {
 	Discover(ctx context.Context, genreID int64, page, minVotes int) ([]Movie, error)

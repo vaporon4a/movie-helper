@@ -13,6 +13,11 @@ const Meme = "meme"
 const Fact = "fact"
 const MaxPreparationAttempts = 6
 
+const (
+	FetchTimeout   = 4 * time.Minute
+	PreviewTimeout = FetchTimeout + 30*time.Second
+)
+
 var ErrDuplicate = errors.New("operation already processed")
 var ErrConflict = errors.New("item unavailable or state changed")
 
@@ -41,6 +46,13 @@ type SendError struct {
 	Kind  string // retry (explicit rejection), forbidden, permanent, unknown
 	After time.Duration
 }
+
+type PreviewError struct {
+	Code   string
+	Status int
+}
+
+func (e *PreviewError) Error() string { return "preview: " + e.Code }
 
 func (e *SendError) Error() string { return "delivery: " + e.Kind }
 
