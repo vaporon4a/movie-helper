@@ -107,7 +107,17 @@ func (s *Store) SetZone(ctx context.Context, op, chat int64, zone string, now ti
 		if _, err := tx.ExecContext(ctx, "UPDATE chats SET zone=? WHERE chat_id=?", zone, chat); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, "UPDATE schedules SET effective=? WHERE chat_id=?", now.Unix(), chat)
+		if _, err := tx.ExecContext(ctx, "UPDATE schedules SET effective=? WHERE chat_id=?", now.Unix(), chat); err != nil {
+			return err
+		}
+		exists, err := tableExists(ctx, tx, "movie_poll_schedules")
+		if err != nil || !exists {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE movie_rounds SET state='cancelled',error_code='timezone_changed' WHERE chat_id=? AND state='planned'", chat); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE movie_poll_schedules SET effective=? WHERE chat_id=?", now.Unix(), chat)
 		return err
 	})
 }
@@ -143,9 +153,24 @@ func (s *Store) Suspend(ctx context.Context, chat int64) error {
 		if _, err := tx.ExecContext(ctx, "UPDATE schedules SET enabled=0 WHERE chat_id=?", chat); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, "UPDATE chats SET active=0 WHERE chat_id=?", chat)
+		exists, err := tableExists(ctx, tx, "movie_poll_schedules")
+		if err != nil {
+			return err
+		}
+		if exists {
+			if _, err = tx.ExecContext(ctx, "UPDATE movie_poll_schedules SET enabled=0 WHERE chat_id=?", chat); err != nil {
+				return err
+			}
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE chats SET active=0 WHERE chat_id=?", chat)
 		return err
 	})
+}
+
+func tableExists(ctx context.Context, tx *sql.Tx, name string) (bool, error) {
+	var exists bool
+	err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?)", name).Scan(&exists)
+	return exists, err
 }
 func (s *Store) Resume(ctx context.Context, op, chat int64) error {
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
