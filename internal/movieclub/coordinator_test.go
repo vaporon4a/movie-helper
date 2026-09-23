@@ -41,7 +41,7 @@ func (referenceScenario) Winners(options []movieclub.Option, seed uint64) []movi
 	return movieclub.Winners(options, seed)
 }
 func (referenceScenario) Recommendations(context.Context, movieclub.Round, []movieclub.Option, time.Time) ([]movieclub.Recommendation, error) {
-	return []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 1, Title: "Похожий фильм", PosterPath: "/1.jpg"}, Page: 1, Relation: "similar"}}, nil
+	return []movieclub.Recommendation{{ID: 1, Title: "Похожий фильм", PosterPath: "/1.jpg", Page: 1, Relation: "similar"}}, nil
 }
 
 type fakeTransport struct {
@@ -185,12 +185,10 @@ func TestConcurrentCoordinatorTicksOpenOnePoll(t *testing.T) {
 	errorsOut := make(chan error, 2)
 	var workers sync.WaitGroup
 	for range 2 {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
+		workers.Go(func() {
 			<-start
 			errorsOut <- coordinator.Tick(ctx)
-		}()
+		})
 	}
 	close(start)
 	workers.Wait()

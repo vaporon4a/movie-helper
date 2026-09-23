@@ -14,7 +14,7 @@ func TestMovieSchedulesAllowEveryWeekdayAndCancelOnlyPlannedRound(t *testing.T) 
 	ctx := context.Background()
 	store := testStore(t)
 	setup(t, store, -1)
-	for weekday := 0; weekday < 7; weekday++ {
+	for weekday := range 7 {
 		must(t, store.SetMovieSchedule(ctx, int64(100+weekday), -1, weekday, "19:00", true, testNow))
 	}
 	schedules, err := store.MovieSchedules(ctx, -1)
@@ -51,13 +51,11 @@ func TestMovieRoundRejectsInvalidAndConcurrentTransitions(t *testing.T) {
 	errorsOut := make(chan error, 2)
 	var workers sync.WaitGroup
 	for range 2 {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
+		workers.Go(func() {
 			claimed, claimErr := store.ClaimMovieRound(ctx, roundID, movieclub.StatePlanned, movieclub.StatePollCreating, testNow)
 			results <- claimed
 			errorsOut <- claimErr
-		}()
+		})
 	}
 	workers.Wait()
 	close(results)

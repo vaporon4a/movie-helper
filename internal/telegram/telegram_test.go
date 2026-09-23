@@ -247,7 +247,7 @@ func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
 	}
 	movies := make([]movieclub.Recommendation, 10)
 	for i := range movies {
-		movies[i] = movieclub.Recommendation{Movie: movieclub.Movie{ID: int64(i + 1), Title: fmt.Sprintf("Фильм %d", i+1), PosterPath: fmt.Sprintf("/%d.jpg", i+1), Rating: 7}}
+		movies[i] = movieclub.Recommendation{ID: int64(i + 1), Title: fmt.Sprintf("Фильм %d", i+1), PosterPath: fmt.Sprintf("/%d.jpg", i+1), Rating: 7}
 	}
 	if _, err := sender.SendMovies(context.Background(), -1, movies); err != nil {
 		t.Fatal(err)

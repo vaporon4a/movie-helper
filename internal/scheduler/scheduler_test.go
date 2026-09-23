@@ -208,12 +208,10 @@ func TestConcurrentTicksPublishOnce(t *testing.T) {
 	errorsOut := make(chan error, 2)
 	var workers sync.WaitGroup
 	for range 2 {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
+		workers.Go(func() {
 			<-start
 			errorsOut <- s.Tick(context.Background())
-		}()
+		})
 	}
 	close(start)
 	workers.Wait()
