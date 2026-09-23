@@ -50,7 +50,7 @@ type fakeTransport struct {
 	openErr                   error
 }
 
-func (f *fakeTransport) OpenPoll(_ context.Context, _ int64, _ movieclub.Feature, labels []string, _ time.Time) (string, int, error) {
+func (f *fakeTransport) OpenPoll(_ context.Context, _ int64, _ movieclub.Feature, labels []string) (string, int, error) {
 	f.opened++
 	if f.openErr != nil {
 		return "", 0, f.openErr

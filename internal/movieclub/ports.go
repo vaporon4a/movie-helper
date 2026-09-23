@@ -38,7 +38,7 @@ type RecommendationHistory interface {
 }
 
 type Transport interface {
-	OpenPoll(context.Context, int64, Feature, []string, time.Time) (string, int, error)
+	OpenPoll(context.Context, int64, Feature, []string) (string, int, error)
 	ClosePoll(context.Context, int64, int) ([]int, error)
 	SendSummary(context.Context, int64, Summary, int64, bool) (int, error)
 	SendMovies(context.Context, int64, []Recommendation) ([]int, error)

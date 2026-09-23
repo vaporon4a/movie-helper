@@ -24,23 +24,16 @@ func NewMovieSender(api API, posterURL func(string) string) (MovieSender, error)
 	return MovieSender{api: api, posterURL: posterURL}, nil
 }
 
-func (s MovieSender) OpenPoll(ctx context.Context, chat int64, feature movieclub.Feature, labels []string, closes time.Time) (string, int, error) {
+func (s MovieSender) OpenPoll(ctx context.Context, chat int64, feature movieclub.Feature, labels []string) (string, int, error) {
 	options := make([]models.InputPollOption, len(labels))
 	for i, label := range labels {
 		options[i] = models.InputPollOption{Text: label}
 	}
 	anonymous := true
-	closeDate := 0
-	untilClose := time.Until(closes)
-	// Telegram accepts automatic poll closing only 5-600 seconds ahead.
-	// Longer movieclub polls are closed by the persistent scheduler.
-	if untilClose >= 5*time.Second && untilClose <= 10*time.Minute {
-		closeDate = int(closes.Unix())
-	}
 	question, description := moviePollCopy(feature)
 	message, err := s.api.SendPoll(ctx, &bot.SendPollParams{
 		ChatID: chat, Question: question, Options: options,
-		IsAnonymous: &anonymous, Type: "regular", AllowsRevoting: true, CloseDate: closeDate,
+		IsAnonymous: &anonymous, Type: "regular", AllowsRevoting: true,
 		Description: description,
 	})
 	if err != nil {

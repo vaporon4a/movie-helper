@@ -227,7 +227,7 @@ func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
 		t.Fatal(err)
 	}
 	labels := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
-	if _, _, err = sender.OpenPoll(context.Background(), -1, movieclub.Genre, labels, time.Now().Add(time.Hour)); err != nil {
+	if _, _, err = sender.OpenPoll(context.Background(), -1, movieclub.Genre, labels); err != nil {
 		t.Fatal(err)
 	}
 	if len(api.polls) != 1 || api.polls[0].IsAnonymous == nil || !*api.polls[0].IsAnonymous || !api.polls[0].AllowsRevoting {
@@ -236,7 +236,10 @@ func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
 	if api.polls[0].Question != "Какой жанр выбираем для следующего киновечера?" {
 		t.Fatalf("genre question = %q", api.polls[0].Question)
 	}
-	if _, _, err = sender.OpenPoll(context.Background(), -1, movieclub.Reference, labels, time.Now().Add(time.Hour)); err != nil {
+	if api.polls[0].CloseDate != 0 {
+		t.Fatalf("poll has Telegram auto-close %d; coordinator must own closing", api.polls[0].CloseDate)
+	}
+	if _, _, err = sender.OpenPoll(context.Background(), -1, movieclub.Reference, labels); err != nil {
 		t.Fatal(err)
 	}
 	if api.polls[1].Question != "На какой известный фильм ориентируемся?" {

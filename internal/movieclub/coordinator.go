@@ -141,7 +141,7 @@ func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time)
 		labels[i] = option.Label
 	}
 	closes := time.Unix(round.ClosesAt, 0)
-	pollID, messageID, sendErr := c.telegram.OpenPoll(ctx, round.ChatID, round.Feature, labels, closes)
+	pollID, messageID, sendErr := c.telegram.OpenPoll(ctx, round.ChatID, round.Feature, labels)
 	if sendErr != nil {
 		return c.handleFailure(ctx, round, StatePollCreating, sendErr, now)
 	}
