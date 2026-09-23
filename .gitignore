@@ -45,3 +45,5 @@ go.work.sum
 __pycache__/
 *.pyc
 /deploy/runtime.env
+/deploy/rclone.conf
+/secrets/

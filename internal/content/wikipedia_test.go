@@ -62,7 +62,7 @@ func TestWikipediaPreviewsAndRetriesRotateTitles(t *testing.T) {
 	defer srv.Close()
 	w := &Wikipedia{HTTP: srv.Client(), Endpoint: srv.URL, Titles: []string{"a", "b", "c", "d", "e", "f"}}
 	for _, chat := range []int64{-1, -2} {
-		for cycle := 0; cycle < 2; cycle++ {
+		for range 2 {
 			titles = nil
 			_, _ = w.Articles(context.Background(), chat, history{})
 			_, _ = w.Articles(context.Background(), chat, history{})

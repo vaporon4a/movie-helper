@@ -1,0 +1,10 @@
+/opt/movie-helper/backup.log {
+    daily
+    rotate 7
+    maxsize 1M
+    compress
+    missingok
+    notifempty
+    create 0600 movie-helper-deploy movie-helper-deploy
+    su movie-helper-deploy movie-helper-deploy
+}

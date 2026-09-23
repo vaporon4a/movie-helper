@@ -62,16 +62,13 @@ func (f *Fallback) Fact(ctx context.Context, articles []gemini.Article) (*daily.
 
 // Only emit codes created by our adapters, never upstream bodies or URLs.
 func failureReason(err error) string {
-	var validation *ai.ValidationError
-	if errors.As(err, &validation) {
+	if validation, ok := errors.AsType[*ai.ValidationError](err); ok {
 		return "invalid_selection:" + validation.Reason
 	}
-	var g *gemini.HTTPError
-	if errors.As(err, &g) {
+	if g, ok := errors.AsType[*gemini.HTTPError](err); ok {
 		return fmt.Sprintf("http_%d", g.Status)
 	}
-	var q *groq.HTTPError
-	if errors.As(err, &q) {
+	if q, ok := errors.AsType[*groq.HTTPError](err); ok {
 		return fmt.Sprintf("http_%d", q.Status)
 	}
 	if errors.Is(err, ai.ErrDailyLimit) {

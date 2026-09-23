@@ -1,0 +1,4 @@
+# Server timezone is UTC: 01:00 UTC = 04:00 Europe/Moscow.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+0 1 * * * movie-helper-deploy /usr/bin/python3 /opt/movie-helper/backup-tools/scheduled_backup.py >> /opt/movie-helper/backup.log 2>&1

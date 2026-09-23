@@ -83,7 +83,7 @@ def container():
 def backup(cid, destination):
     with destination.open('xb') as out, gzip.GzipFile(fileobj=out, mode='wb') as gz:
         proc = subprocess.Popen(['docker', 'cp', cid + ':/data/.', '-'], stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL)
+                                stderr=subprocess.DEVNULL, cwd=destination.parent)
         try:
             while block := proc.stdout.read(1024 * 1024):
                 gz.write(block)

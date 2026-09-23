@@ -407,8 +407,7 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, u *models.Update) {
 	h.reply(ctx, chat, "Готово. Изменения расписания действуют со следующего будущего времени публикации.")
 }
 func previewError(err error) (string, string) {
-	var validation *ai.ValidationError
-	if errors.As(err, &validation) {
+	if _, ok := errors.AsType[*ai.ValidationError](err); ok {
 		return "AI вернул неполный или противоречивый результат проверки. Материал не опубликован. Попробуйте ещё раз.", "invalid_ai_selection"
 	}
 	if errors.Is(err, gemini.ErrDailyLimit) {

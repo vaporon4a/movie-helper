@@ -115,6 +115,15 @@ class DeploymentTests(unittest.TestCase):
         self.assertNotIn(['docker', 'start', 'old-container'], self.calls)
         self.assertTrue((self.release / 'previous.txt').exists())
 
+    def test_backup_runs_docker_cp_from_writable_destination_directory(self):
+        destination = self.base / 'backups' / 'snapshot.tar.gz'
+        destination.parent.mkdir()
+        process = self.enterContext(patch('subprocess.Popen'))
+        process.return_value.stdout.read.return_value = b''
+        process.return_value.wait.return_value = 0
+        remote.backup('bot', destination)
+        self.assertEqual(process.call_args.kwargs['cwd'], destination.parent)
+
 
 if __name__ == '__main__':
     unittest.main()

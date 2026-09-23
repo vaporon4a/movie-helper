@@ -23,13 +23,15 @@ func (r reviewCache) RejectMeme(_ context.Context, scope, key string, _ time.Tim
 	r[scope+key] = true
 	return nil
 }
-func index(n int) *int { return &n }
+
+//go:fix inline
+func index(n int) *int { return new(n) }
 func decision(reason string) Selection {
 	n := -1
 	if reason == "accepted" {
 		n = 0
 	}
-	return Selection{Index: &n, Reviews: []Review{{Index: index(0), Reason: reason, Detail: "Краткая причина"}}}
+	return Selection{Index: &n, Reviews: []Review{{Index: new(0), Reason: reason, Detail: "Краткая причина"}}}
 }
 
 func TestMemeBatchesCacheAndFailures(t *testing.T) {
@@ -74,18 +76,18 @@ func TestMemeBatchesCacheAndFailures(t *testing.T) {
 
 func TestMemeReviewValidationFailsClosed(t *testing.T) {
 	for _, s := range []Selection{
-		{Index: index(0)},
-		{Index: index(0), Reviews: decision("unsuitable").Reviews},
-		{Index: index(-1), Reviews: decision("accepted").Reviews},
-		{Index: index(0), Reviews: []Review{{Index: index(1), Reason: "accepted", Detail: "ok"}}},
-		{Index: index(-1), Reviews: []Review{{Index: index(0), Reason: "invented", Detail: "ok"}}},
-		{Index: index(-1), Reviews: []Review{{Index: nil, Reason: "not_meme", Detail: "ok"}}},
+		{Index: new(0)},
+		{Index: new(0), Reviews: decision("unsuitable").Reviews},
+		{Index: new(-1), Reviews: decision("accepted").Reviews},
+		{Index: new(0), Reviews: []Review{{Index: new(1), Reason: "accepted", Detail: "ok"}}},
+		{Index: new(-1), Reviews: []Review{{Index: new(0), Reason: "invented", Detail: "ok"}}},
+		{Index: new(-1), Reviews: []Review{{Index: nil, Reason: "not_meme", Detail: "ok"}}},
 	} {
 		if validateReviews(s, 1) == nil {
 			t.Fatal("invalid review accepted", s)
 		}
 	}
-	s := Selection{Index: index(-1), Reviews: []Review{{Index: index(0), Reason: "not_meme", Detail: "ok"}, {Index: index(0), Reason: "not_meme", Detail: "ok"}}}
+	s := Selection{Index: new(-1), Reviews: []Review{{Index: new(0), Reason: "not_meme", Detail: "ok"}, {Index: new(0), Reason: "not_meme", Detail: "ok"}}}
 	if validateReviews(s, 2) == nil {
 		t.Fatal("duplicate index accepted")
 	}
