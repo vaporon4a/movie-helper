@@ -62,7 +62,7 @@ func run() error {
 	if *provider == "gemini" {
 		key, model = os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_MODEL")
 		if model == "" {
-			model = "gemini-3.6-flash"
+			model = "gemini-3.8-flash"
 		}
 	} else if *provider != "groq" {
 		return errors.New("unknown provider")
