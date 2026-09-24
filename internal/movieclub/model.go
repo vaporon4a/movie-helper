@@ -12,12 +12,15 @@ type State string
 type DeliveryKind string
 type ResolveAction string
 type OptionKind string
+type DiscoverSort string
 
 const (
 	Genre       Feature    = "genre"
 	Reference   Feature    = "reference"
 	OptionGenre OptionKind = "genre"
 	OptionMovie OptionKind = "movie"
+
+	DiscoverByRating DiscoverSort = "vote_average.desc"
 
 	DeliveryRetry     DeliveryKind = "retry"
 	DeliveryForbidden DeliveryKind = "forbidden"
@@ -102,6 +105,14 @@ type Summary struct {
 	NoVotes bool
 }
 
+type DiscoverQuery struct {
+	GenreID        int64
+	Page, MinVotes int
+	FromDate       time.Time
+	ToDate         time.Time
+	Sort           DiscoverSort
+}
+
 type DeliveryError struct {
 	Kind  DeliveryKind
 	After time.Duration
@@ -110,6 +121,6 @@ type DeliveryError struct {
 func (e *DeliveryError) Error() string { return "movie delivery: " + string(e.Kind) }
 
 type Catalog interface {
-	Discover(ctx context.Context, genreID int64, page, minVotes int) ([]Movie, error)
+	Discover(context.Context, DiscoverQuery) ([]Movie, error)
 	PosterURL(path string) string
 }

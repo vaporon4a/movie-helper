@@ -16,11 +16,11 @@ import (
 
 type fakeCatalog struct{}
 
-func (fakeCatalog) Discover(_ context.Context, genreID int64, page, _ int) ([]movieclub.Movie, error) {
+func (fakeCatalog) Discover(_ context.Context, query movieclub.DiscoverQuery) ([]movieclub.Movie, error) {
 	movies := make([]movieclub.Movie, 10)
 	for i := range movies {
-		id := genreID*1000 + int64(page*10+i)
-		movies[i] = movieclub.Movie{ID: id, Title: fmt.Sprintf("Фильм %d", id), Overview: "Краткое описание", PosterPath: fmt.Sprintf("/%d.jpg", id), Year: 2024, VoteCount: 500, Rating: 7.5, Popularity: 100 - float64(i)}
+		id := query.GenreID*10_000_000 + int64(query.FromDate.Year()*100+i)
+		movies[i] = movieclub.Movie{ID: id, Title: fmt.Sprintf("Фильм %d", id), Overview: "Краткое описание", PosterPath: fmt.Sprintf("/%d.jpg", id), Year: query.FromDate.Year(), VoteCount: 500, Rating: 7.5, Popularity: 100 - float64(i)}
 	}
 	return movies, nil
 }

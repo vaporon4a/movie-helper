@@ -266,7 +266,7 @@ func TestSelectionSummaryUsesFeatureCopy(t *testing.T) {
 
 type testCatalog struct{}
 
-func (testCatalog) Discover(context.Context, int64, int, int) ([]movieclub.Movie, error) {
+func (testCatalog) Discover(context.Context, movieclub.DiscoverQuery) ([]movieclub.Movie, error) {
 	return nil, nil
 }
 func (testCatalog) PosterURL(path string) string { return "https://img.example" + path }

@@ -46,20 +46,23 @@ type movieResult struct {
 	Popularity  float64 `json:"popularity"`
 }
 
-func (c *Client) Discover(ctx context.Context, genreID int64, page, minVotes int) ([]movieclub.Movie, error) {
-	if genreID <= 0 || page < 1 || page > 500 || minVotes < 0 {
+func (c *Client) Discover(ctx context.Context, query movieclub.DiscoverQuery) ([]movieclub.Movie, error) {
+	if query.GenreID <= 0 || query.Page < 1 || query.Page > 500 || query.MinVotes < 0 ||
+		query.FromDate.Year() < 1870 || query.ToDate.Year() > 3000 || query.ToDate.Before(query.FromDate) ||
+		query.Sort != movieclub.DiscoverByRating {
 		return nil, errors.New("invalid discover parameters")
 	}
 	q := url.Values{
-		"language":         {"ru-RU"},
-		"region":           {"RU"},
-		"include_adult":    {"false"},
-		"include_video":    {"false"},
-		"sort_by":          {"popularity.desc"},
-		"vote_average.gte": {"6"},
-		"vote_count.gte":   {strconv.Itoa(minVotes)},
-		"with_genres":      {strconv.FormatInt(genreID, 10)},
-		"page":             {strconv.Itoa(page)},
+		"language":                 {"ru-RU"},
+		"include_adult":            {"false"},
+		"include_video":            {"false"},
+		"sort_by":                  {string(query.Sort)},
+		"vote_average.gte":         {"6"},
+		"vote_count.gte":           {strconv.Itoa(query.MinVotes)},
+		"with_genres":              {strconv.FormatInt(query.GenreID, 10)},
+		"primary_release_date.gte": {query.FromDate.Format(time.DateOnly)},
+		"primary_release_date.lte": {query.ToDate.Format(time.DateOnly)},
+		"page":                     {strconv.Itoa(query.Page)},
 	}
 	var payload struct {
 		Results []movieResult `json:"results"`
