@@ -14,6 +14,7 @@ import (
 
 type API interface {
 	SendMessage(context.Context, *bot.SendMessageParams) (*models.Message, error)
+	EditMessageText(context.Context, *bot.EditMessageTextParams) (*models.Message, error)
 	SendPhoto(context.Context, *bot.SendPhotoParams) (*models.Message, error)
 	SendPoll(context.Context, *bot.SendPollParams) (*models.Message, error)
 	StopPoll(context.Context, *bot.StopPollParams) (*models.Poll, error)
@@ -49,7 +50,7 @@ type MovieClub interface {
 	PauseSchedules(context.Context, int64, int64) error
 	Settings(context.Context, int64) (movieclub.SettingsView, error)
 	PollClosed(context.Context, string, []int) error
-	More(context.Context, int64, int64) error
+	More(context.Context, int64, int64) (movieclub.Summary, error)
 	Resolve(context.Context, int64, int64, int64, movieclub.ResolveAction) error
 }
 

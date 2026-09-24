@@ -20,6 +20,7 @@ import (
 
 type fakeAPI struct {
 	messages            []*bot.SendMessageParams
+	edits               []*bot.EditMessageTextParams
 	photos              []*bot.SendPhotoParams
 	polls               []*bot.SendPollParams
 	stops               []*bot.StopPollParams
@@ -33,6 +34,33 @@ type testDailyApp struct {
 	provider daily.Provider
 }
 
+type movieClubStub struct {
+	summary       movieclub.Summary
+	err           error
+	chat, roundID int64
+	calls         int
+}
+
+func (*movieClubStub) Start(context.Context, int64, int64, time.Duration) (int64, error) {
+	return 0, nil
+}
+func (*movieClubStub) SetSchedule(context.Context, int64, int64, int, string, bool) error {
+	return nil
+}
+func (*movieClubStub) PauseSchedules(context.Context, int64, int64) error { return nil }
+func (*movieClubStub) Settings(context.Context, int64) (movieclub.SettingsView, error) {
+	return movieclub.SettingsView{}, nil
+}
+func (*movieClubStub) PollClosed(context.Context, string, []int) error { return nil }
+func (s *movieClubStub) More(_ context.Context, chat, roundID int64) (movieclub.Summary, error) {
+	s.calls++
+	s.chat, s.roundID = chat, roundID
+	return s.summary, s.err
+}
+func (*movieClubStub) Resolve(context.Context, int64, int64, int64, movieclub.ResolveAction) error {
+	return nil
+}
+
 func (a *testDailyApp) Candidates(ctx context.Context, kind string, chatID int64) ([]daily.Item, error) {
 	if a.provider == nil {
 		return nil, daily.ErrProviderDisabled
@@ -43,6 +71,10 @@ func (a *testDailyApp) Candidates(ctx context.Context, kind string, chatID int64
 func (a *fakeAPI) SendMessage(_ context.Context, p *bot.SendMessageParams) (*models.Message, error) {
 	a.messages = append(a.messages, p)
 	return &models.Message{ID: 99}, a.errorSend
+}
+func (a *fakeAPI) EditMessageText(_ context.Context, p *bot.EditMessageTextParams) (*models.Message, error) {
+	a.edits = append(a.edits, p)
+	return &models.Message{ID: p.MessageID}, a.errorSend
 }
 func (a *fakeAPI) SendPhoto(_ context.Context, p *bot.SendPhotoParams) (*models.Message, error) {
 	a.photos = append(a.photos, p)
@@ -247,7 +279,14 @@ func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
 	}
 	movies := make([]movieclub.Recommendation, 10)
 	for i := range movies {
-		movies[i] = movieclub.Recommendation{ID: int64(i + 1), Title: fmt.Sprintf("Фильм %d", i+1), PosterPath: fmt.Sprintf("/%d.jpg", i+1), Rating: 7}
+		movies[i] = movieclub.Recommendation{Movie: movieclub.Movie{ID: int64(i + 1), Title: fmt.Sprintf("Фильм %d", i+1), PosterPath: fmt.Sprintf("/%d.jpg", i+1), Rating: 7}}
+	}
+	if _, err = sender.SendSummary(context.Background(), -1, movieclub.Summary{Feature: movieclub.Genre, Winner: "Ужасы", Movies: movies, Total: 20}, 7, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.messages) != 1 || api.messages[0].ParseMode != models.ParseModeHTML ||
+		!strings.Contains(api.messages[0].Text, "10 из 20 фильмов") || api.messages[0].ReplyMarkup == nil {
+		t.Fatalf("summary message=%#v", api.messages)
 	}
 	if _, err := sender.SendMovies(context.Background(), -1, movies); err != nil {
 		t.Fatal(err)
@@ -259,8 +298,60 @@ func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
 
 func TestSelectionSummaryUsesFeatureCopy(t *testing.T) {
 	summary := movieclub.Summary{Feature: movieclub.Reference, Winner: "Матрица"}
-	if got := selectionSummary(summary); !strings.HasPrefix(got, "🎬 Фильм-ориентир: Матрица") {
+	if got := selectionSummary(summary, false); !strings.HasPrefix(got, "🎬 <b>Фильм-ориентир: Матрица</b>") {
 		t.Fatalf("summary = %q", got)
+	}
+}
+
+func TestMovieMoreEditsOriginalSummaryWithoutSendingAgain(t *testing.T) {
+	h, api := handler(t)
+	movies := make([]movieclub.Recommendation, 20)
+	for i := range movies {
+		movies[i] = movieclub.Recommendation{Movie: movieclub.Movie{
+			ID: int64(i + 1), Title: fmt.Sprintf("Фильм <%d> & друзья", i+1), Year: 1980 + i, Rating: 7.1,
+		}}
+	}
+	stub := &movieClubStub{summary: movieclub.Summary{Feature: movieclub.Genre, Winner: "Ужасы & мистика", Movies: movies, Total: 20}}
+	h.MovieClub = stub
+	message := &models.Message{ID: 321, Chat: models.Chat{ID: -1}}
+	h.Handle(context.Background(), nil, &models.Update{CallbackQuery: &models.CallbackQuery{
+		ID: "more", From: models.User{ID: 7}, Data: "movie_more:42", Message: models.MaybeInaccessibleMessage{Message: message},
+	}})
+	if stub.calls != 1 || stub.chat != -1 || stub.roundID != 42 {
+		t.Fatalf("more calls=%d chat=%d round=%d", stub.calls, stub.chat, stub.roundID)
+	}
+	if len(api.edits) != 1 {
+		t.Fatalf("edits=%d", len(api.edits))
+	}
+	edit := api.edits[0]
+	if edit.MessageID != 321 || edit.ChatID != int64(-1) || edit.ParseMode != models.ParseModeHTML {
+		t.Fatalf("edit=%#v", edit)
+	}
+	if edit.LinkPreviewOptions == nil || edit.LinkPreviewOptions.IsDisabled == nil || !*edit.LinkPreviewOptions.IsDisabled {
+		t.Fatal("link preview is enabled")
+	}
+	keyboard, ok := edit.ReplyMarkup.(*models.InlineKeyboardMarkup)
+	if !ok || len(keyboard.InlineKeyboard) != 0 {
+		t.Fatalf("reply markup=%#v", edit.ReplyMarkup)
+	}
+	if !strings.Contains(edit.Text, "20 фильмов разных эпох") || !strings.Contains(edit.Text, "20. ") ||
+		!strings.Contains(edit.Text, "Ужасы &amp; мистика") || strings.Contains(edit.Text, "Фильм <1>") ||
+		!strings.Contains(edit.Text, `href="https://www.themoviedb.org/movie/1"`) {
+		t.Fatalf("edited text=%q", edit.Text)
+	}
+}
+
+func TestSelectionSummaryKeepsTelegramMessageBounded(t *testing.T) {
+	movies := make([]movieclub.Recommendation, 20)
+	for i := range movies {
+		movies[i] = movieclub.Recommendation{Movie: movieclub.Movie{ID: int64(i + 1), Title: strings.Repeat("&", 300), Year: 2000 + i, Rating: 8}}
+	}
+	text := selectionSummary(movieclub.Summary{Feature: movieclub.Genre, Winner: "Драма", Movies: movies, Total: 20}, false)
+	if len([]rune(text)) > 4096 {
+		t.Fatalf("summary length=%d", len([]rune(text)))
+	}
+	if !strings.Contains(text, "…") {
+		t.Fatal("long titles were not shortened")
 	}
 }
 

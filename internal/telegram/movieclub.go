@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -70,11 +72,12 @@ func (s MovieSender) ClosePoll(ctx context.Context, chat int64, messageID int) (
 }
 
 func (s MovieSender) SendSummary(ctx context.Context, chat int64, summary movieclub.Summary, roundID int64, more bool) (int, error) {
-	params := &bot.SendMessageParams{ChatID: chat, Text: selectionSummary(summary)}
+	params := &bot.SendMessageParams{
+		ChatID: chat, Text: selectionSummary(summary, more), ParseMode: models.ParseModeHTML,
+		LinkPreviewOptions: disabledLinkPreview(),
+	}
 	if more {
-		params.ReplyMarkup = &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{{
-			Text: "Ещё 10 фильмов", CallbackData: fmt.Sprintf("movie_more:%d", roundID),
-		}}}}
+		params.ReplyMarkup = moreMoviesKeyboard(roundID)
 	}
 	message, err := s.api.SendMessage(ctx, params)
 	if err != nil {
@@ -138,30 +141,83 @@ func (s MovieSender) sendMovieAlbum(ctx context.Context, chat int64, media []mod
 	return ids, nil
 }
 
-func selectionSummary(summary movieclub.Summary) string {
+func selectionSummaryEdit(chat int64, messageID int, summary movieclub.Summary) *bot.EditMessageTextParams {
+	return &bot.EditMessageTextParams{
+		ChatID: chat, MessageID: messageID, Text: selectionSummary(summary, false), ParseMode: models.ParseModeHTML,
+		LinkPreviewOptions: disabledLinkPreview(),
+		ReplyMarkup:        &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{}},
+	}
+}
+
+func disabledLinkPreview() *models.LinkPreviewOptions {
+	disabled := true
+	return &models.LinkPreviewOptions{IsDisabled: &disabled}
+}
+
+func moreMoviesKeyboard(roundID int64) *models.InlineKeyboardMarkup {
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{{
+		Text: "Ещё 10 фильмов", CallbackData: fmt.Sprintf("movie_more:%d", roundID),
+	}}}}
+}
+
+func selectionSummary(summary movieclub.Summary, more bool) string {
+	for _, titleRunes := range []int{80, 60, 40, 24, 16} {
+		text := selectionSummaryWithTitleLimit(summary, more, titleRunes)
+		if utf8.RuneCountInString(text) <= 4096 {
+			return text
+		}
+	}
+	return selectionSummaryWithTitleLimit(summary, more, 8)
+}
+
+func selectionSummaryWithTitleLimit(summary movieclub.Summary, more bool, titleRunes int) string {
 	if summary.NoVotes {
 		return "Опрос завершён без голосов — подборки сегодня не будет."
 	}
-	title := "🎬 Победил жанр: "
+	winner := html.EscapeString(summary.Winner)
+	title := "🏆 <b>Победил жанр: " + winner + "</b>"
 	if summary.Feature == movieclub.Reference {
-		title = "🎬 Фильм-ориентир: "
+		title = "🎬 <b>Фильм-ориентир: " + winner + "</b>"
 	}
-	lines := []string{title + summary.Winner, ""}
+	total := max(summary.Total, len(summary.Movies))
+	count := fmt.Sprintf("🎞 %d фильмов разных эпох", total)
+	if more {
+		count = fmt.Sprintf("🎞 %d из %d фильмов", len(summary.Movies), total)
+	}
+	lines := []string{title, count, ""}
 	for i, movie := range summary.Movies {
-		if i == 10 {
-			break
-		}
-		year := ""
+		parts := []string{fmt.Sprintf("%d. %s", i+1, movieSummaryTitle(movie, titleRunes))}
 		if movie.Year != 0 {
-			year = fmt.Sprintf(" (%d)", movie.Year)
+			parts = append(parts, fmt.Sprintf("%d", movie.Year))
 		}
-		lines = append(lines, fmt.Sprintf("%d. %s%s — %.1f", i+1, movie.Title, year, movie.Rating))
+		parts = append(parts, fmt.Sprintf("⭐ %.1f", movie.Rating))
+		lines = append(lines, strings.Join(parts, " · "))
 	}
 	if len(summary.Movies) == 0 {
 		lines = append(lines, "TMDB не вернул подходящих фильмов.")
 	}
-	lines = append(lines, "", "Данные и изображения: TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.")
+	if more {
+		lines = append(lines, "", "Нажмите «Ещё 10 фильмов», чтобы открыть продолжение.")
+	}
+	lines = append(lines, "", `<i>Источник данных и постеров: <a href="https://www.themoviedb.org/">TMDB</a>`,
+		"This product uses the TMDB API but is not endorsed or certified by TMDB.</i>")
 	return strings.Join(lines, "\n")
+}
+
+func movieSummaryTitle(movie movieclub.Recommendation, limit int) string {
+	title := movie.Title
+	if title == "" {
+		title = "Без названия"
+	}
+	runes := []rune(title)
+	if len(runes) > limit {
+		title = string(runes[:limit-1]) + "…"
+	}
+	title = html.EscapeString(title)
+	if movie.ID <= 0 {
+		return title
+	}
+	return fmt.Sprintf(`<a href="https://www.themoviedb.org/movie/%d">%s</a>`, movie.ID, title)
 }
 
 func movieSettingsText(settings movieclub.SettingsView) string {

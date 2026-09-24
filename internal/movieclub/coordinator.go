@@ -257,8 +257,11 @@ func (c *Coordinator) publishRound(ctx context.Context, round Round, now time.Ti
 		return err
 	}
 	if round.PublishStage == 0 {
-		summary := Summary{Feature: round.Feature, Winner: round.Winner, Movies: page1, NoVotes: round.Winner == "" && len(page1) == 0}
-		if _, sendErr := c.telegram.SendSummary(ctx, round.ChatID, summary, round.ID, round.Page2State == "ready"); sendErr != nil {
+		summary, more, summaryErr := c.selectionSummary(ctx, round, page1)
+		if summaryErr != nil {
+			return summaryErr
+		}
+		if _, sendErr := c.telegram.SendSummary(ctx, round.ChatID, summary, round.ID, more); sendErr != nil {
 			return c.handleFailure(ctx, round, StatePublishing, sendErr, now)
 		}
 		if err = c.store.SetMoviePublishStage(ctx, round.ID, 1, StatePublishing); err != nil {
@@ -276,6 +279,24 @@ func (c *Coordinator) publishRound(ctx context.Context, round Round, now time.Ti
 	}
 	c.log.Info("movieclub selection published", "round_id", round.ID, "chat_id", round.ChatID, "movies", len(page1))
 	return nil
+}
+
+func (c *Coordinator) selectionSummary(ctx context.Context, round Round, page1 []Recommendation) (Summary, bool, error) {
+	total := len(page1)
+	more := false
+	if round.Page2State == "ready" {
+		page2, err := c.store.MovieRecommendations(ctx, round.ID, 2)
+		if err != nil {
+			return Summary{}, false, err
+		}
+		total += len(page2)
+		more = len(page2) > 0
+	}
+	summary := Summary{
+		Feature: round.Feature, Winner: round.Winner, Movies: page1, Total: total,
+		NoVotes: round.Winner == "" && len(page1) == 0,
+	}
+	return summary, more, nil
 }
 
 func (c *Coordinator) handleFailure(ctx context.Context, round Round, from State, err error, now time.Time) error {

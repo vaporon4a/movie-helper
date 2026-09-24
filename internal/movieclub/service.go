@@ -74,18 +74,31 @@ func (s *Service) PollClosed(ctx context.Context, pollID string, votes []int) er
 	return err
 }
 
-func (s *Service) More(ctx context.Context, chatID, roundID int64) error {
+func (s *Service) More(ctx context.Context, chatID, roundID int64) (Summary, error) {
+	round, err := s.store.MovieRound(ctx, chatID, roundID)
+	if err != nil {
+		return Summary{}, err
+	}
+	if round.State != StatePublished || round.Page2State == "none" {
+		return Summary{}, ErrConflict
+	}
+	if round.Page2State == "sent" {
+		return s.fullSummary(ctx, round)
+	}
+	if round.Page2State != "ready" {
+		return Summary{}, ErrConflict
+	}
 	claimed, err := s.store.ClaimMoviePage2(ctx, chatID, roundID)
 	if err != nil || !claimed {
 		if err == nil {
 			err = ErrConflict
 		}
-		return err
+		return Summary{}, err
 	}
 	movies, err := s.store.MovieRecommendations(ctx, roundID, 2)
 	if err != nil {
 		_ = s.store.FinishMoviePage2(context.WithoutCancel(ctx), chatID, roundID, "ready")
-		return err
+		return Summary{}, err
 	}
 	_, err = s.telegram.SendMovies(ctx, chatID, movies)
 	state := "sent"
@@ -95,9 +108,28 @@ func (s *Service) More(ctx context.Context, chatID, roundID int64) error {
 	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if saveErr := s.store.FinishMoviePage2(persist, chatID, roundID, state); saveErr != nil {
-		return saveErr
+		return Summary{}, saveErr
 	}
-	return err
+	if err != nil {
+		return Summary{}, err
+	}
+	round.Page2State = "sent"
+	return s.fullSummary(ctx, round)
+}
+
+func (s *Service) fullSummary(ctx context.Context, round Round) (Summary, error) {
+	page1, err := s.store.MovieRecommendations(ctx, round.ID, 1)
+	if err != nil {
+		return Summary{}, err
+	}
+	page2, err := s.store.MovieRecommendations(ctx, round.ID, 2)
+	if err != nil {
+		return Summary{}, err
+	}
+	movies := make([]Recommendation, 0, len(page1)+len(page2))
+	movies = append(movies, page1...)
+	movies = append(movies, page2...)
+	return Summary{Feature: round.Feature, Winner: round.Winner, Movies: movies, Total: len(movies)}, nil
 }
 
 func (s *Service) Resolve(ctx context.Context, operationID, chatID, roundID int64, action ResolveAction) error {

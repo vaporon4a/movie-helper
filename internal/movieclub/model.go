@@ -102,6 +102,7 @@ type Summary struct {
 	Feature Feature
 	Winner  string
 	Movies  []Recommendation
+	Total   int
 	NoVotes bool
 }
 

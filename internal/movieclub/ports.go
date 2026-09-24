@@ -11,6 +11,7 @@ type ServiceRepository interface {
 	MovieSchedules(context.Context, int64) ([]Schedule, error)
 	StartMovieRound(context.Context, Feature, int64, int64, time.Time, time.Duration, []Option) (int64, error)
 	LatestMovieRounds(context.Context, int64) ([]Round, error)
+	MovieRound(context.Context, int64, int64) (Round, error)
 	SaveMoviePollByID(context.Context, string, []int) error
 	MovieRecommendations(context.Context, int64, int) ([]Recommendation, error)
 	ClaimMoviePage2(context.Context, int64, int64) (bool, error)

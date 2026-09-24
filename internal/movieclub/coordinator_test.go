@@ -2,6 +2,7 @@ package movieclub_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -117,16 +118,39 @@ func TestCoordinatorPersistsPollSelectionAndSecondPage(t *testing.T) {
 	if transport.closed != 1 || transport.summaries != 1 || len(transport.pages) != 1 || len(transport.pages[0]) != 10 {
 		t.Fatalf("transport = %#v", transport)
 	}
-	if err = service.More(ctx, -200, roundID); err == nil {
+	if _, err = service.More(ctx, -200, roundID); err == nil {
 		t.Fatal("another chat claimed second page")
 	}
-	if err = service.More(ctx, chat, roundID); err != nil {
-		t.Fatal(err)
+	results := make(chan error, 2)
+	var moreWorkers sync.WaitGroup
+	for range 2 {
+		moreWorkers.Go(func() {
+			_, moreErr := service.More(ctx, chat, roundID)
+			results <- moreErr
+		})
+	}
+	moreWorkers.Wait()
+	close(results)
+	succeeded := 0
+	for moreErr := range results {
+		if moreErr == nil {
+			succeeded++
+			continue
+		}
+		if !errors.Is(moreErr, movieclub.ErrConflict) {
+			t.Fatal(moreErr)
+		}
+	}
+	if succeeded == 0 {
+		t.Fatal("no concurrent request completed")
 	}
 	if len(transport.pages) != 2 || len(transport.pages[1]) != 10 {
 		t.Fatalf("second page = %#v", transport.pages)
 	}
-	if err = service.More(ctx, chat, roundID); err == nil {
+	if summary, moreErr := service.More(ctx, chat, roundID); moreErr != nil || len(summary.Movies) != 20 {
+		t.Fatalf("idempotent summary = %#v, err=%v", summary, moreErr)
+	}
+	if len(transport.pages) != 2 {
 		t.Fatal("second page sent twice")
 	}
 }

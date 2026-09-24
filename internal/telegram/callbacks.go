@@ -20,13 +20,7 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 	}
 	_, _ = h.API.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{CallbackQueryID: query.ID})
 	if raw, ok := strings.CutPrefix(query.Data, "movie_more:"); ok {
-		roundID, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || h.MovieClub == nil {
-			return
-		}
-		if err = h.MovieClub.More(ctx, message.Chat.ID, roundID); err != nil {
-			h.reply(ctx, message.Chat.ID, "Дополнительная подборка уже отправлена или сейчас недоступна.")
-		}
+		h.movieMore(ctx, message, raw)
 		return
 	}
 	if !h.admin(ctx, message.Chat.ID, query.From.ID) {
@@ -47,4 +41,19 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 		return
 	}
 	h.reply(ctx, message.Chat.ID, "Решение сохранено.")
+}
+
+func (h *Handler) movieMore(ctx context.Context, message *models.Message, rawRoundID string) {
+	roundID, err := strconv.ParseInt(rawRoundID, 10, 64)
+	if err != nil || h.MovieClub == nil {
+		return
+	}
+	summary, err := h.MovieClub.More(ctx, message.Chat.ID, roundID)
+	if err != nil {
+		h.reply(ctx, message.Chat.ID, "Дополнительная подборка уже отправлена или сейчас недоступна.")
+		return
+	}
+	if _, err = h.API.EditMessageText(ctx, selectionSummaryEdit(message.Chat.ID, message.ID, summary)); err != nil {
+		h.reply(ctx, message.Chat.ID, "Фильмы отправлены, но список не обновился. Нажмите кнопку ещё раз.")
+	}
 }
