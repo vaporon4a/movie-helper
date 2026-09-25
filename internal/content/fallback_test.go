@@ -21,6 +21,13 @@ type fakeEditor struct {
 func (e *fakeEditor) SelectMeme(ctx context.Context, _ []daily.Item) (*daily.Item, error) {
 	return e.selectItem(ctx)
 }
+func (e *fakeEditor) SelectMemes(ctx context.Context, _ []daily.Item, _ int) ([]daily.Item, error) {
+	item, err := e.selectItem(ctx)
+	if err != nil || item == nil {
+		return nil, err
+	}
+	return []daily.Item{*item}, nil
+}
 func (e *fakeEditor) Fact(ctx context.Context, _ []gemini.Article) (*daily.Item, error) {
 	return e.selectItem(ctx)
 }

@@ -25,7 +25,7 @@ import (
 )
 
 type editor interface {
-	SelectMeme(context.Context, []daily.Item) (*daily.Item, error)
+	SelectMemes(context.Context, []daily.Item, int) ([]daily.Item, error)
 }
 type measuredTransport struct{ base http.RoundTripper }
 
@@ -98,7 +98,7 @@ func run() error {
 	} else {
 		subs := os.Getenv("MEME_SUBREDDITS")
 		if subs == "" {
-			subs = "RUSSIANMemeSub"
+			subs = "RUSSIANMemeSub,Pikabu,expectedrussians"
 		}
 		client := &meme.Client{HTTP: h, BaseURL: "https://meme-api.com", Subreddits: strings.Split(subs, ",")}
 		items, err = client.Candidates(ctx)
@@ -123,17 +123,20 @@ func run() error {
 	slog.Info("diagnostic start", "provider", *provider, "model", model, "candidates", len(items))
 	attempt, cancelAttempt := context.WithTimeout(ctx, selectionTimeout)
 	defer cancelAttempt()
-	item, err := ed.SelectMeme(attempt, items)
+	selected, err := ed.SelectMemes(attempt, items, 3)
 	if err != nil {
 		if errors.Is(err, ai.ErrDailyLimit) {
 			return fmt.Errorf("diagnostic daily budget exhausted for %s", *provider)
 		}
 		return err
 	}
-	if item == nil {
+	if len(selected) == 0 {
 		slog.Info("diagnostic complete", "selected", false)
 	} else {
-		slog.Info("diagnostic complete", "selected", true, "source", item.Source, "image", item.Image)
+		for n, item := range selected {
+			slog.Info("diagnostic selected", "position", n+1, "source", item.Source, "image", item.Image)
+		}
+		slog.Info("diagnostic complete", "selected", true, "approved", len(selected))
 	}
 	return nil
 }

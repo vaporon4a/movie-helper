@@ -61,8 +61,19 @@ func TestImageRestrictionsAndActualCandidateSelection(t *testing.T) {
 	if _, err := c.image(context.Background(), items[0].Image); err == nil {
 		t.Fatal("redirect accepted")
 	}
-	c.HTTP.Transport = transport(func(*http.Request) (*http.Response, error) { return response(200, strings.Repeat("x", (2<<20)+1)), nil })
+	c.HTTP.Transport = transport(func(*http.Request) (*http.Response, error) {
+		return response(200, strings.Repeat("x", maxSourceImageBytes+1)), nil
+	})
 	if _, err := c.image(context.Background(), items[0].Image); err == nil {
 		t.Fatal("large image accepted")
+	}
+	c.HTTP.Transport = transport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "preview.redd.it" {
+			t.Fatal(r.URL)
+		}
+		return response(200, string(imageBytes)), nil
+	})
+	if _, err := c.image(context.Background(), "https://preview.redd.it/a.png?width=1080&crop=smart&auto=webp&s=signature"); err != nil {
+		t.Fatal("preview rejected", err)
 	}
 }

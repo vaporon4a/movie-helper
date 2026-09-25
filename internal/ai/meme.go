@@ -14,7 +14,9 @@ import (
 
 // Version the scope when the selection policy changes. Only public-source
 // rejections are shared across chats; chat publication history stays separate.
-const MemeReviewVersion = "meme-v2"
+const MemeReviewVersion = "meme-v3"
+
+const memeImageScope = "image:" + MemeReviewVersion
 
 type Review struct {
 	Index  *int   `json:"index"`
@@ -27,12 +29,23 @@ type ReviewCache interface {
 	RejectMeme(context.Context, string, string, time.Time) error
 }
 
-const memeInstruction = `Ты редактор утренней рубрики для русскоязычного дружеского киноклуба. Оцени сами картинки, включая текст на них. Выбери понятный без дополнительного контекста смешной мем, лучше о кино или повседневной жизни. Исключи рекламу, политическую агитацию, порнографию, жестокость, унижение групп людей, спойлеры и посты-вопросы без шутки. Не выбирай мем только за заголовок.
-Верни JSON с полями index, text, evidence, reviews. index — номер выбранного кандидата с нуля или -1, если ни один не подходит. text и evidence — пустые строки. reviews — объект с ОДНОЙ записью для КАЖДОГО кандидата: ключ — его номер строкой ("0", "1" и так далее), значение — объект с полями reason и detail. Не используй массив и не повторяй записи. reason: accepted (подходит), unreadable_text (текст картинки не удаётся прочитать), context_required (непонятно без внешнего контекста), not_meme (нет шутки), unsuitable (нарушает перечисленные ограничения), low_humor (понятно, но не смешно). detail — краткая конкретная причина по-русски, до 100 символов. У выбранного кандидата reason обязан быть accepted. Если есть accepted, выбери одного из них; -1 допустим только когда все отклонены.`
+const memeInstruction = `Ты редактор утренней рубрики для русскоязычного дружеского киноклуба. Оцени сами картинки, включая текст на них. Отметь accepted у каждого понятного без дополнительного контекста смешного мема, лучше о кино или повседневной жизни, и выбери лучший из них. Исключи рекламу, политическую агитацию, порнографию, жестокость, унижение групп людей, спойлеры и посты-вопросы без шутки. Не выбирай мем только за заголовок.
+Верни JSON с полями index, text, evidence, reviews. index — номер лучшего принятого кандидата с нуля или -1, если ни один не подходит. text и evidence — пустые строки. reviews — объект с ОДНОЙ записью для КАЖДОГО кандидата: ключ — его номер строкой ("0", "1" и так далее), значение — объект с полями reason и detail. Не используй массив и не повторяй записи. reason: accepted (подходит), unreadable_text (текст картинки не удаётся прочитать), context_required (непонятно без внешнего контекста), not_meme (нет шутки), unsuitable (нарушает перечисленные ограничения), low_humor (понятно, но не смешно). detail — краткая конкретная причина по-русски, до 100 символов. У выбранного кандидата reason обязан быть accepted. Можно отметить accepted несколько кандидатов; index должен указывать на лучший. Если есть accepted, выбери одного из них; -1 допустим только когда все отклонены.`
 
 func (c *Editor) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Item, error) {
+	items, err := c.SelectMemes(ctx, items, 1)
+	if err != nil || len(items) == 0 {
+		return nil, err
+	}
+	return &items[0], nil
+}
+
+func (c *Editor) SelectMemes(ctx context.Context, items []daily.Item, limit int) ([]daily.Item, error) {
 	if c.MaxImages <= 0 {
 		return nil, errors.New("invalid image batch size")
+	}
+	if limit <= 0 {
+		return nil, errors.New("invalid approved meme limit")
 	}
 	maxBatches := c.MaxBatches
 	if maxBatches <= 0 {
@@ -47,16 +60,28 @@ func (c *Editor) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Ite
 		log = slog.Default()
 	}
 	next := 0
+	approved := make([]daily.Item, 0, limit)
 	for batch := 0; batch < maxBatches && next < len(items); batch++ {
 		var choices []daily.Item
-		parts := []Part{{Text: "Выбери один мем из пронумерованных кандидатов."}}
+		parts := []Part{{Text: "Оцени пронумерованные мемы, отметь все подходящие и выбери лучший."}}
 		for next < len(items) && len(choices) < c.MaxImages {
 			if err := ctx.Err(); err != nil {
+				if len(approved) > 0 {
+					return approved, nil
+				}
 				return nil, err
 			}
 			i := items[next]
 			next++
 			if c.Reviews != nil {
+				unusable, err := c.Reviews.MemeRejected(ctx, memeImageScope, i.Key, now())
+				if err != nil {
+					return nil, errors.New("meme image cache unavailable")
+				}
+				if unusable {
+					log.Info("meme image skipped", "scope", c.Scope, "source", i.Key, "reason", "technical_cache")
+					continue
+				}
 				rejected, err := c.Reviews.MemeRejected(ctx, c.Scope, i.Key, now())
 				if err != nil {
 					return nil, errors.New("meme review cache unavailable")
@@ -65,19 +90,44 @@ func (c *Editor) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Ite
 					continue
 				}
 			}
-			media, err := c.image(ctx, i.Image)
+			analysisURL := i.AnalysisImage
+			if analysisURL == "" {
+				analysisURL = i.Image
+			}
+			media, err := c.image(ctx, analysisURL)
+			if err != nil && i.AnalysisImage != "" && analysisURL != i.Image && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				log.Info("meme preview unavailable", "scope", c.Scope, "source", i.Key, "reason", imageFailureCode(err))
+				media, err = c.image(ctx, i.Image)
+			}
 			if err != nil {
-				log.Info("meme image skipped", "scope", c.Scope, "source", i.Key)
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					if len(approved) > 0 {
+						return approved, nil
+					}
+					return nil, err
+				}
+				failure, _ := errors.AsType[*imageFailure](err)
+				reason := imageFailureCode(err)
+				log.Info("meme image skipped", "scope", c.Scope, "source", i.Key, "reason", reason)
+				if failure != nil && failure.cacheable && c.Reviews != nil {
+					if cacheErr := c.Reviews.RejectMeme(ctx, memeImageScope, i.Key, now()); cacheErr != nil {
+						return nil, errors.New("cannot save meme image rejection")
+					}
+				}
 				continue
 			}
 			parts = append(parts, Part{Text: fmt.Sprintf("Кандидат %d, заголовок: %s", len(choices), i.Text)}, Part{Inline: media})
 			choices = append(choices, i)
 		}
 		if len(choices) == 0 {
-			return nil, ctx.Err()
+			return approved, ctx.Err()
 		}
 		result, err := c.Generator.Generate(ctx, memeInstruction, parts)
 		if err != nil {
+			if len(approved) > 0 {
+				log.Warn("meme reserve refill failed", "scope", c.Scope, "reason", "generator_failed")
+				return approved, nil
+			}
 			return nil, err
 		}
 		if err := validateReviews(result, len(choices)); err != nil {
@@ -93,10 +143,25 @@ func (c *Editor) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Ite
 			}
 		}
 		if *result.Index >= 0 {
-			return &choices[*result.Index], nil
+			approved = append(approved, choices[*result.Index])
+		}
+		for _, review := range result.Reviews {
+			if review.Reason == "accepted" && *review.Index != *result.Index {
+				approved = append(approved, choices[*review.Index])
+			}
+		}
+		if len(approved) >= limit {
+			return approved[:limit], nil
 		}
 	}
-	return nil, nil
+	return approved, nil
+}
+
+func imageFailureCode(err error) string {
+	if failure, ok := errors.AsType[*imageFailure](err); ok {
+		return failure.code
+	}
+	return "image_processing_failed"
 }
 
 func validateReviews(s Selection, count int) error {

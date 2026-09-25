@@ -57,7 +57,7 @@ func TestPreparationClaimRecoveryAndPersistence(t *testing.T) {
 	if !ok {
 		t.Fatal("retry never became due")
 	}
-	must(t, s.DeferPreparation(ctx, id, when.Add(15*time.Minute)))
+	must(t, s.DeferPreparation(ctx, id, when.Add(15*time.Minute), "source_unavailable"))
 	must(t, s.Recover(ctx))
 	rows, err = s.Preparing(ctx)
 	must(t, err)
@@ -66,7 +66,7 @@ func TestPreparationClaimRecoveryAndPersistence(t *testing.T) {
 	}
 	// Pausing wins over a result/deferral from an in-flight request.
 	must(t, s.SetSchedule(ctx, 777, -1, daily.Fact, "09:00", false, when))
-	must(t, s.DeferPreparation(ctx, id, when.Add(time.Hour)))
+	must(t, s.DeferPreparation(ctx, id, when.Add(time.Hour), "source_unavailable"))
 	rows, err = s.Preparing(ctx)
 	must(t, err)
 	if len(rows) != 0 {

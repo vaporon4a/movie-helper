@@ -20,10 +20,10 @@ type Repository interface {
 	Reserve(context.Context, daily.Schedule, string, int64, int64) (int64, error)
 	Preparing(context.Context) ([]daily.Delivery, error)
 	ClaimPreparation(context.Context, int64, time.Time) (bool, error)
-	DeferPreparation(context.Context, int64, time.Time) error
+	DeferPreparation(context.Context, int64, time.Time, string) error
 	HasApproved(context.Context, int64, string) (bool, error)
 	Seen(context.Context, int64, string, string) (bool, error)
-	Attach(context.Context, int64, *daily.Item, time.Time) error
+	Attach(context.Context, int64, []daily.Item, time.Time) error
 	Pending(context.Context) ([]daily.Delivery, error)
 	Claim(context.Context, int64, time.Time) (bool, error)
 	Finish(context.Context, int64, string, int, int64) error
@@ -140,7 +140,7 @@ func (s *Scheduler) prepareDue(ctx context.Context) error {
 func (s *Scheduler) prepareIfDue(ctx context.Context, delivery daily.Delivery) error {
 	now := s.Now()
 	if !s.Allowed[delivery.ChatID] || now.Unix() >= delivery.Deadline || delivery.FetchAttempts >= daily.MaxPreparationAttempts {
-		return s.Store.DeferPreparation(ctx, delivery.ID, time.Time{})
+		return s.Store.DeferPreparation(ctx, delivery.ID, time.Time{}, "preparation_window_exhausted")
 	}
 	if now.Unix() < delivery.NextAttempt {
 		return nil
@@ -247,30 +247,35 @@ func preparationDelay(attempt int) time.Duration {
 
 func (s *Scheduler) prepare(ctx context.Context, d daily.Delivery) (err error) {
 	finished := false
+	reason := "preparation_failed"
 	defer func() {
 		if finished {
 			return
 		}
-		if deferErr := s.deferPreparation(ctx, d); deferErr != nil {
+		if deferErr := s.deferPreparation(ctx, d, reason); deferErr != nil {
 			err = deferErr
 		}
 	}()
-	candidate, approved, err := s.preparationCandidate(ctx, d)
+	candidates, approved, failure, err := s.preparationCandidates(ctx, d)
+	if failure != "" {
+		reason = failure
+	}
 	if err != nil {
 		return err
 	}
-	if !approved && candidate == nil {
+	if !approved && len(candidates) == 0 {
 		return nil
 	}
-	if e := s.Store.Attach(ctx, d.ID, candidate, s.Now()); e != nil {
+	if e := s.Store.Attach(ctx, d.ID, candidates, s.Now()); e != nil {
 		s.Log.Warn("slot preparation stopped", "delivery_id", d.ID)
+		reason = "storage_attach_failed"
 		return nil
 	}
 	finished = true
 	return nil
 }
 
-func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Delivery) error {
+func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Delivery, reason string) error {
 	delay := preparationDelay(delivery.FetchAttempts + 1)
 	next := s.Now().Add(delay)
 	if delay == 0 || next.Unix() >= delivery.Deadline {
@@ -278,33 +283,51 @@ func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Deliver
 	}
 	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.Store.DeferPreparation(persist, delivery.ID, next); err != nil {
+	if err := s.Store.DeferPreparation(persist, delivery.ID, next, reason); err != nil {
 		return err
 	}
-	s.Log.Info("content preparation deferred", "delivery_id", delivery.ID, "attempt", delivery.FetchAttempts+1, "retry", !next.IsZero(), "next_attempt", next)
+	s.Log.Info("content preparation deferred", "delivery_id", delivery.ID, "attempt", delivery.FetchAttempts+1, "retry", !next.IsZero(), "next_attempt", next, "reason", reason)
 	return nil
 }
 
-func (s *Scheduler) preparationCandidate(ctx context.Context, delivery daily.Delivery) (*daily.Item, bool, error) {
+func (s *Scheduler) preparationCandidates(ctx context.Context, delivery daily.Delivery) ([]daily.Item, bool, string, error) {
 	approved, err := s.Store.HasApproved(ctx, delivery.ChatID, delivery.Kind)
 	if err != nil || approved || s.Provider == nil {
-		return nil, approved, err
+		reason := ""
+		if err != nil {
+			reason = "storage_check_failed"
+		} else if s.Provider == nil && !approved {
+			reason = "provider_disabled"
+		}
+		return nil, approved, reason, err
 	}
 	fetchCtx, cancel := context.WithTimeout(ctx, daily.FetchTimeout)
 	candidates, err := s.Provider.Candidates(fetchCtx, delivery.Kind, delivery.ChatID)
 	cancel()
 	if err != nil {
-		s.Log.Warn("content source unavailable", "chat_id", delivery.ChatID, "kind", delivery.Kind)
-		return nil, false, nil
+		reason := preparationErrorCode(err)
+		s.Log.Warn("content source unavailable", "chat_id", delivery.ChatID, "kind", delivery.Kind, "reason", reason)
+		return nil, false, reason, nil
 	}
+	var unseen []daily.Item
 	for _, candidate := range candidates {
 		seen, seenErr := s.Store.Seen(ctx, delivery.ChatID, delivery.Kind, candidate.Key)
 		if seenErr != nil {
-			return nil, false, seenErr
+			return nil, false, "storage_history_failed", seenErr
 		}
 		if !seen {
-			return &candidate, false, nil
+			unseen = append(unseen, candidate)
 		}
 	}
-	return nil, false, nil
+	if len(unseen) == 0 {
+		return nil, false, "no_approved_candidate", nil
+	}
+	return unseen, false, "", nil
+}
+
+func preparationErrorCode(err error) string {
+	if problem, ok := errors.AsType[*daily.PreviewError](err); ok && problem.Code != "" {
+		return problem.Code
+	}
+	return "source_unavailable"
 }

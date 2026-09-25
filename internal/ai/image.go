@@ -13,14 +13,25 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path"
+	"strconv"
+	"strings"
 
 	"golang.org/x/image/draw"
 )
 
+const maxSourceImageBytes = 8 << 20
+
+type imageFailure struct {
+	code      string
+	cacheable bool
+}
+
+func (e *imageFailure) Error() string { return e.code }
+
 func (c *Editor) image(ctx context.Context, raw string) (*Inline, error) {
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host != "i.redd.it" || u.User != nil {
-		return nil, errors.New("unsupported image host")
+	if !validAnalysisURL(raw) {
+		return nil, &imageFailure{code: "unsupported_image_url", cacheable: true}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
@@ -30,20 +41,27 @@ func (c *Editor) image(ctx context.Context, raw string) (*Inline, error) {
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	r, err := client.Do(req)
 	if err != nil {
-		return nil, errors.New("image unavailable")
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, &imageFailure{code: "image_unavailable"}
 	}
 	defer r.Body.Close()
 	if r.StatusCode != 200 {
-		return nil, errors.New("image status")
+		cacheable := r.StatusCode >= 400 && r.StatusCode < 500 && r.StatusCode != http.StatusRequestTimeout && r.StatusCode != http.StatusTooManyRequests
+		return nil, &imageFailure{code: "image_status_" + strconv.Itoa(r.StatusCode), cacheable: cacheable}
 	}
-	data, err := io.ReadAll(io.LimitReader(r.Body, (2<<20)+1))
-	if err != nil || len(data) > 2<<20 {
-		return nil, errors.New("image too large")
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxSourceImageBytes+1))
+	if err != nil {
+		return nil, &imageFailure{code: "image_read_failed"}
+	}
+	if len(data) > maxSourceImageBytes {
+		return nil, &imageFailure{code: "image_too_large", cacheable: true}
 	}
 	originalBytes := len(data)
 	data, mime, width, height, err := analysisImage(data)
 	if err != nil {
-		return nil, err
+		return nil, &imageFailure{code: err.Error(), cacheable: true}
 	}
 	log := c.Log
 	if log == nil {
@@ -51,6 +69,36 @@ func (c *Editor) image(ctx context.Context, raw string) (*Inline, error) {
 	}
 	log.Info("meme analysis image", "scope", c.Scope, "original_bytes", originalBytes, "analysis_bytes", len(data), "width", width, "height", height)
 	return &Inline{MIME: mime, Data: base64.StdEncoding.EncodeToString(data)}, nil
+}
+
+func validAnalysisURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" {
+		return false
+	}
+	ext := strings.ToLower(path.Ext(u.Path))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+		return false
+	}
+	if u.Host == "i.redd.it" {
+		return u.RawQuery == ""
+	}
+	if u.Host != "preview.redd.it" {
+		return false
+	}
+	q := u.Query()
+	for key, values := range q {
+		if len(values) != 1 {
+			return false
+		}
+		switch key {
+		case "width", "crop", "auto", "s":
+		default:
+			return false
+		}
+	}
+	width, err := strconv.Atoi(q.Get("width"))
+	return err == nil && width >= 1 && width <= 1920 && q.Get("s") != ""
 }
 
 func analysisImage(data []byte) ([]byte, string, int, int, error) {

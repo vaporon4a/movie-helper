@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -23,19 +24,20 @@ type Client struct {
 	Subreddits []string
 }
 type post struct {
-	Title   string `json:"title"`
-	URL     string `json:"url"`
-	Link    string `json:"postLink"`
-	NSFW    bool   `json:"nsfw"`
-	Spoiler bool   `json:"spoiler"`
-	Ups     int    `json:"ups"`
+	Title   string   `json:"title"`
+	URL     string   `json:"url"`
+	Link    string   `json:"postLink"`
+	Preview []string `json:"preview"`
+	NSFW    bool     `json:"nsfw"`
+	Spoiler bool     `json:"spoiler"`
+	Ups     int      `json:"ups"`
 }
 
 func (c *Client) Candidates(ctx context.Context) ([]daily.Item, error) {
 	var posts []post
 	var lastErr error
 	for _, sub := range c.Subreddits {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/gimme/"+url.PathEscape(sub)+"/10", nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/gimme/"+url.PathEscape(sub)+"/50", nil)
 		if err != nil {
 			return nil, errors.New("invalid meme endpoint")
 		}
@@ -75,12 +77,43 @@ func (c *Client) Candidates(ctx context.Context) ([]daily.Item, error) {
 		if len(title) > 160 {
 			title = title[:160]
 		}
-		out = append(out, daily.Item{Kind: daily.Meme, Text: string(title), Image: p.URL, Source: p.Link, Key: "reddit:" + p.Link})
+		out = append(out, daily.Item{Kind: daily.Meme, Text: string(title), Image: p.URL, AnalysisImage: bestPreview(p.Preview), Source: p.Link, Key: "reddit:" + p.Link})
 	}
 	if len(out) == 0 && lastErr != nil {
 		return nil, lastErr
 	}
 	return out, nil
+}
+
+func bestPreview(previews []string) string {
+	best, bestWidth := "", 0
+	for _, raw := range previews {
+		if width, ok := previewWidth(raw); ok && width > bestWidth {
+			best, bestWidth = raw, width
+		}
+	}
+	return best
+}
+
+func previewWidth(raw string) (int, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host != "preview.redd.it" || u.User != nil || u.Fragment != "" {
+		return 0, false
+	}
+	ext := strings.ToLower(path.Ext(u.Path))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+		return 0, false
+	}
+	q := u.Query()
+	for key := range q {
+		switch key {
+		case "width", "crop", "auto", "s":
+		default:
+			return 0, false
+		}
+	}
+	width, err := strconv.Atoi(q.Get("width"))
+	return width, err == nil && width >= 1 && width <= 1920 && q.Get("s") != ""
 }
 func validImage(raw string) bool {
 	u, e := url.Parse(raw)

@@ -91,6 +91,107 @@ func TestMemeReviewValidationFailsClosed(t *testing.T) {
 	}
 }
 
+func TestSelectMemesReturnsChosenFirstAndKeepsOtherAccepted(t *testing.T) {
+	var fixture bytes.Buffer
+	if err := png.Encode(&fixture, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	items := []daily.Item{
+		{Key: "a", Image: "https://i.redd.it/a.png"},
+		{Key: "b", Image: "https://i.redd.it/b.png"},
+		{Key: "c", Image: "https://i.redd.it/c.png"},
+	}
+	cache := reviewCache{}
+	c := &Editor{
+		MaxImages: 3, MaxBatches: 1, Scope: "gemini:model:" + MemeReviewVersion, Reviews: cache,
+		HTTP: &http.Client{Transport: transport(func(*http.Request) (*http.Response, error) { return response(200, fixture.String()), nil })},
+		Generator: generatorFunc(func(context.Context, string, []Part) (Selection, error) {
+			selected := 1
+			return Selection{Index: &selected, Reviews: []Review{
+				{Index: new(0), Reason: "accepted", Detail: "подходит"},
+				{Index: new(1), Reason: "accepted", Detail: "лучший"},
+				{Index: new(2), Reason: "low_humor", Detail: "слабая шутка"},
+			}}, nil
+		}),
+	}
+	got, err := c.SelectMemes(context.Background(), items, 3)
+	if err != nil || len(got) != 2 || got[0].Key != "b" || got[1].Key != "a" {
+		t.Fatal(got, err)
+	}
+	if !cache[c.Scope+"c"] || cache[c.Scope+"a"] || cache[c.Scope+"b"] {
+		t.Fatal(cache)
+	}
+}
+
+func TestTechnicalImageFailureIsSharedAndCached(t *testing.T) {
+	cache := reviewCache{}
+	fetches := 0
+	c := &Editor{
+		MaxImages: 1, MaxBatches: 1, Scope: "gemini:model:" + MemeReviewVersion, Reviews: cache,
+		HTTP: &http.Client{Transport: transport(func(*http.Request) (*http.Response, error) {
+			fetches++
+			return response(200, string(make([]byte, maxSourceImageBytes+1))), nil
+		})},
+		Generator: generatorFunc(func(context.Context, string, []Part) (Selection, error) {
+			t.Fatal("generator called for invalid image")
+			return Selection{}, nil
+		}),
+	}
+	item := daily.Item{Key: "too-large", Image: "https://i.redd.it/large.png"}
+	for range 2 {
+		got, err := c.SelectMemes(context.Background(), []daily.Item{item}, 1)
+		if err != nil || len(got) != 0 {
+			t.Fatal(got, err)
+		}
+	}
+	if fetches != 1 || !cache[memeImageScope+item.Key] {
+		t.Fatal(fetches, cache)
+	}
+}
+
+func TestPreviewFallsBackToOriginalAndTransientFailureIsRetried(t *testing.T) {
+	var fixture bytes.Buffer
+	if err := png.Encode(&fixture, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	cache := reviewCache{}
+	fetches := 0
+	c := &Editor{
+		MaxImages: 1, MaxBatches: 1, Scope: "gemini:model:" + MemeReviewVersion, Reviews: cache,
+		HTTP: &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+			fetches++
+			if r.URL.Host == "preview.redd.it" {
+				return response(http.StatusNotFound, ""), nil
+			}
+			return response(http.StatusOK, fixture.String()), nil
+		})},
+		Generator: generatorFunc(func(context.Context, string, []Part) (Selection, error) { return decision("accepted"), nil }),
+	}
+	item := daily.Item{Key: "fallback", Image: "https://i.redd.it/fallback.png", AnalysisImage: "https://preview.redd.it/fallback.png?width=1080&s=signature"}
+	got, err := c.SelectMemes(context.Background(), []daily.Item{item}, 1)
+	if err != nil || len(got) != 1 || fetches != 2 || cache[memeImageScope+item.Key] {
+		t.Fatal(got, err, fetches, cache)
+	}
+
+	cache = reviewCache{}
+	fetches = 0
+	c.Reviews = cache
+	c.HTTP.Transport = transport(func(*http.Request) (*http.Response, error) {
+		fetches++
+		return nil, errors.New("temporary network failure")
+	})
+	item.AnalysisImage = ""
+	for range 2 {
+		got, err = c.SelectMemes(context.Background(), []daily.Item{item}, 1)
+		if err != nil || len(got) != 0 {
+			t.Fatal(got, err)
+		}
+	}
+	if fetches != 2 || cache[memeImageScope+item.Key] {
+		t.Fatal(fetches, cache)
+	}
+}
+
 func TestAnalysisImageResizesAndRejectsCorruptData(t *testing.T) {
 	var raw bytes.Buffer
 	if err := jpeg.Encode(&raw, image.NewRGBA(image.Rect(0, 0, 2560, 1280)), &jpeg.Options{Quality: 100}); err != nil {

@@ -36,11 +36,11 @@ func (s *Store) ClaimPreparation(ctx context.Context, id int64, now time.Time) (
 }
 
 // A zero next attempt ends preparation. Settings changes win over stale fetches.
-func (s *Store) DeferPreparation(ctx context.Context, id int64, next time.Time) error {
+func (s *Store) DeferPreparation(ctx context.Context, id int64, next time.Time, reason string) error {
 	state := "preparing"
 	if next.IsZero() {
 		state = "skipped"
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE deliveries SET state=?,next_attempt=?,fetch_claimed=0 WHERE id=? AND state='preparing'`, state, next.Unix(), id)
+	_, err := s.db.ExecContext(ctx, `UPDATE deliveries SET state=?,next_attempt=?,fetch_claimed=0,preparation_error=? WHERE id=? AND state='preparing'`, state, next.Unix(), reason, id)
 	return err
 }

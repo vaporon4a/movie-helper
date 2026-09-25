@@ -102,9 +102,16 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 }
 
 func (c *Client) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Item, error) {
+	selected, err := c.SelectMemes(ctx, items, 1)
+	if err != nil || len(selected) == 0 {
+		return nil, err
+	}
+	return &selected[0], nil
+}
+func (c *Client) SelectMemes(ctx context.Context, items []daily.Item, limit int) ([]daily.Item, error) {
 	// One image per batch leaves token headroom for a second candidate.
 	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 1}
-	return e.SelectMeme(ctx, items)
+	return e.SelectMemes(ctx, items, limit)
 }
 func (c *Client) Fact(ctx context.Context, articles []ai.Article) (*daily.Item, error) {
 	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 1}

@@ -51,6 +51,17 @@ func TestPreparationRetriesBothKindsAndSurvivesRestart(t *testing.T) {
 				if err != nil || len(rows) != 1 || rows[0].FetchAttempts != 1 || rows[0].NextAttempt != n.Add(5*time.Minute).Unix() {
 					t.Fatal(rows, err)
 				}
+				issues, err := storeOf(s).Issues(ctx, -1)
+				if err != nil || len(issues) != 1 {
+					t.Fatal(issues, err)
+				}
+				wantReason := "source_unavailable"
+				if empty {
+					wantReason = "no_approved_candidate"
+				}
+				if issues[0].Error != wantReason {
+					t.Fatal(issues[0])
+				}
 				// Startup recovery and a fresh scheduler preserve the retry deadline.
 				if err := storeOf(s).Recover(ctx); err != nil {
 					t.Fatal(err)

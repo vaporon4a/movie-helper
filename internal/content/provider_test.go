@@ -51,6 +51,15 @@ func (e editor) SelectMeme(_ context.Context, items []daily.Item) (*daily.Item, 
 	}
 	return &items[0], nil
 }
+func (e editor) SelectMemes(_ context.Context, items []daily.Item, limit int) ([]daily.Item, error) {
+	if e.reject || e.err != nil || len(items) == 0 {
+		return nil, e.err
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
 func (e editor) Fact(context.Context, []gemini.Article) (*daily.Item, error) { return nil, e.err }
 
 func TestAutomaticCandidatesRequireGeminiApproval(t *testing.T) {

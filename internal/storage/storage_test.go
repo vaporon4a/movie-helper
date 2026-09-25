@@ -157,6 +157,53 @@ func TestClaimRecoverAndResolve(t *testing.T) {
 		t.Fatal("requeue reused same local-day slot")
 	}
 }
+
+func TestAttachKeepsAutomaticReserve(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	setup(t, s, -1)
+	must(t, s.SetModeration(ctx, 99, -1, false, testNow))
+	id := reserve(t, s)
+	candidates := []daily.Item{
+		fact(-1, "auto:first"),
+		fact(-1, "auto:second"),
+		fact(-1, "auto:third"),
+	}
+	must(t, s.Attach(ctx, id, candidates, testNow))
+	pending, err := s.Pending(ctx)
+	must(t, err)
+	if len(pending) != 1 || pending[0].Item.Key != "auto:first" {
+		t.Fatal(pending)
+	}
+	queued, err := s.Queue(ctx, -1, 0)
+	must(t, err)
+	if len(queued) != 2 || queued[0].Key != "auto:second" || queued[1].Key != "auto:third" {
+		t.Fatal(queued)
+	}
+	approved, err := s.HasApproved(ctx, -1, daily.Fact)
+	must(t, err)
+	if !approved {
+		t.Fatal("automatic reserve was not retained")
+	}
+}
+
+func TestAttachManualModeQueuesEveryCandidate(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	setup(t, s, -1)
+	id := reserve(t, s)
+	must(t, s.Attach(ctx, id, []daily.Item{fact(-1, "manual:first"), fact(-1, "manual:second")}, testNow))
+	queued, err := s.Queue(ctx, -1, 0)
+	must(t, err)
+	if len(queued) != 2 || queued[0].State != "pending" || queued[1].State != "pending" {
+		t.Fatal(queued)
+	}
+	issues, err := s.Issues(ctx, -1)
+	must(t, err)
+	if len(issues) != 1 || issues[0].State != "skipped" || issues[0].Error != "manual_approval_required" {
+		t.Fatal(issues)
+	}
+}
 func TestSettingsCancelOnlyAffectedPending(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()

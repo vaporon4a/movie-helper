@@ -46,7 +46,7 @@ func Parse(get func(string) string) (Config, error) {
 
 	subs := get("MEME_SUBREDDITS")
 	if subs == "" {
-		subs = "RUSSIANMemeSub"
+		subs = "RUSSIANMemeSub,Pikabu,expectedrussians"
 	}
 	for sub := range strings.SplitSeq(subs, ",") {
 		sub = strings.TrimSpace(sub)

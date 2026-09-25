@@ -22,8 +22,8 @@ var ErrDuplicate = errors.New("operation already processed")
 var ErrConflict = errors.New("item unavailable or state changed")
 
 type Item struct {
-	ID, ChatID, AuthorID                  int64
-	Kind, Text, Source, Image, Key, State string
+	ID, ChatID, AuthorID                                 int64
+	Kind, Text, Source, Image, AnalysisImage, Key, State string
 }
 
 type Schedule struct {
@@ -37,7 +37,7 @@ type Schedule struct {
 type Delivery struct {
 	FetchAttempts                     int
 	ID, ChatID, Deadline, NextAttempt int64
-	Kind, Date, State                 string
+	Kind, Date, State, Error          string
 	Item                              Item
 }
 

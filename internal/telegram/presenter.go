@@ -77,7 +77,13 @@ func settingsText(schedules []daily.Schedule, issues []daily.Delivery, now time.
 	for _, delivery := range issues {
 		lines = append(lines, deliveryText(delivery, schedules, now))
 	}
-	lines = append(lines, "Источники: Reddit и Wikipedia. Автоматический отбор: Gemini с резервом Groq (если настроен).", "unknown: проверьте чат и выполните /resolve ID sent или /resolve ID requeue.")
+	lines = append(lines, "Источники: Reddit и Wikipedia. Автоматический отбор: Gemini с резервом Groq (если настроен).")
+	for _, delivery := range issues {
+		if delivery.State == "unknown" {
+			lines = append(lines, "unknown: проверьте чат и выполните /resolve ID sent или /resolve ID requeue.")
+			break
+		}
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -94,6 +100,12 @@ func scheduleText(schedule daily.Schedule) string {
 }
 
 func deliveryText(delivery daily.Delivery, schedules []daily.Schedule, now time.Time) string {
+	if delivery.State == "skipped" {
+		if delivery.Error == "manual_approval_required" {
+			return fmt.Sprintf("Подбор #%d: %s, материалы сохранены и ожидают ручного одобрения", delivery.ID, delivery.Kind)
+		}
+		return fmt.Sprintf("Подбор #%d: %s, пропущен после %d/%d попыток; причина: %s", delivery.ID, delivery.Kind, delivery.FetchAttempts, daily.MaxPreparationAttempts, preparationErrorText(delivery.Error))
+	}
 	if delivery.State != "preparing" {
 		return fmt.Sprintf("Доставка #%d: %s, %s, %s", delivery.ID, delivery.Kind, delivery.Date, delivery.State)
 	}
@@ -107,7 +119,42 @@ func deliveryText(delivery daily.Delivery, schedules []daily.Schedule, now time.
 		}
 		when = "следующая попытка в " + time.Unix(delivery.NextAttempt, 0).In(zone).Format("15:04 MST")
 	}
-	return fmt.Sprintf("Подбор #%d: %s, попыток %d/%d; %s", delivery.ID, delivery.Kind, delivery.FetchAttempts, daily.MaxPreparationAttempts, when)
+	line := fmt.Sprintf("Подбор #%d: %s, попыток %d/%d; %s", delivery.ID, delivery.Kind, delivery.FetchAttempts, daily.MaxPreparationAttempts, when)
+	if delivery.Error != "" {
+		line += "; причина: " + preparationErrorText(delivery.Error)
+	}
+	return line
+}
+
+func preparationErrorText(code string) string {
+	switch code {
+	case "no_approved_candidate":
+		return "AI не одобрил ни одного кандидата"
+	case "manual_approval_required":
+		return "материалы ожидают ручного одобрения"
+	case "provider_disabled":
+		return "источник или AI не настроен"
+	case "local_daily_limit":
+		return "исчерпан дневной лимит AI"
+	case "gemini_unavailable", "groq_unavailable":
+		return "AI временно недоступен"
+	case "gemini_quota", "groq_quota":
+		return "исчерпана квота AI"
+	case "gemini_access_denied", "groq_access_denied":
+		return "AI отклонил ключ доступа"
+	case "gemini_model_unavailable", "groq_model_unavailable":
+		return "указанная AI-модель недоступна"
+	case "invalid_ai_selection":
+		return "AI вернул неполный или противоречивый результат"
+	case "preparation_window_exhausted":
+		return "закончилось окно повторных попыток"
+	case "source_unavailable":
+		return "источник временно недоступен"
+	case "":
+		return "подходящий материал не найден"
+	default:
+		return "внутренняя ошибка подготовки материала"
+	}
 }
 
 func queueText(items []daily.Item) string {

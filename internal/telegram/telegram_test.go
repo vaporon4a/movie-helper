@@ -503,3 +503,19 @@ func TestPreviewErrorsExplainModelAccessAndQuotas(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsShowsPreparationReasonAndConditionalResolveHelp(t *testing.T) {
+	now := time.Date(2026, 9, 25, 5, 0, 0, 0, time.UTC)
+	schedules := []daily.Schedule{{Kind: daily.Meme, Clock: "08:27", Zone: "Asia/Novosibirsk", Enabled: true}}
+	issues := make([]daily.Delivery, 1, 2)
+	issues[0] = daily.Delivery{ID: 7, Kind: daily.Meme, State: "skipped", FetchAttempts: 6, Error: "no_approved_candidate"}
+	text := settingsText(schedules, issues, now)
+	if !strings.Contains(text, "пропущен после 6/6") || !strings.Contains(text, "AI не одобрил") || strings.Contains(text, "/resolve") {
+		t.Fatal(text)
+	}
+	issues = append(issues, daily.Delivery{ID: 8, Kind: daily.Fact, Date: "2026-09-25", State: "unknown"})
+	text = settingsText(schedules, issues, now)
+	if !strings.Contains(text, "unknown: проверьте чат") || !strings.Contains(text, "/resolve ID sent") {
+		t.Fatal(text)
+	}
+}

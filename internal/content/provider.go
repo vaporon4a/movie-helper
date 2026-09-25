@@ -15,7 +15,7 @@ type Memes interface {
 	Candidates(context.Context) ([]daily.Item, error)
 }
 type Editor interface {
-	SelectMeme(context.Context, []daily.Item) (*daily.Item, error)
+	SelectMemes(context.Context, []daily.Item, int) ([]daily.Item, error)
 	Fact(context.Context, []gemini.Article) (*daily.Item, error)
 }
 type History interface {
@@ -51,14 +51,11 @@ func (p *Provider) Candidates(ctx context.Context, kind string, chat int64) (ite
 				unseen = append(unseen, i)
 			}
 		}
-		i, err := p.Editor.SelectMeme(ctx, unseen)
+		selected, err := p.Editor.SelectMemes(ctx, unseen, 3)
 		if err != nil {
 			return nil, err
 		}
-		if i == nil {
-			return nil, nil
-		}
-		return []daily.Item{*i}, nil
+		return selected, nil
 	}
 	var articles []gemini.Article
 	if p.Facts != nil {

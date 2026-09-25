@@ -54,7 +54,43 @@ func (f *Fallback) selectItem(ctx context.Context, call func(context.Context, Ed
 	return nil, last
 }
 func (f *Fallback) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Item, error) {
-	return f.selectItem(ctx, func(ctx context.Context, e Editor) (*daily.Item, error) { return e.SelectMeme(ctx, items) })
+	selected, err := f.SelectMemes(ctx, items, 1)
+	if err != nil || len(selected) == 0 {
+		return nil, err
+	}
+	return &selected[0], nil
+}
+func (f *Fallback) SelectMemes(ctx context.Context, items []daily.Item, limit int) ([]daily.Item, error) {
+	var last error
+	for n, e := range []Editor{f.Primary, f.Secondary} {
+		if e == nil {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		timeout := f.PrimaryTimeout
+		if timeout <= 0 {
+			timeout = GeminiSelectionTimeout
+		}
+		if n == 1 {
+			timeout = f.SecondaryTimeout
+			if timeout <= 0 {
+				timeout = GroqSelectionTimeout
+			}
+		}
+		attempt, cancel := context.WithTimeout(ctx, timeout)
+		selected, err := e.SelectMemes(attempt, items, limit)
+		cancel()
+		if err == nil {
+			return selected, nil
+		}
+		last = err
+		if f.Log != nil {
+			f.Log.Warn("AI provider attempt failed", "provider", []string{"gemini", "groq"}[n], "reason", failureReason(err))
+		}
+	}
+	return nil, last
 }
 func (f *Fallback) Fact(ctx context.Context, articles []gemini.Article) (*daily.Item, error) {
 	return f.selectItem(ctx, func(ctx context.Context, e Editor) (*daily.Item, error) { return e.Fact(ctx, articles) })

@@ -324,7 +324,7 @@ func (s *Store) Reserve(ctx context.Context, sc daily.Schedule, date string, slo
 	})
 	return id, err
 }
-func (s *Store) Attach(ctx context.Context, id int64, candidate *daily.Item, now time.Time) error {
+func (s *Store) Attach(ctx context.Context, id int64, candidates []daily.Item, now time.Time) error {
 	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
 		var chat int64
 		var kind string
@@ -337,38 +337,47 @@ func (s *Store) Attach(ctx context.Context, id int64, candidate *daily.Item, now
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if errors.Is(err, sql.ErrNoRows) && candidate != nil {
-			i := *candidate
-			i.ChatID = chat
-			i.Kind = kind
-			if err = i.Validate(); err != nil {
-				return err
-			}
+		if errors.Is(err, sql.ErrNoRows) && len(candidates) > 0 {
 			state := "approved"
 			if moderation {
 				state = "pending"
 			}
-			r, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,ai_approved)
+			for _, candidate := range candidates {
+				i := candidate
+				i.ChatID = chat
+				i.Kind = kind
+				if err = i.Validate(); err != nil {
+					return err
+				}
+				r, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,ai_approved)
    VALUES(?,?,?,?,?,?,0,?,?,1)`, chat, kind, i.Text, i.Source, i.Image, i.Key, state, now.Unix())
-			if e != nil {
-				return e
-			}
-			n, _ := r.RowsAffected()
-			if n > 0 && !moderation {
-				item, e = r.LastInsertId()
 				if e != nil {
 					return e
+				}
+				n, e := r.RowsAffected()
+				if e != nil {
+					return e
+				}
+				if n > 0 && !moderation && item == 0 {
+					item, e = r.LastInsertId()
+					if e != nil {
+						return e
+					}
 				}
 			}
 		}
 		if item == 0 {
-			_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='skipped' WHERE id=?", id)
+			reason := "no_approved_candidate"
+			if moderation && len(candidates) > 0 {
+				reason = "manual_approval_required"
+			}
+			_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='skipped',preparation_error=?,fetch_claimed=0 WHERE id=?", reason, id)
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, "UPDATE items SET state='reserved' WHERE id=?", item); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='ready',item_id=?,next_attempt=0,fetch_claimed=0 WHERE id=?", item, id)
+		_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='ready',item_id=?,next_attempt=0,fetch_claimed=0,preparation_error='' WHERE id=?", item, id)
 		return err
 	})
 }
@@ -446,7 +455,7 @@ func (s *Store) Finish(ctx context.Context, id int64, state string, message int,
 	})
 }
 func (s *Store) Issues(ctx context.Context, chat int64) ([]daily.Delivery, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,kind,local_date,state,next_attempt,fetch_attempts FROM deliveries WHERE chat_id=? AND state IN ('unknown','failed','preparing','skipped') ORDER BY id DESC LIMIT 10`, chat)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,kind,local_date,state,next_attempt,fetch_attempts,preparation_error FROM deliveries WHERE chat_id=? AND state IN ('unknown','failed','preparing','skipped') ORDER BY id DESC LIMIT 10`, chat)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +464,7 @@ func (s *Store) Issues(ctx context.Context, chat int64) ([]daily.Delivery, error
 	for rows.Next() {
 		var d daily.Delivery
 		d.ChatID = chat
-		if err = rows.Scan(&d.ID, &d.Kind, &d.Date, &d.State, &d.NextAttempt, &d.FetchAttempts); err != nil {
+		if err = rows.Scan(&d.ID, &d.Kind, &d.Date, &d.State, &d.NextAttempt, &d.FetchAttempts, &d.Error); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
