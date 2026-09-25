@@ -134,8 +134,9 @@ type DiscoverQuery struct {
 }
 
 type DeliveryError struct {
-	Kind  DeliveryKind
-	After time.Duration
+	Kind   DeliveryKind
+	After  time.Duration
+	Reason string
 }
 
 func (e *DeliveryError) Error() string { return "movie delivery: " + string(e.Kind) }

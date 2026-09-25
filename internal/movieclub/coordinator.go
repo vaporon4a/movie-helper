@@ -352,7 +352,11 @@ func (c *Coordinator) handleFailure(ctx context.Context, round Round, from State
 			target, code = StateFailed, "telegram_rejected"
 		}
 	}
-	c.log.Warn("movieclub operation failed", "round_id", round.ID, "chat_id", round.ChatID, "from", from, "target", target, "reason", code)
+	detail := "unclassified"
+	if ok && typed.Reason != "" {
+		detail = typed.Reason
+	}
+	c.log.Warn("movieclub operation failed", "round_id", round.ID, "chat_id", round.ChatID, "from", from, "target", target, "reason", code, "detail", detail)
 	return c.store.DeferMovieRound(context.WithoutCancel(ctx), round.ID, from, target, next, code)
 }
 

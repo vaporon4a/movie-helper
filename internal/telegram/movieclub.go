@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -17,13 +18,17 @@ import (
 type MovieSender struct {
 	api       API
 	posterURL func(string) string
+	log       *slog.Logger
 }
 
-func NewMovieSender(api API, posterURL func(string) string) (MovieSender, error) {
+func NewMovieSender(api API, posterURL func(string) string, log *slog.Logger) (MovieSender, error) {
 	if api == nil || posterURL == nil {
 		return MovieSender{}, errMissingDependency
 	}
-	return MovieSender{api: api, posterURL: posterURL}, nil
+	if log == nil {
+		log = slog.Default()
+	}
+	return MovieSender{api: api, posterURL: posterURL, log: log}, nil
 }
 
 func (s MovieSender) OpenPoll(ctx context.Context, chat int64, feature movieclub.Feature, labels []string) (string, int, error) {
@@ -39,7 +44,9 @@ func (s MovieSender) OpenPoll(ctx context.Context, chat int64, feature movieclub
 		Description: description,
 	})
 	if err != nil {
-		return "", 0, classifyMovie(err)
+		classified := classifyMovie(err)
+		s.log.Warn("telegram movie delivery failed", "operation", "open_poll", "chat_id", chat, "feature", feature, "options", len(labels), "reason", deliveryReason(classified))
+		return "", 0, classified
 	}
 	if message == nil || message.Poll == nil || message.Poll.ID == "" {
 		return "", 0, &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown}
@@ -59,7 +66,9 @@ func moviePollCopy(feature movieclub.Feature) (string, string) {
 func (s MovieSender) ClosePoll(ctx context.Context, chat int64, messageID int) ([]int, error) {
 	poll, err := s.api.StopPoll(ctx, &bot.StopPollParams{ChatID: chat, MessageID: messageID})
 	if err != nil {
-		return nil, classifyMovie(err)
+		classified := classifyMovie(err)
+		s.log.Warn("telegram movie delivery failed", "operation", "close_poll", "chat_id", chat, "reason", deliveryReason(classified))
+		return nil, classified
 	}
 	if poll == nil {
 		return nil, &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown}
@@ -81,8 +90,9 @@ func (s MovieSender) SendSummary(ctx context.Context, chat int64, summary moviec
 		poster = s.posterURL(summary.Hero.PosterPath)
 	}
 	if summary.Feature == movieclub.Reference && poster != "" {
+		caption := selectionSummaryWithin(summary, more, 1024)
 		message, err := s.api.SendPhoto(ctx, &bot.SendPhotoParams{
-			ChatID: chat, Photo: &models.InputFileString{Data: poster}, Caption: selectionSummaryWithin(summary, more, 1024),
+			ChatID: chat, Photo: &models.InputFileString{Data: poster}, Caption: caption,
 			ParseMode: models.ParseModeHTML, ReplyMarkup: markup,
 		})
 		if err == nil && message != nil {
@@ -92,10 +102,13 @@ func (s MovieSender) SendSummary(ctx context.Context, chat int64, summary moviec
 			return 0, &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown}
 		}
 		classified := classifyMovie(err)
+		s.log.Warn("telegram movie delivery failed", "operation", "winner_poster", "round_id", roundID, "chat_id", chat,
+			"reason", deliveryReason(classified), "caption_runes", utf8.RuneCountInString(caption))
 		typed, permanent := errors.AsType[*movieclub.DeliveryError](classified)
 		if !permanent || typed.Kind != movieclub.DeliveryPermanent {
 			return 0, classified
 		}
+		s.log.Info("telegram movie delivery fallback", "operation", "winner_summary_text", "round_id", roundID, "chat_id", chat)
 	}
 	params := &bot.SendMessageParams{
 		ChatID: chat, Text: selectionSummary(summary, more), ParseMode: models.ParseModeHTML,
@@ -104,7 +117,10 @@ func (s MovieSender) SendSummary(ctx context.Context, chat int64, summary moviec
 	}
 	message, err := s.api.SendMessage(ctx, params)
 	if err != nil {
-		return 0, classifyMovie(err)
+		classified := classifyMovie(err)
+		s.log.Warn("telegram movie delivery failed", "operation", "summary_text", "round_id", roundID, "chat_id", chat,
+			"reason", deliveryReason(classified), "text_runes", utf8.RuneCountInString(params.Text))
+		return 0, classified
 	}
 	if message == nil {
 		return 0, &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown}
@@ -138,7 +154,10 @@ func (s MovieSender) movieMedia(movies []movieclub.Recommendation) []models.Inpu
 func (s MovieSender) sendMoviePhoto(ctx context.Context, chat int64, photo *models.InputMediaPhoto) ([]int, error) {
 	message, err := s.api.SendPhoto(ctx, &bot.SendPhotoParams{ChatID: chat, Photo: &models.InputFileString{Data: photo.Media}, Caption: photo.Caption})
 	if err != nil {
-		return nil, classifyMovie(err)
+		classified := classifyMovie(err)
+		s.log.Warn("telegram movie delivery failed", "operation", "recommendation_photo", "chat_id", chat,
+			"reason", deliveryReason(classified), "caption_runes", utf8.RuneCountInString(photo.Caption))
+		return nil, classified
 	}
 	if message == nil {
 		return nil, &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown}
@@ -149,7 +168,10 @@ func (s MovieSender) sendMoviePhoto(ctx context.Context, chat int64, photo *mode
 func (s MovieSender) sendMovieAlbum(ctx context.Context, chat int64, media []models.InputMedia) ([]int, error) {
 	messages, err := s.api.SendMediaGroup(ctx, &bot.SendMediaGroupParams{ChatID: chat, Media: media})
 	if err != nil {
-		return nil, classifyMovie(err)
+		classified := classifyMovie(err)
+		s.log.Warn("telegram movie delivery failed", "operation", "recommendation_album", "chat_id", chat,
+			"reason", deliveryReason(classified), "items", len(media), "max_caption_runes", maxMediaCaptionRunes(media))
+		return nil, classified
 	}
 	if len(messages) != len(media) {
 		return nil, &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown}
@@ -345,13 +367,50 @@ func movieCaption(movie movieclub.Recommendation) string {
 func classifyMovie(err error) error {
 	var migrate *bot.MigrateError
 	if rate, ok := errors.AsType[*bot.TooManyRequestsError](err); ok {
-		return &movieclub.DeliveryError{Kind: movieclub.DeliveryRetry, After: time.Duration(rate.RetryAfter) * time.Second}
+		return &movieclub.DeliveryError{Kind: movieclub.DeliveryRetry, After: time.Duration(rate.RetryAfter) * time.Second, Reason: "rate_limit"}
 	}
 	if errors.Is(err, bot.ErrorForbidden) || errors.Is(err, bot.ErrorUnauthorized) || errors.As(err, &migrate) {
-		return &movieclub.DeliveryError{Kind: movieclub.DeliveryForbidden}
+		return &movieclub.DeliveryError{Kind: movieclub.DeliveryForbidden, Reason: "forbidden"}
 	}
 	if errors.Is(err, bot.ErrorBadRequest) || errors.Is(err, bot.ErrorNotFound) {
-		return &movieclub.DeliveryError{Kind: movieclub.DeliveryPermanent}
+		return &movieclub.DeliveryError{Kind: movieclub.DeliveryPermanent, Reason: telegramRejectionReason(err)}
 	}
-	return &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown}
+	return &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown, Reason: "transport_unknown"}
+}
+
+func telegramRejectionReason(err error) string {
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "failed to get http url content"):
+		return "photo_url_fetch"
+	case strings.Contains(message, "wrong type of the web page content"):
+		return "photo_url_content_type"
+	case strings.Contains(message, "can't parse entities"):
+		return "invalid_html"
+	case strings.Contains(message, "caption is too long"):
+		return "caption_too_long"
+	case strings.Contains(message, "message is too long"):
+		return "message_too_long"
+	case errors.Is(err, bot.ErrorNotFound):
+		return "not_found"
+	default:
+		return "bad_request"
+	}
+}
+
+func deliveryReason(err error) string {
+	if typed, ok := errors.AsType[*movieclub.DeliveryError](err); ok && typed.Reason != "" {
+		return typed.Reason
+	}
+	return "unclassified"
+}
+
+func maxMediaCaptionRunes(media []models.InputMedia) int {
+	maximum := 0
+	for _, item := range media {
+		if photo, ok := item.(*models.InputMediaPhoto); ok {
+			maximum = max(maximum, utf8.RuneCountInString(photo.Caption))
+		}
+	}
+	return maximum
 }

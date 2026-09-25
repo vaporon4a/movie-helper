@@ -148,7 +148,7 @@ func startMovieClub(ctx context.Context, cfg config.Config, store *storage.Store
 	if err := tmdbClient.LoadConfiguration(loadCtx); err != nil {
 		log.Warn("tmdb image configuration unavailable; using default image host")
 	}
-	movieSender, err := telegram.NewMovieSender(api, tmdbClient.PosterURL)
+	movieSender, err := telegram.NewMovieSender(api, tmdbClient.PosterURL, log)
 	if err != nil {
 		return err
 	}

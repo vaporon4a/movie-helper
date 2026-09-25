@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -241,7 +242,7 @@ func TestMovieCommandsCreateIsolatedRoundAndSchedule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sender, err := NewMovieSender(api, testCatalog{}.PosterURL)
+	sender, err := NewMovieSender(api, testCatalog{}.PosterURL, h.Log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +279,7 @@ func TestMovieCommandsCreateIsolatedRoundAndSchedule(t *testing.T) {
 
 func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
 	api := &fakeAPI{}
-	sender, err := NewMovieSender(api, testCatalog{}.PosterURL)
+	sender, err := NewMovieSender(api, testCatalog{}.PosterURL, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +334,7 @@ func TestSelectionSummaryUsesFeatureCopy(t *testing.T) {
 
 func TestReferenceSummaryUsesWinnerPosterAndBoundedCaption(t *testing.T) {
 	api := &fakeAPI{}
-	sender, err := NewMovieSender(api, testCatalog{}.PosterURL)
+	sender, err := NewMovieSender(api, testCatalog{}.PosterURL, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +352,9 @@ func TestReferenceSummaryUsesWinnerPosterAndBoundedCaption(t *testing.T) {
 
 func TestReferenceSummaryFallsBackToTextWhenTelegramRejectsPoster(t *testing.T) {
 	api := &fakeAPI{photoErr: fmt.Errorf("%w, failed to get HTTP URL content", bot.ErrorBadRequest)}
-	sender, err := NewMovieSender(api, testCatalog{}.PosterURL)
+	var logs bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logs, nil))
+	sender, err := NewMovieSender(api, testCatalog{}.PosterURL, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,6 +367,9 @@ func TestReferenceSummaryFallsBackToTextWhenTelegramRejectsPoster(t *testing.T) 
 	}
 	if len(api.photos) != 1 || len(api.messages) != 1 || !strings.Contains(api.messages[0].Text, "Фильм-ориентир") {
 		t.Fatalf("photos=%#v messages=%#v", api.photos, api.messages)
+	}
+	if got := logs.String(); !strings.Contains(got, "operation=winner_poster") || !strings.Contains(got, "reason=photo_url_fetch") || !strings.Contains(got, "telegram movie delivery fallback") {
+		t.Fatalf("logs=%q", got)
 	}
 }
 
