@@ -156,11 +156,15 @@ func startMovieClub(ctx context.Context, cfg config.Config, store *storage.Store
 	if err != nil {
 		return err
 	}
-	scenarios, err := movieclub.NewScenarioSet(genreScenario)
+	referenceScenario, err := movieclub.NewReferenceScenario(tmdbClient, store)
 	if err != nil {
 		return err
 	}
-	handler.MovieClub, err = movieclub.NewService(store, movieSender, genreScenario, log, time.Now)
+	scenarios, err := movieclub.NewScenarioSet(genreScenario, referenceScenario)
+	if err != nil {
+		return err
+	}
+	handler.MovieClub, err = movieclub.NewService(store, movieSender, scenarios, log, time.Now)
 	if err != nil {
 		return err
 	}

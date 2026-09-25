@@ -44,6 +44,14 @@ type movieResult struct {
 	VoteAverage float64 `json:"vote_average"`
 	VoteCount   int     `json:"vote_count"`
 	Popularity  float64 `json:"popularity"`
+	Adult       bool    `json:"adult"`
+}
+
+type creditResult struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Job        string `json:"job"`
+	Department string `json:"department"`
 }
 
 func (c *Client) Discover(ctx context.Context, query movieclub.DiscoverQuery) ([]movieclub.Movie, error) {
@@ -70,10 +78,90 @@ func (c *Client) Discover(ctx context.Context, query movieclub.DiscoverQuery) ([
 	if err := c.get(ctx, "/discover/movie?"+q.Encode(), &payload); err != nil {
 		return nil, err
 	}
-	out := make([]movieclub.Movie, 0, len(payload.Results))
-	for _, value := range payload.Results {
+	return moviesFromResults(payload.Results), nil
+}
+
+func (c *Client) Details(ctx context.Context, id int64) (movieclub.MovieDetails, error) {
+	if id <= 0 {
+		return movieclub.MovieDetails{}, errors.New("invalid movie id")
+	}
+	var payload struct {
+		movieResult
+		Genres []struct {
+			ID int64 `json:"id"`
+		} `json:"genres"`
+		Credits struct {
+			Crew []creditResult `json:"crew"`
+		} `json:"credits"`
+	}
+	path := fmt.Sprintf("/movie/%d?language=ru-RU&append_to_response=credits", id)
+	if err := c.get(ctx, path, &payload); err != nil {
+		return movieclub.MovieDetails{}, err
+	}
+	movies := moviesFromResults([]movieResult{payload.movieResult})
+	if len(movies) != 1 {
+		return movieclub.MovieDetails{}, errors.New("invalid tmdb movie details")
+	}
+	details := movieclub.MovieDetails{Movie: movies[0]}
+	for _, genre := range payload.Genres {
+		if genre.ID > 0 {
+			details.Genres = append(details.Genres, genre.ID)
+		}
+	}
+	for _, credit := range payload.Credits.Crew {
+		if credit.ID > 0 && strings.TrimSpace(credit.Name) != "" && strings.TrimSpace(credit.Job) != "" {
+			details.Crew = append(details.Crew, movieclub.Credit{PersonID: credit.ID, Name: strings.TrimSpace(credit.Name), Job: strings.TrimSpace(credit.Job)})
+		}
+	}
+	return details, nil
+}
+
+func (c *Client) Recommendations(ctx context.Context, id int64) ([]movieclub.Movie, error) {
+	return c.movieList(ctx, fmt.Sprintf("/movie/%d/recommendations?language=ru-RU&page=1", id))
+}
+
+func (c *Client) Similar(ctx context.Context, id int64) ([]movieclub.Movie, error) {
+	return c.movieList(ctx, fmt.Sprintf("/movie/%d/similar?language=ru-RU&page=1", id))
+}
+
+func (c *Client) movieList(ctx context.Context, path string) ([]movieclub.Movie, error) {
+	var payload struct {
+		Results []movieResult `json:"results"`
+	}
+	if err := c.get(ctx, path, &payload); err != nil {
+		return nil, err
+	}
+	return moviesFromResults(payload.Results), nil
+}
+
+func (c *Client) PersonMovies(ctx context.Context, id int64) ([]movieclub.PersonMovie, error) {
+	if id <= 0 {
+		return nil, errors.New("invalid person id")
+	}
+	var payload struct {
+		Crew []struct {
+			movieResult
+			Job string `json:"job"`
+		} `json:"crew"`
+	}
+	if err := c.get(ctx, fmt.Sprintf("/person/%d/movie_credits?language=ru-RU", id), &payload); err != nil {
+		return nil, err
+	}
+	out := make([]movieclub.PersonMovie, 0, len(payload.Crew))
+	for _, value := range payload.Crew {
+		movies := moviesFromResults([]movieResult{value.movieResult})
+		if len(movies) == 1 && strings.TrimSpace(value.Job) != "" {
+			out = append(out, movieclub.PersonMovie{Movie: movies[0], Job: strings.TrimSpace(value.Job)})
+		}
+	}
+	return out, nil
+}
+
+func moviesFromResults(values []movieResult) []movieclub.Movie {
+	out := make([]movieclub.Movie, 0, len(values))
+	for _, value := range values {
 		title := strings.TrimSpace(value.Title)
-		if value.ID <= 0 || title == "" || value.VoteCount < 0 || value.VoteAverage < 0 || value.VoteAverage > 10 || value.Popularity < 0 {
+		if value.Adult || value.ID <= 0 || title == "" || value.VoteCount < 0 || value.VoteAverage < 0 || value.VoteAverage > 10 || value.Popularity < 0 {
 			continue
 		}
 		year := 0
@@ -91,7 +179,7 @@ func (c *Client) Discover(ctx context.Context, query movieclub.DiscoverQuery) ([
 		}
 		out = append(out, movieclub.Movie{ID: value.ID, Title: title, Overview: overview, PosterPath: poster, Year: year, VoteCount: value.VoteCount, Rating: value.VoteAverage, Popularity: value.Popularity})
 	}
-	return out, nil
+	return out
 }
 
 func (c *Client) PosterURL(path string) string {
@@ -146,38 +234,59 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/json")
 	started := time.Now()
+	endpoint := endpointClass(path)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		c.log("request_failed", 0, time.Since(started))
+		c.log(endpoint, "request_failed", 0, time.Since(started))
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		c.log("http_error", resp.StatusCode, time.Since(started))
+		c.log(endpoint, "http_error", resp.StatusCode, time.Since(started))
 		return &HTTPError{Status: resp.StatusCode}
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil || len(body) > maxResponseBytes {
-		c.log("invalid_response", resp.StatusCode, time.Since(started))
+		c.log(endpoint, "invalid_response", resp.StatusCode, time.Since(started))
 		return errors.New("invalid tmdb response")
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	if err = dec.Decode(out); err != nil {
-		c.log("invalid_response", resp.StatusCode, time.Since(started))
+		c.log(endpoint, "invalid_response", resp.StatusCode, time.Since(started))
 		return errors.New("invalid tmdb response")
 	}
 	var extra any
 	if err = dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		c.log("invalid_response", resp.StatusCode, time.Since(started))
+		c.log(endpoint, "invalid_response", resp.StatusCode, time.Since(started))
 		return errors.New("invalid tmdb response")
 	}
-	c.log("ok", resp.StatusCode, time.Since(started))
+	c.log(endpoint, "ok", resp.StatusCode, time.Since(started))
 	return nil
 }
 
-func (c *Client) log(result string, status int, elapsed time.Duration) {
+func endpointClass(path string) string {
+	path = strings.SplitN(path, "?", 2)[0]
+	switch {
+	case path == "/configuration":
+		return "configuration"
+	case path == "/discover/movie":
+		return "discover"
+	case strings.HasSuffix(path, "/recommendations"):
+		return "recommendations"
+	case strings.HasSuffix(path, "/similar"):
+		return "similar"
+	case strings.HasSuffix(path, "/movie_credits"):
+		return "person_movie_credits"
+	case strings.HasPrefix(path, "/movie/"):
+		return "movie_details"
+	default:
+		return "unknown"
+	}
+}
+
+func (c *Client) log(endpoint, result string, status int, elapsed time.Duration) {
 	if c.Log != nil {
-		c.Log.Info("tmdb request completed", "result", result, "status", status, "duration_ms", elapsed.Milliseconds())
+		c.Log.Info("tmdb request completed", "endpoint", endpoint, "result", result, "status", status, "duration_ms", elapsed.Milliseconds())
 	}
 }

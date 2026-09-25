@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -10,19 +11,19 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/movieclub"
 )
 
-func (s *Store) SetMovieSchedule(ctx context.Context, op, chat int64, weekday int, clock string, enabled bool, now time.Time) error {
-	if weekday < 0 || weekday > 6 {
+func (s *Store) SetMovieSchedule(ctx context.Context, feature movieclub.Feature, op, chat int64, weekday int, clock string, enabled bool, now time.Time) error {
+	if !feature.Valid() || weekday < 0 || weekday > 6 {
 		return errors.New("invalid weekday")
 	}
 	if _, err := time.Parse("15:04", clock); err != nil || len(clock) != 5 {
 		return errors.New("invalid clock")
 	}
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		return setMovieSchedule(ctx, tx, chat, weekday, clock, enabled, now)
+		return setMovieSchedule(ctx, tx, feature, chat, weekday, clock, enabled, now)
 	})
 }
 
-func setMovieSchedule(ctx context.Context, tx *sql.Tx, chat int64, weekday int, clock string, enabled bool, now time.Time) error {
+func setMovieSchedule(ctx context.Context, tx *sql.Tx, feature movieclub.Feature, chat int64, weekday int, clock string, enabled bool, now time.Time) error {
 	var zone string
 	var active bool
 	if err := tx.QueryRowContext(ctx, "SELECT zone,active FROM chats WHERE chat_id=?", chat).Scan(&zone, &active); err != nil {
@@ -31,39 +32,42 @@ func setMovieSchedule(ctx context.Context, tx *sql.Tx, chat int64, weekday int, 
 	if enabled && (zone == "" || !active) {
 		return errors.New("set timezone or reconnect chat first")
 	}
-	changed, err := movieScheduleChanged(ctx, tx, chat, weekday, clock, enabled)
+	changed, err := movieScheduleChanged(ctx, tx, feature, chat, weekday, clock, enabled)
 	if err != nil {
 		return err
 	}
 	if changed {
-		if err = cancelPlannedWeekday(ctx, tx, chat, weekday, zone); err != nil {
+		if err = cancelPlannedWeekday(ctx, tx, feature, chat, weekday, zone); err != nil {
 			return err
 		}
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO movie_poll_schedules(chat_id,feature,weekday,clock,enabled,effective)
- VALUES(?,'genre',?,?,?,?) ON CONFLICT(chat_id,feature,weekday) DO UPDATE SET
+	VALUES(?,?,?,?,?,?) ON CONFLICT(chat_id,feature,weekday) DO UPDATE SET
  clock=CASE WHEN excluded.enabled THEN excluded.clock ELSE movie_poll_schedules.clock END,
- enabled=excluded.enabled,effective=excluded.effective`, chat, weekday, clock, enabled, now.Unix())
+ enabled=excluded.enabled,effective=excluded.effective`, chat, feature, weekday, clock, enabled, now.Unix())
 	return err
 }
 
-func movieScheduleChanged(ctx context.Context, tx *sql.Tx, chat int64, weekday int, clock string, enabled bool) (bool, error) {
+func movieScheduleChanged(ctx context.Context, tx *sql.Tx, feature movieclub.Feature, chat int64, weekday int, clock string, enabled bool) (bool, error) {
 	var oldClock string
 	var oldEnabled bool
 	err := tx.QueryRowContext(ctx, `SELECT clock,enabled FROM movie_poll_schedules
- WHERE chat_id=? AND feature='genre' AND weekday=?`, chat, weekday).Scan(&oldClock, &oldEnabled)
+	 WHERE chat_id=? AND feature=? AND weekday=?`, chat, feature, weekday).Scan(&oldClock, &oldEnabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	return oldClock != clock || oldEnabled != enabled, err
 }
 
-func (s *Store) PauseMovieSchedules(ctx context.Context, op, chat int64, now time.Time) error {
+func (s *Store) PauseMovieSchedules(ctx context.Context, feature movieclub.Feature, op, chat int64, now time.Time) error {
+	if !feature.Valid() {
+		return movieclub.ErrUnknownFeature
+	}
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, "UPDATE movie_rounds SET state='cancelled',error_code='schedule_paused' WHERE chat_id=? AND state='planned'", chat); err != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE movie_rounds SET state='cancelled',error_code='schedule_paused' WHERE chat_id=? AND feature=? AND state='planned'", chat, feature); err != nil {
 			return err
 		}
-		result, err := tx.ExecContext(ctx, "UPDATE movie_poll_schedules SET enabled=0,effective=? WHERE chat_id=? AND feature='genre'", now.Unix(), chat)
+		result, err := tx.ExecContext(ctx, "UPDATE movie_poll_schedules SET enabled=0,effective=? WHERE chat_id=? AND feature=?", now.Unix(), chat, feature)
 		if err != nil {
 			return err
 		}
@@ -78,14 +82,14 @@ func (s *Store) PauseMovieSchedules(ctx context.Context, op, chat int64, now tim
 	})
 }
 
-func cancelPlannedWeekday(ctx context.Context, tx *sql.Tx, chat int64, weekday int, zone string) error {
+func cancelPlannedWeekday(ctx context.Context, tx *sql.Tx, feature movieclub.Feature, chat int64, weekday int, zone string) error {
 	loc, err := time.LoadLocation(zone)
 	if err != nil {
 		return err
 	}
 	var ids []int64
 	err = func() error {
-		rows, queryErr := tx.QueryContext(ctx, "SELECT id,slot_at FROM movie_rounds WHERE chat_id=? AND state='planned'", chat)
+		rows, queryErr := tx.QueryContext(ctx, "SELECT id,slot_at FROM movie_rounds WHERE chat_id=? AND feature=? AND state='planned'", chat, feature)
 		if queryErr != nil {
 			return queryErr
 		}
@@ -200,6 +204,11 @@ func scanMovieRound(row interface{ Scan(...any) error }) (movieclub.Round, error
 	err := row.Scan(&value.ID, &value.ChatID, &value.Feature, &value.SlotAt, &value.State, &value.PollID,
 		&value.PollMessageID, &value.OpenedAt, &value.ClosesAt, &value.Winner, &value.ResultText,
 		&value.NextAttempt, &value.ErrorCode, &value.PublishStage, &value.Page2State)
+	if err == nil && value.ResultText != "" {
+		if decodeErr := json.Unmarshal([]byte(value.ResultText), &value.Hero); decodeErr != nil {
+			return value, decodeErr
+		}
+	}
 	return value, err
 }
 
@@ -268,6 +277,45 @@ func (s *Store) MovieOptions(ctx context.Context, round int64) ([]movieclub.Opti
 	return out, rows.Err()
 }
 
+func (s *Store) SaveMovieOptions(ctx context.Context, round int64, options []movieclub.Option) error {
+	if err := validateMovieOptions(options); err != nil {
+		return err
+	}
+	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
+		var state movieclub.State
+		var count int
+		if err := tx.QueryRowContext(ctx, `SELECT state,(SELECT count(*) FROM movie_poll_options WHERE round_id=?)
+ FROM movie_rounds WHERE id=?`, round, round).Scan(&state, &count); err != nil {
+			return err
+		}
+		if state != movieclub.StatePlanned || count != 0 {
+			return movieclub.ErrConflict
+		}
+		for position, option := range options {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO movie_poll_options(round_id,position,option_kind,provider_id,label)
+ VALUES(?,?,?,?,?)`, round, position, option.Kind, option.ProviderID, option.Label); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func validateMovieOptions(options []movieclub.Option) error {
+	if len(options) < 2 || len(options) > 12 {
+		return errors.New("invalid movie option count")
+	}
+	providerIDs := make(map[int64]bool, len(options))
+	for _, option := range options {
+		validKind := option.Kind == movieclub.OptionGenre || option.Kind == movieclub.OptionMovie
+		if option.ProviderID <= 0 || strings.TrimSpace(option.Label) == "" || !validKind || providerIDs[option.ProviderID] {
+			return errors.New("invalid movie option")
+		}
+		providerIDs[option.ProviderID] = true
+	}
+	return nil
+}
+
 func (s *Store) ClaimMovieRound(ctx context.Context, id int64, from, to movieclub.State, now time.Time) (bool, error) {
 	if !movieclub.CanTransition(from, to) {
 		return false, errors.New("invalid movie transition")
@@ -324,7 +372,15 @@ func (s *Store) SaveMoviePollByID(ctx context.Context, pollID string, votes []in
 	return s.SaveMoviePoll(ctx, id, votes)
 }
 
-func (s *Store) SaveMovieSelection(ctx context.Context, id int64, winner string, movies []movieclub.Recommendation) error {
+func (s *Store) SaveMovieSelection(ctx context.Context, id int64, winner string, hero movieclub.Movie, movies []movieclub.Recommendation) error {
+	resultText := ""
+	if hero.ID != 0 {
+		payload, err := json.Marshal(hero)
+		if err != nil {
+			return err
+		}
+		resultText = string(payload)
+	}
 	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM movie_recommendations WHERE round_id=?", id); err != nil {
 			return err
@@ -340,8 +396,8 @@ func (s *Store) SaveMovieSelection(ctx context.Context, id int64, winner string,
 		if len(movies) > 10 {
 			page2 = "ready"
 		}
-		result, err := tx.ExecContext(ctx, `UPDATE movie_rounds SET state='ready',winner=?,result_text='',page2_state=?,next_attempt=0,error_code=''
- WHERE id=? AND state='selecting'`, winner, page2, id)
+		result, err := tx.ExecContext(ctx, `UPDATE movie_rounds SET state='ready',winner=?,result_text=?,page2_state=?,next_attempt=0,error_code=''
+	WHERE id=? AND state='selecting'`, winner, resultText, page2, id)
 		return changed(result, err)
 	})
 }
@@ -368,6 +424,24 @@ func (s *Store) MovieRecommendations(ctx context.Context, round int64, page int)
 func (s *Store) RecentMovieIDs(ctx context.Context, chat int64, since time.Time) (map[int64]bool, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT m.tmdb_id FROM movie_recommendations m JOIN movie_rounds r ON r.id=m.round_id
  WHERE r.chat_id=? AND r.state='published' AND r.slot_at>=?`, chat, since.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]bool)
+	for rows.Next() {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RecentReferenceSeedIDs(ctx context.Context, chat int64, since time.Time) (map[int64]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT o.provider_id FROM movie_poll_options o JOIN movie_rounds r ON r.id=o.round_id
+ WHERE r.chat_id=? AND r.feature='reference' AND r.state<>'cancelled' AND r.slot_at>=?`, chat, since.Unix())
 	if err != nil {
 		return nil, err
 	}

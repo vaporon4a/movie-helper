@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	catchupWindow = 6 * time.Hour
-	recentWindow  = 90 * 24 * time.Hour
+	catchupWindow        = 6 * time.Hour
+	recentWindow         = 90 * 24 * time.Hour
+	optionPrepareTimeout = 20 * time.Second
+	selectionTimeout     = 45 * time.Second
 )
 
 type Coordinator struct {
@@ -73,28 +75,30 @@ func (c *Coordinator) reserveSchedules(ctx context.Context, now time.Time) error
 		return err
 	}
 	for _, schedule := range schedules {
-		slot, eligible, slotErr := c.scheduleSlot(schedule, now)
-		if slotErr != nil {
-			return slotErr
+		if err = c.reserveSchedule(ctx, schedule, now); err != nil {
+			return err
 		}
-		if !eligible {
-			continue
-		}
-		scenario := c.scenarios[schedule.Feature]
-		if scenario == nil {
-			return ErrUnknownFeature
-		}
-		options := scenario.Options(uint64(schedule.ChatID) ^ uint64(slot.Unix()))
-		roundID, reserveErr := c.store.ReserveMovieRound(ctx, schedule.Feature, schedule.ChatID, slot.Unix(), slot.Add(defaultPollDuration).Unix(), options)
-		if errors.Is(reserveErr, ErrActiveRound) || errors.Is(reserveErr, ErrDuplicate) || errors.Is(reserveErr, context.Canceled) {
-			continue
-		}
-		if reserveErr != nil {
-			return reserveErr
-		}
-		if roundID != 0 {
-			c.log.Info("movieclub round planned", "round_id", roundID, "chat_id", schedule.ChatID, "feature", schedule.Feature, "manual", false)
-		}
+	}
+	return nil
+}
+
+func (c *Coordinator) reserveSchedule(ctx context.Context, schedule Schedule, now time.Time) error {
+	slot, eligible, err := c.scheduleSlot(schedule, now)
+	if err != nil || !eligible {
+		return err
+	}
+	if c.scenarios[schedule.Feature] == nil {
+		return ErrUnknownFeature
+	}
+	roundID, err := c.store.ReserveMovieRound(ctx, schedule.Feature, schedule.ChatID, slot.Unix(), slot.Add(defaultPollDuration).Unix(), nil)
+	if errors.Is(err, ErrActiveRound) || errors.Is(err, ErrDuplicate) || errors.Is(err, context.Canceled) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if roundID != 0 {
+		c.log.Info("movieclub round planned", "round_id", roundID, "chat_id", schedule.ChatID, "feature", schedule.Feature, "manual", false)
 	}
 	return nil
 }
@@ -128,12 +132,12 @@ func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time)
 	if !c.allowed[round.ChatID] || round.NextAttempt > now.Unix() {
 		return nil
 	}
-	claimed, err := c.store.ClaimMovieRound(ctx, round.ID, StatePlanned, StatePollCreating, now)
-	if err != nil || !claimed {
+	options, ready, err := c.prepareRoundOptions(ctx, round, now)
+	if err != nil || !ready {
 		return err
 	}
-	options, err := c.store.MovieOptions(ctx, round.ID)
-	if err != nil {
+	claimed, err := c.store.ClaimMovieRound(ctx, round.ID, StatePlanned, StatePollCreating, now)
+	if err != nil || !claimed {
 		return err
 	}
 	labels := make([]string, len(options))
@@ -150,6 +154,27 @@ func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time)
 	}
 	c.log.Info("movieclub poll opened", "round_id", round.ID, "chat_id", round.ChatID, "options", len(options))
 	return nil
+}
+
+func (c *Coordinator) prepareRoundOptions(ctx context.Context, round Round, now time.Time) ([]Option, bool, error) {
+	options, err := c.store.MovieOptions(ctx, round.ID)
+	if err != nil || len(options) > 0 {
+		return options, err == nil, err
+	}
+	scenario := c.scenarios[round.Feature]
+	if scenario == nil {
+		return nil, false, ErrUnknownFeature
+	}
+	prepareCtx, cancel := context.WithTimeout(ctx, optionPrepareTimeout)
+	defer cancel()
+	options, err = scenario.Options(prepareCtx, round.ChatID, uint64(round.ChatID)^uint64(round.SlotAt), time.Unix(round.SlotAt, 0))
+	if err != nil {
+		return nil, false, c.store.DeferMovieRound(ctx, round.ID, StatePlanned, StatePlanned, now.Add(time.Hour), catalogReason(err))
+	}
+	if err = c.store.SaveMovieOptions(ctx, round.ID, options); errors.Is(err, ErrConflict) {
+		return nil, false, nil
+	}
+	return options, err == nil, err
 }
 
 func (c *Coordinator) closeDue(ctx context.Context, now time.Time) error {
@@ -214,9 +239,11 @@ func (c *Coordinator) prepareSelection(ctx context.Context, round Round, now tim
 	}
 	winners := scenario.Winners(options, uint64(round.ID))
 	if len(winners) == 0 {
-		return c.store.SaveMovieSelection(ctx, round.ID, "", nil)
+		return c.store.SaveMovieSelection(ctx, round.ID, "", Movie{}, nil)
 	}
-	movies, err := scenario.Recommendations(ctx, round, winners, now)
+	selectionCtx, cancel := context.WithTimeout(ctx, selectionTimeout)
+	defer cancel()
+	hero, movies, err := scenario.Recommendations(selectionCtx, round, winners, now)
 	if err != nil {
 		return c.store.DeferMovieRound(ctx, round.ID, StateSelecting, StateSelecting, now.Add(time.Hour), catalogReason(err))
 	}
@@ -224,11 +251,21 @@ func (c *Coordinator) prepareSelection(ctx context.Context, round Round, now tim
 	for i, winner := range winners {
 		winnerNames[i] = winner.Label
 	}
-	if err = c.store.SaveMovieSelection(ctx, round.ID, strings.Join(winnerNames, " + "), movies); err != nil {
+	if err = c.store.SaveMovieSelection(ctx, round.ID, strings.Join(winnerNames, " + "), hero, movies); err != nil {
 		return err
 	}
-	c.log.Info("movieclub selection prepared", "round_id", round.ID, "chat_id", round.ChatID, "winners", len(winners), "movies", len(movies))
+	counts := recommendationCounts(movies)
+	c.log.Info("movieclub selection prepared", "round_id", round.ID, "chat_id", round.ChatID, "winners", len(winners), "movies", len(movies),
+		"similar", counts["similar"], "director", counts["director"], "screenwriter", counts["screenwriter"], "book_author", counts["book_author"])
 	return nil
+}
+
+func recommendationCounts(movies []Recommendation) map[string]int {
+	counts := make(map[string]int)
+	for _, movie := range movies {
+		counts[movie.Relation]++
+	}
+	return counts
 }
 
 func (c *Coordinator) publishReady(ctx context.Context, now time.Time) error {
@@ -293,7 +330,7 @@ func (c *Coordinator) selectionSummary(ctx context.Context, round Round, page1 [
 		more = len(page2) > 0
 	}
 	summary := Summary{
-		Feature: round.Feature, Winner: round.Winner, Movies: page1, Total: total,
+		Feature: round.Feature, Winner: round.Winner, Hero: round.Hero, Movies: page1, Total: total,
 		NoVotes: round.Winner == "" && len(page1) == 0,
 	}
 	return summary, more, nil

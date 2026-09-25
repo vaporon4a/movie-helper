@@ -49,8 +49,8 @@ func (s MovieSender) OpenPoll(ctx context.Context, chat int64, feature movieclub
 
 func moviePollCopy(feature movieclub.Feature) (string, string) {
 	if feature == movieclub.Reference {
-		return "На какой известный фильм ориентируемся?",
-			"После завершения бот пришлёт похожие фильмы и работы авторов победившего варианта."
+		return "Какой фильм взять за ориентир для следующей подборки?",
+			"Выберите фильм по настроению: после голосования бот найдёт похожие картины и другие работы его создателей."
 	}
 	return "Какой жанр выбираем для следующего киновечера?",
 		"После завершения бот пришлёт до 20 популярных фильмов победившего жанра."
@@ -72,12 +72,31 @@ func (s MovieSender) ClosePoll(ctx context.Context, chat int64, messageID int) (
 }
 
 func (s MovieSender) SendSummary(ctx context.Context, chat int64, summary movieclub.Summary, roundID int64, more bool) (int, error) {
+	var markup *models.InlineKeyboardMarkup
+	if more {
+		markup = moreMoviesKeyboard(roundID)
+	}
+	poster := ""
+	if summary.Hero.PosterPath != "" {
+		poster = s.posterURL(summary.Hero.PosterPath)
+	}
+	if summary.Feature == movieclub.Reference && poster != "" {
+		message, err := s.api.SendPhoto(ctx, &bot.SendPhotoParams{
+			ChatID: chat, Photo: &models.InputFileString{Data: poster}, Caption: selectionSummaryWithin(summary, more, 1024),
+			ParseMode: models.ParseModeHTML, ReplyMarkup: markup,
+		})
+		if err != nil {
+			return 0, classifyMovie(err)
+		}
+		if message == nil {
+			return 0, &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown}
+		}
+		return message.ID, nil
+	}
 	params := &bot.SendMessageParams{
 		ChatID: chat, Text: selectionSummary(summary, more), ParseMode: models.ParseModeHTML,
 		LinkPreviewOptions: disabledLinkPreview(),
-	}
-	if more {
-		params.ReplyMarkup = moreMoviesKeyboard(roundID)
+		ReplyMarkup:        markup,
 	}
 	message, err := s.api.SendMessage(ctx, params)
 	if err != nil {
@@ -161,9 +180,13 @@ func moreMoviesKeyboard(roundID int64) *models.InlineKeyboardMarkup {
 }
 
 func selectionSummary(summary movieclub.Summary, more bool) string {
+	return selectionSummaryWithin(summary, more, 4096)
+}
+
+func selectionSummaryWithin(summary movieclub.Summary, more bool, limit int) string {
 	for _, titleRunes := range []int{80, 60, 40, 24, 16} {
 		text := selectionSummaryWithTitleLimit(summary, more, titleRunes)
-		if utf8.RuneCountInString(text) <= 4096 {
+		if utf8.RuneCountInString(text) <= limit {
 			return text
 		}
 	}
@@ -181,18 +204,14 @@ func selectionSummaryWithTitleLimit(summary movieclub.Summary, more bool, titleR
 	}
 	total := max(summary.Total, len(summary.Movies))
 	count := fmt.Sprintf("🎞 %d фильмов разных эпох", total)
+	if summary.Feature == movieclub.Reference {
+		count = fmt.Sprintf("✨ %d рекомендаций по результатам выбора", total)
+	}
 	if more {
 		count = fmt.Sprintf("🎞 %d из %d фильмов", len(summary.Movies), total)
 	}
 	lines := []string{title, count, ""}
-	for i, movie := range summary.Movies {
-		parts := []string{fmt.Sprintf("%d. %s", i+1, movieSummaryTitle(movie, titleRunes))}
-		if movie.Year != 0 {
-			parts = append(parts, fmt.Sprintf("%d", movie.Year))
-		}
-		parts = append(parts, fmt.Sprintf("⭐ %.1f", movie.Rating))
-		lines = append(lines, strings.Join(parts, " · "))
-	}
+	lines = appendMovieSummaryLines(lines, summary, titleRunes)
 	if len(summary.Movies) == 0 {
 		lines = append(lines, "TMDB не вернул подходящих фильмов.")
 	}
@@ -202,6 +221,48 @@ func selectionSummaryWithTitleLimit(summary movieclub.Summary, more bool, titleR
 	lines = append(lines, "", `<i>Источник данных и постеров: <a href="https://www.themoviedb.org/">TMDB</a>`,
 		"This product uses the TMDB API but is not endorsed or certified by TMDB.</i>")
 	return strings.Join(lines, "\n")
+}
+
+func appendMovieSummaryLines(lines []string, summary movieclub.Summary, titleRunes int) []string {
+	lastRelation := ""
+	position := 0
+	for i, movie := range summary.Movies {
+		if summary.Feature == movieclub.Reference && movie.Relation != lastRelation {
+			if lastRelation != "" {
+				lines = append(lines, "")
+			}
+			lines = append(lines, referenceRelationTitle(movie.Relation))
+			lastRelation = movie.Relation
+			position = 0
+		}
+		position++
+		number := i + 1
+		if summary.Feature == movieclub.Reference {
+			number = position
+		}
+		parts := []string{fmt.Sprintf("%d. %s", number, movieSummaryTitle(movie, titleRunes))}
+		if movie.Year != 0 {
+			parts = append(parts, fmt.Sprintf("%d", movie.Year))
+		}
+		parts = append(parts, fmt.Sprintf("⭐ %.1f", movie.Rating))
+		lines = append(lines, strings.Join(parts, " · "))
+	}
+	return lines
+}
+
+func referenceRelationTitle(relation string) string {
+	switch relation {
+	case "similar":
+		return "🔎 <b>Похожи по настроению и жанру</b>"
+	case "director":
+		return "🎥 <b>Другие фильмы режиссёра</b>"
+	case "screenwriter":
+		return "✍️ <b>Работы сценариста</b>"
+	case "book_author":
+		return "📚 <b>Другие экранизации автора</b>"
+	default:
+		return "🎞 <b>Ещё фильмы</b>"
+	}
 }
 
 func movieSummaryTitle(movie movieclub.Recommendation, limit int) string {
@@ -221,7 +282,7 @@ func movieSummaryTitle(movie movieclub.Recommendation, limit int) string {
 }
 
 func movieSettingsText(settings movieclub.SettingsView) string {
-	lines := []string{"Киноопросы по жанрам:"}
+	lines := []string{"🎬 Киноопросы:"}
 	if len(settings.Schedules) == 0 {
 		lines = append(lines, "расписание выключено")
 	}
@@ -230,13 +291,17 @@ func movieSettingsText(settings movieclub.SettingsView) string {
 		if schedule.Enabled {
 			state = "включено"
 		}
-		lines = append(lines, fmt.Sprintf("%s %s — %s", movieclub.WeekdayName(schedule.Weekday), schedule.Clock, state))
+		kind := "Жанр"
+		if schedule.Feature == movieclub.Reference {
+			kind = "Фильм-ориентир"
+		}
+		lines = append(lines, fmt.Sprintf("%s · %s %s — %s", kind, movieclub.WeekdayName(schedule.Weekday), schedule.Clock, state))
 	}
 	for _, round := range settings.Rounds {
 		if round.State == movieclub.StatePublished || round.State == movieclub.StateCancelled || round.State == movieclub.StateFailed {
 			continue
 		}
-		line := fmt.Sprintf("Раунд #%d: %s", round.ID, round.State)
+		line := fmt.Sprintf("Раунд #%d · %s: %s", round.ID, round.Feature, round.State)
 		if round.State == movieclub.StateOpen {
 			line += ", закрытие " + time.Unix(round.ClosesAt, 0).Format(time.RFC3339)
 		}
@@ -253,7 +318,11 @@ func movieCaption(movie movieclub.Recommendation) string {
 	if movie.Year != 0 {
 		year = fmt.Sprintf(" (%d)", movie.Year)
 	}
-	parts := []string{fmt.Sprintf("%s%s · %.1f/10", movie.Title, year, movie.Rating)}
+	label := "🎬"
+	if movie.Relation != "top" {
+		label = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(referenceRelationTitle(movie.Relation), "<b>", ""), "</b>", ""))
+	}
+	parts := []string{label, fmt.Sprintf("%s%s · %.1f/10", movie.Title, year, movie.Rating)}
 	if movie.Overview != "" {
 		parts = append(parts, movie.Overview)
 	}

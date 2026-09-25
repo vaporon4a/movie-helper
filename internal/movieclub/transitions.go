@@ -3,6 +3,7 @@ package movieclub
 var transitions = map[State]map[State]bool{
 	StatePlanned: {
 		StatePollCreating: true,
+		StatePlanned:      true,
 		StateCancelled:    true,
 	},
 	StatePollCreating: {

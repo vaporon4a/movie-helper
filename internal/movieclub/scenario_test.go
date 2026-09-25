@@ -62,7 +62,7 @@ func TestGenreScenarioBalancesReleasePeriodsDeterministically(t *testing.T) {
 	round := Round{ID: 42, ChatID: -1}
 	winner := []Option{{ProviderID: 35, Label: "Комедия"}}
 
-	first, err := scenario.Recommendations(context.Background(), round, winner, now)
+	_, first, err := scenario.Recommendations(context.Background(), round, winner, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestGenreScenarioBalancesReleasePeriodsDeterministically(t *testing.T) {
 	assertPeriodCounts(t, first[:10], now, []int{2, 2, 2, 2, 2})
 
 	catalog.calls = nil
-	second, err := scenario.Recommendations(context.Background(), round, winner, now)
+	_, second, err := scenario.Recommendations(context.Background(), round, winner, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestGenreScenarioBalancesReleasePeriodsDeterministically(t *testing.T) {
 		t.Fatalf("same round changed selection: %v != %v", movieIDs(first), movieIDs(second))
 	}
 	catalog.calls = nil
-	other, err := scenario.Recommendations(context.Background(), Round{ID: 43, ChatID: -1}, winner, now)
+	_, other, err := scenario.Recommendations(context.Background(), Round{ID: 43, ChatID: -1}, winner, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestGenreScenarioFallsBackOnlyForSparsePeriods(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
-	movies, err := scenario.Recommendations(context.Background(), Round{ID: 10, ChatID: -1}, []Option{{ProviderID: 37}}, now)
+	_, movies, err := scenario.Recommendations(context.Background(), Round{ID: 10, ChatID: -1}, []Option{{ProviderID: 37}}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestGenreScenarioExcludesRecentMoviesBeforeRotation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	movies, err := scenario.Recommendations(context.Background(), Round{ID: 12, ChatID: -1}, []Option{{ProviderID: 35}}, now)
+	_, movies, err := scenario.Recommendations(context.Background(), Round{ID: 12, ChatID: -1}, []Option{{ProviderID: 35}}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestGenreScenarioTransfersEmptyPeriodQuotaAndKeepsGenreParity(t *testing.T)
 	}
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	winners := []Option{{ProviderID: 28}, {ProviderID: 16}}
-	movies, err := scenario.Recommendations(context.Background(), Round{ID: 11, ChatID: -1}, winners, now)
+	_, movies, err := scenario.Recommendations(context.Background(), Round{ID: 11, ChatID: -1}, winners, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestGenreScenarioFailsWholeSelectionOnCatalogError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = scenario.Recommendations(context.Background(), Round{ID: 1, ChatID: -1}, []Option{{ProviderID: 35}}, time.Now())
+	_, _, err = scenario.Recommendations(context.Background(), Round{ID: 1, ChatID: -1}, []Option{{ProviderID: 35}}, time.Now())
 	if !errors.Is(err, catalogErr) {
 		t.Fatalf("error=%v", err)
 	}

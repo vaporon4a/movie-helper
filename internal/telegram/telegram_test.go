@@ -41,13 +41,15 @@ type movieClubStub struct {
 	calls         int
 }
 
-func (*movieClubStub) Start(context.Context, int64, int64, time.Duration) (int64, error) {
+func (*movieClubStub) Start(context.Context, movieclub.Feature, int64, int64, time.Duration) (int64, error) {
 	return 0, nil
 }
-func (*movieClubStub) SetSchedule(context.Context, int64, int64, int, string, bool) error {
+func (*movieClubStub) SetSchedule(context.Context, movieclub.Feature, int64, int64, int, string, bool) error {
 	return nil
 }
-func (*movieClubStub) PauseSchedules(context.Context, int64, int64) error { return nil }
+func (*movieClubStub) PauseSchedules(context.Context, movieclub.Feature, int64, int64) error {
+	return nil
+}
 func (*movieClubStub) Settings(context.Context, int64) (movieclub.SettingsView, error) {
 	return movieclub.SettingsView{}, nil
 }
@@ -239,7 +241,11 @@ func TestMovieCommandsCreateIsolatedRoundAndSchedule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.MovieClub, err = movieclub.NewService(store, sender, scenario, h.Log, h.Now)
+	scenarios, err := movieclub.NewScenarioSet(scenario)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.MovieClub, err = movieclub.NewService(store, sender, scenarios, h.Log, h.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +294,7 @@ func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
 	if _, _, err = sender.OpenPoll(context.Background(), -1, movieclub.Reference, labels); err != nil {
 		t.Fatal(err)
 	}
-	if api.polls[1].Question != "На какой известный фильм ориентируемся?" {
+	if api.polls[1].Question != "Какой фильм взять за ориентир для следующей подборки?" {
 		t.Fatalf("reference question = %q", api.polls[1].Question)
 	}
 	movies := make([]movieclub.Recommendation, 10)
@@ -311,9 +317,31 @@ func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
 }
 
 func TestSelectionSummaryUsesFeatureCopy(t *testing.T) {
-	summary := movieclub.Summary{Feature: movieclub.Reference, Winner: "Матрица"}
-	if got := selectionSummary(summary, false); !strings.HasPrefix(got, "🎬 <b>Фильм-ориентир: Матрица</b>") {
+	summary := movieclub.Summary{Feature: movieclub.Reference, Winner: "Матрица (1999)", Movies: []movieclub.Recommendation{
+		{Movie: movieclub.Movie{ID: 1, Title: "Похожий", Rating: 8}, Relation: "similar"},
+		{Movie: movieclub.Movie{ID: 2, Title: "Режиссёрский", Rating: 7}, Relation: "director"},
+	}}
+	got := selectionSummary(summary, false)
+	if !strings.HasPrefix(got, "🎬 <b>Фильм-ориентир: Матрица (1999)</b>") || !strings.Contains(got, "Похожи по настроению") || !strings.Contains(got, "Другие фильмы режиссёра") {
 		t.Fatalf("summary = %q", got)
+	}
+}
+
+func TestReferenceSummaryUsesWinnerPosterAndBoundedCaption(t *testing.T) {
+	api := &fakeAPI{}
+	sender, err := NewMovieSender(api, testCatalog{}.PosterURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary := movieclub.Summary{
+		Feature: movieclub.Reference, Winner: "Матрица (1999)", Hero: movieclub.Movie{PosterPath: "/matrix.jpg"},
+		Movies: []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 1, Title: "Тёмный город", Rating: 7.3}, Relation: "similar"}}, Total: 1,
+	}
+	if _, err = sender.SendSummary(context.Background(), -1, summary, 7, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.photos) != 1 || len(api.messages) != 0 || api.photos[0].ParseMode != models.ParseModeHTML || len([]rune(api.photos[0].Caption)) > 1024 {
+		t.Fatalf("photos=%#v messages=%#v", api.photos, api.messages)
 	}
 }
 

@@ -10,15 +10,15 @@ import (
 const defaultPollDuration = 24 * time.Hour
 
 type Service struct {
-	store    ServiceRepository
-	telegram Transport
-	scenario Scenario
-	log      *slog.Logger
-	now      func() time.Time
+	store     ServiceRepository
+	telegram  Transport
+	scenarios ScenarioSet
+	log       *slog.Logger
+	now       func() time.Time
 }
 
-func NewService(store ServiceRepository, telegram Transport, scenario Scenario, log *slog.Logger, now func() time.Time) (*Service, error) {
-	if store == nil || telegram == nil || scenario == nil {
+func NewService(store ServiceRepository, telegram Transport, scenarios ScenarioSet, log *slog.Logger, now func() time.Time) (*Service, error) {
+	if store == nil || telegram == nil || len(scenarios) == 0 {
 		return nil, errors.New("movieclub service dependencies are required")
 	}
 	if log == nil {
@@ -27,28 +27,37 @@ func NewService(store ServiceRepository, telegram Transport, scenario Scenario, 
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{store: store, telegram: telegram, scenario: scenario, log: log, now: now}, nil
+	return &Service{store: store, telegram: telegram, scenarios: scenarios, log: log, now: now}, nil
 }
 
-func (s *Service) Start(ctx context.Context, operationID, chatID int64, duration time.Duration) (int64, error) {
+func (s *Service) Start(ctx context.Context, feature Feature, operationID, chatID int64, duration time.Duration) (int64, error) {
 	if duration < 5*time.Minute || duration > defaultPollDuration {
 		return 0, errors.New("duration must be 5m..24h")
 	}
 	now := s.now()
-	options := s.scenario.Options(uint64(chatID) ^ uint64(now.Unix()/60))
-	roundID, err := s.store.StartMovieRound(ctx, s.scenario.Feature(), operationID, chatID, now, duration, options)
+	scenario := s.scenarios[feature]
+	if scenario == nil {
+		return 0, ErrUnknownFeature
+	}
+	roundID, err := s.store.StartMovieRound(ctx, feature, operationID, chatID, now, duration, nil)
 	if err == nil {
-		s.log.Info("movieclub round planned", "round_id", roundID, "chat_id", chatID, "feature", s.scenario.Feature(), "manual", true)
+		s.log.Info("movieclub round planned", "round_id", roundID, "chat_id", chatID, "feature", feature, "manual", true)
 	}
 	return roundID, err
 }
 
-func (s *Service) SetSchedule(ctx context.Context, operationID, chatID int64, weekday int, clock string, enabled bool) error {
-	return s.store.SetMovieSchedule(ctx, operationID, chatID, weekday, clock, enabled, s.now())
+func (s *Service) SetSchedule(ctx context.Context, feature Feature, operationID, chatID int64, weekday int, clock string, enabled bool) error {
+	if s.scenarios[feature] == nil {
+		return ErrUnknownFeature
+	}
+	return s.store.SetMovieSchedule(ctx, feature, operationID, chatID, weekday, clock, enabled, s.now())
 }
 
-func (s *Service) PauseSchedules(ctx context.Context, operationID, chatID int64) error {
-	return s.store.PauseMovieSchedules(ctx, operationID, chatID, s.now())
+func (s *Service) PauseSchedules(ctx context.Context, feature Feature, operationID, chatID int64) error {
+	if s.scenarios[feature] == nil {
+		return ErrUnknownFeature
+	}
+	return s.store.PauseMovieSchedules(ctx, feature, operationID, chatID, s.now())
 }
 
 func (s *Service) Settings(ctx context.Context, chatID int64) (SettingsView, error) {
@@ -129,7 +138,7 @@ func (s *Service) fullSummary(ctx context.Context, round Round) (Summary, error)
 	movies := make([]Recommendation, 0, len(page1)+len(page2))
 	movies = append(movies, page1...)
 	movies = append(movies, page2...)
-	return Summary{Feature: round.Feature, Winner: round.Winner, Movies: movies, Total: len(movies)}, nil
+	return Summary{Feature: round.Feature, Winner: round.Winner, Hero: round.Hero, Movies: movies, Total: len(movies)}, nil
 }
 
 func (s *Service) Resolve(ctx context.Context, operationID, chatID, roundID int64, action ResolveAction) error {

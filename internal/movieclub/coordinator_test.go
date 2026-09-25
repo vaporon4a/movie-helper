@@ -31,22 +31,24 @@ func (fakeCatalog) PosterURL(path string) string { return "https://img.example" 
 type referenceScenario struct{}
 
 func (referenceScenario) Feature() movieclub.Feature { return movieclub.Reference }
-func (referenceScenario) Options(seed uint64) []movieclub.Option {
+func (referenceScenario) Options(_ context.Context, _ int64, seed uint64, _ time.Time) ([]movieclub.Option, error) {
 	options := movieclub.GenreOptions(seed)
+	options = options[:8]
 	for i := range options {
 		options[i].Kind = movieclub.OptionMovie
 	}
-	return options
+	return options, nil
 }
 func (referenceScenario) Winners(options []movieclub.Option, seed uint64) []movieclub.Option {
 	return movieclub.Winners(options, seed)
 }
-func (referenceScenario) Recommendations(context.Context, movieclub.Round, []movieclub.Option, time.Time) ([]movieclub.Recommendation, error) {
-	return []movieclub.Recommendation{{ID: 1, Title: "Похожий фильм", PosterPath: "/1.jpg", Page: 1, Relation: "similar"}}, nil
+func (referenceScenario) Recommendations(context.Context, movieclub.Round, []movieclub.Option, time.Time) (movieclub.Movie, []movieclub.Recommendation, error) {
+	return movieclub.Movie{ID: 7, Title: "Ориентир", PosterPath: "/7.jpg"}, []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 1, Title: "Похожий фильм", PosterPath: "/1.jpg"}, Page: 1, Relation: "similar"}}, nil
 }
 
 type fakeTransport struct {
 	opened, closed, summaries int
+	optionCount               int
 	pages                     [][]movieclub.Recommendation
 	openErr                   error
 }
@@ -56,15 +58,18 @@ func (f *fakeTransport) OpenPoll(_ context.Context, _ int64, _ movieclub.Feature
 	if f.openErr != nil {
 		return "", 0, f.openErr
 	}
-	if len(labels) != 10 {
+	if len(labels) < 2 || len(labels) > 10 {
 		return "", 0, fmt.Errorf("got %d options", len(labels))
 	}
+	f.optionCount = len(labels)
 	return "poll-1", 101, nil
 }
 
 func (f *fakeTransport) ClosePoll(context.Context, int64, int) ([]int, error) {
 	f.closed++
-	return []int{4, 1, 0, 0, 0, 0, 0, 0, 0, 0}, nil
+	votes := make([]int, f.optionCount)
+	votes[0] = 4
+	return votes, nil
 }
 
 func (f *fakeTransport) SendSummary(context.Context, int64, movieclub.Summary, int64, bool) (int, error) {
@@ -95,7 +100,7 @@ func TestCoordinatorPersistsPollSelectionAndSecondPage(t *testing.T) {
 	now := start
 	transport := &fakeTransport{}
 	service, coordinator := movieRuntime(t, store, transport, map[int64]bool{chat: true}, func() time.Time { return now })
-	roundID, err := service.Start(ctx, 2, chat, 10*time.Minute)
+	roundID, err := service.Start(ctx, movieclub.Genre, 2, chat, 10*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +174,7 @@ func TestUnknownPollDeliveryRequiresResolution(t *testing.T) {
 	now := time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC)
 	transport := &fakeTransport{openErr: &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown}}
 	service, coordinator := movieRuntime(t, store, transport, map[int64]bool{chat: true}, func() time.Time { return now })
-	roundID, err := service.Start(ctx, 10, chat, 10*time.Minute)
+	roundID, err := service.Start(ctx, movieclub.Genre, 10, chat, 10*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +207,7 @@ func TestConcurrentCoordinatorTicksOpenOnePoll(t *testing.T) {
 	now := time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC)
 	transport := &fakeTransport{}
 	service, coordinator := movieRuntime(t, store, transport, map[int64]bool{chat: true}, func() time.Time { return now })
-	if _, err = service.Start(ctx, 30, chat, 10*time.Minute); err != nil {
+	if _, err = service.Start(ctx, movieclub.Genre, 30, chat, 10*time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	start := make(chan struct{})
@@ -238,7 +243,7 @@ func movieRuntime(t *testing.T, store *storage.Store, transport *fakeTransport, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := movieclub.NewService(store, transport, scenario, log, now)
+	service, err := movieclub.NewService(store, transport, scenarios, log, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +302,7 @@ func TestScenarioContractRunsReferenceRoundThroughSharedLifecycle(t *testing.T) 
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	service, err := movieclub.NewService(store, transport, scenario, log, func() time.Time { return now })
+	service, err := movieclub.NewService(store, transport, scenarios, log, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,9 +310,13 @@ func TestScenarioContractRunsReferenceRoundThroughSharedLifecycle(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	roundID, err := service.Start(ctx, 20, chat, 5*time.Minute)
+	roundID, err := service.Start(ctx, movieclub.Reference, 20, chat, 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
+	}
+	planned, err := store.MovieRound(ctx, chat, roundID)
+	if err != nil || len(planned.Options) != 0 {
+		t.Fatalf("manual round prepared options in handler: %#v err=%v", planned, err)
 	}
 	if err = coordinator.Tick(ctx); err != nil {
 		t.Fatal(err)
@@ -317,7 +326,7 @@ func TestScenarioContractRunsReferenceRoundThroughSharedLifecycle(t *testing.T) 
 		t.Fatal(err)
 	}
 	round, err := store.MovieRound(ctx, chat, roundID)
-	if err != nil || round.Feature != movieclub.Reference || round.State != movieclub.StatePublished {
+	if err != nil || round.Feature != movieclub.Reference || round.State != movieclub.StatePublished || round.Hero.ID != 7 || len(round.Options) != 8 {
 		t.Fatalf("reference round = %#v, err=%v", round, err)
 	}
 }

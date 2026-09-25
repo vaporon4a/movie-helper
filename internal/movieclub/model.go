@@ -76,6 +76,23 @@ type Movie struct {
 	Rating, Popularity float64
 }
 
+type Credit struct {
+	PersonID int64
+	Name     string
+	Job      string
+}
+
+type MovieDetails struct {
+	Movie
+	Genres []int64
+	Crew   []Credit
+}
+
+type PersonMovie struct {
+	Movie
+	Job string
+}
+
 type Recommendation struct {
 	Movie
 	RoundID        int64
@@ -91,6 +108,7 @@ type Round struct {
 	PollID, Winner, ResultText                          string
 	ErrorCode, Page2State                               string
 	Options                                             []Option
+	Hero                                                Movie
 }
 
 type SettingsView struct {
@@ -102,6 +120,7 @@ type Summary struct {
 	Feature Feature
 	Winner  string
 	Movies  []Recommendation
+	Hero    Movie
 	Total   int
 	NoVotes bool
 }
@@ -124,4 +143,11 @@ func (e *DeliveryError) Error() string { return "movie delivery: " + string(e.Ki
 type Catalog interface {
 	Discover(context.Context, DiscoverQuery) ([]Movie, error)
 	PosterURL(path string) string
+}
+
+type ReferenceCatalog interface {
+	Details(context.Context, int64) (MovieDetails, error)
+	Recommendations(context.Context, int64) ([]Movie, error)
+	Similar(context.Context, int64) ([]Movie, error)
+	PersonMovies(context.Context, int64) ([]PersonMovie, error)
 }

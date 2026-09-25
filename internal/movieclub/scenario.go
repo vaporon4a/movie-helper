@@ -39,24 +39,24 @@ func NewGenreScenario(catalog Catalog, history RecommendationHistory) (*GenreSce
 }
 
 func (*GenreScenario) Feature() Feature { return Genre }
-func (*GenreScenario) Options(seed uint64) []Option {
-	return GenreOptions(seed)
+func (*GenreScenario) Options(_ context.Context, _ int64, seed uint64, _ time.Time) ([]Option, error) {
+	return GenreOptions(seed), nil
 }
 func (*GenreScenario) Winners(options []Option, seed uint64) []Option {
 	return Winners(options, seed)
 }
 
-func (s *GenreScenario) Recommendations(ctx context.Context, round Round, winners []Option, now time.Time) ([]Recommendation, error) {
+func (s *GenreScenario) Recommendations(ctx context.Context, round Round, winners []Option, now time.Time) (Movie, []Recommendation, error) {
 	recent, err := s.History.RecentMovieIDs(ctx, round.ChatID, now.Add(-recentWindow))
 	if err != nil {
-		return nil, err
+		return Movie{}, nil, err
 	}
 	groups := make([][]Movie, len(winners))
 	seen := make(map[int64]bool)
 	for i, winner := range winners {
 		groups[i], err = s.genreMovies(ctx, round.ID, winner.ProviderID, 20/len(winners), recent, seen, now)
 		if err != nil {
-			return nil, err
+			return Movie{}, nil, err
 		}
 	}
 	selected := interleaveMovies(groups, 20)
@@ -64,7 +64,7 @@ func (s *GenreScenario) Recommendations(ctx context.Context, round Round, winner
 	for i, movie := range selected {
 		out[i] = Recommendation{Movie: movie, RoundID: round.ID, Page: i/10 + 1, Position: i % 10, Relation: "top"}
 	}
-	return out, nil
+	return Movie{}, out, nil
 }
 
 type releasePeriod struct {

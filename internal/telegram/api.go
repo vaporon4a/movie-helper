@@ -45,9 +45,9 @@ type DailyApplication interface {
 }
 
 type MovieClub interface {
-	Start(context.Context, int64, int64, time.Duration) (int64, error)
-	SetSchedule(context.Context, int64, int64, int, string, bool) error
-	PauseSchedules(context.Context, int64, int64) error
+	Start(context.Context, movieclub.Feature, int64, int64, time.Duration) (int64, error)
+	SetSchedule(context.Context, movieclub.Feature, int64, int64, int, string, bool) error
+	PauseSchedules(context.Context, movieclub.Feature, int64, int64) error
 	Settings(context.Context, int64) (movieclub.SettingsView, error)
 	PollClosed(context.Context, string, []int) error
 	More(context.Context, int64, int64) (movieclub.Summary, error)

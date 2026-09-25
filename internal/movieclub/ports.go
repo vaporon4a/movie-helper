@@ -6,8 +6,8 @@ import (
 )
 
 type ServiceRepository interface {
-	SetMovieSchedule(context.Context, int64, int64, int, string, bool, time.Time) error
-	PauseMovieSchedules(context.Context, int64, int64, time.Time) error
+	SetMovieSchedule(context.Context, Feature, int64, int64, int, string, bool, time.Time) error
+	PauseMovieSchedules(context.Context, Feature, int64, int64, time.Time) error
 	MovieSchedules(context.Context, int64) ([]Schedule, error)
 	StartMovieRound(context.Context, Feature, int64, int64, time.Time, time.Duration, []Option) (int64, error)
 	LatestMovieRounds(context.Context, int64) ([]Round, error)
@@ -24,11 +24,12 @@ type CoordinatorRepository interface {
 	ReserveMovieRound(context.Context, Feature, int64, int64, int64, []Option) (int64, error)
 	MovieRounds(context.Context, State) ([]Round, error)
 	MovieOptions(context.Context, int64) ([]Option, error)
+	SaveMovieOptions(context.Context, int64, []Option) error
 	ClaimMovieRound(context.Context, int64, State, State, time.Time) (bool, error)
 	OpenMovieRound(context.Context, int64, string, int, time.Time, time.Time) error
 	DeferMovieRound(context.Context, int64, State, State, time.Time, string) error
 	SaveMoviePoll(context.Context, int64, []int) error
-	SaveMovieSelection(context.Context, int64, string, []Recommendation) error
+	SaveMovieSelection(context.Context, int64, string, Movie, []Recommendation) error
 	MovieRecommendations(context.Context, int64, int) ([]Recommendation, error)
 	SetMoviePublishStage(context.Context, int64, int, State) error
 	DisableMovieSchedules(context.Context, int64) error
@@ -36,6 +37,11 @@ type CoordinatorRepository interface {
 
 type RecommendationHistory interface {
 	RecentMovieIDs(context.Context, int64, time.Time) (map[int64]bool, error)
+}
+
+type ReferenceHistory interface {
+	RecommendationHistory
+	RecentReferenceSeedIDs(context.Context, int64, time.Time) (map[int64]bool, error)
 }
 
 type Transport interface {
@@ -47,7 +53,7 @@ type Transport interface {
 
 type Scenario interface {
 	Feature() Feature
-	Options(uint64) []Option
+	Options(context.Context, int64, uint64, time.Time) ([]Option, error)
 	Winners([]Option, uint64) []Option
-	Recommendations(context.Context, Round, []Option, time.Time) ([]Recommendation, error)
+	Recommendations(context.Context, Round, []Option, time.Time) (Movie, []Recommendation, error)
 }

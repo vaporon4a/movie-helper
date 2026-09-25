@@ -54,6 +54,43 @@ func TestConfigurationBuildsValidatedPosterURL(t *testing.T) {
 	}
 }
 
+func TestReferenceEndpointsMapCreditsAndFilterInvalidMovies(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/movie/603":
+			if r.URL.Query().Get("append_to_response") != "credits" || r.URL.Query().Get("language") != "ru-RU" {
+				t.Errorf("details query=%s", r.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`{"id":603,"title":"Матрица","release_date":"1999-03-30","poster_path":"/matrix.jpg","vote_average":8.2,"vote_count":1000,"popularity":50,"genres":[{"id":878}],"credits":{"crew":[{"id":1,"name":"Лана Вачовски","job":"Director"},{"id":0,"name":"bad","job":"Writer"}]}}`))
+		case "/movie/603/recommendations", "/movie/603/similar":
+			_, _ = w.Write([]byte(`{"results":[{"id":7,"title":"Фильм","release_date":"2001-01-01","vote_average":7,"vote_count":10,"popularity":4},{"id":8,"title":"18+","adult":true}]}`))
+		case "/person/1/movie_credits":
+			_, _ = w.Write([]byte(`{"crew":[{"id":7,"title":"Фильм","release_date":"2001-01-01","vote_average":7,"vote_count":10,"popularity":4,"job":"Director"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := &Client{HTTP: server.Client(), BaseURL: server.URL, Token: "secret"}
+	details, err := client.Details(context.Background(), 603)
+	if err != nil || details.ID != 603 || details.Year != 1999 || len(details.Crew) != 1 || len(details.Genres) != 1 {
+		t.Fatalf("details=%#v err=%v", details, err)
+	}
+	for name, load := range map[string]func(context.Context, int64) ([]movieclub.Movie, error){
+		"recommendations": client.Recommendations,
+		"similar":         client.Similar,
+	} {
+		movies, loadErr := load(context.Background(), 603)
+		if loadErr != nil || len(movies) != 1 || movies[0].ID != 7 {
+			t.Fatalf("%s=%#v err=%v", name, movies, loadErr)
+		}
+	}
+	credits, err := client.PersonMovies(context.Background(), 1)
+	if err != nil || len(credits) != 1 || credits[0].Job != "Director" || credits[0].ID != 7 {
+		t.Fatalf("credits=%#v err=%v", credits, err)
+	}
+}
+
 func TestDiscoverRejectsInvalidQueryBeforeRequest(t *testing.T) {
 	client := &Client{HTTP: http.DefaultClient, BaseURL: "http://invalid.example", Token: "secret"}
 	valid := movieclub.DiscoverQuery{GenreID: 35, Page: 1, MinVotes: 100, FromDate: date(2000, 1, 1), ToDate: date(2009, 12, 31), Sort: movieclub.DiscoverByRating}

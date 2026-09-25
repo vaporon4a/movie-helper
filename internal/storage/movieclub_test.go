@@ -15,7 +15,7 @@ func TestMovieSchedulesAllowEveryWeekdayAndCancelOnlyPlannedRound(t *testing.T) 
 	store := testStore(t)
 	setup(t, store, -1)
 	for weekday := range 7 {
-		must(t, store.SetMovieSchedule(ctx, int64(100+weekday), -1, weekday, "19:00", true, testNow))
+		must(t, store.SetMovieSchedule(ctx, movieclub.Genre, int64(100+weekday), -1, weekday, "19:00", true, testNow))
 	}
 	schedules, err := store.MovieSchedules(ctx, -1)
 	must(t, err)
@@ -28,11 +28,30 @@ func TestMovieSchedulesAllowEveryWeekdayAndCancelOnlyPlannedRound(t *testing.T) 
 	roundID, err := store.ReserveMovieRound(ctx, movieclub.Genre, -1, wed.Unix(), wed.Add(24*time.Hour).Unix(), options)
 	must(t, err)
 	// Editing the Wednesday slot invalidates the unpublished planned snapshot.
-	must(t, store.SetMovieSchedule(ctx, 200, -1, int(time.Wednesday), "20:00", true, testNow.Add(time.Minute)))
+	must(t, store.SetMovieSchedule(ctx, movieclub.Genre, 200, -1, int(time.Wednesday), "20:00", true, testNow.Add(time.Minute)))
 	round, err := store.MovieRound(ctx, -1, roundID)
 	must(t, err)
 	if round.State != movieclub.StateCancelled || round.ErrorCode != "schedule_changed" {
 		t.Fatalf("round = %#v", round)
+	}
+}
+
+func TestMovieSchedulesAreIndependentByFeature(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	setup(t, store, -1)
+	must(t, store.SetMovieSchedule(ctx, movieclub.Genre, 501, -1, int(time.Saturday), "18:00", true, testNow))
+	must(t, store.SetMovieSchedule(ctx, movieclub.Reference, 502, -1, int(time.Saturday), "20:00", true, testNow))
+	schedules, err := store.MovieSchedules(ctx, -1)
+	must(t, err)
+	if len(schedules) != 2 || schedules[0].Feature != movieclub.Genre || schedules[1].Feature != movieclub.Reference {
+		t.Fatalf("schedules=%#v", schedules)
+	}
+	must(t, store.PauseMovieSchedules(ctx, movieclub.Reference, 503, -1, testNow.Add(time.Minute)))
+	schedules, err = store.MovieSchedules(ctx, -1)
+	must(t, err)
+	if !schedules[0].Enabled || schedules[1].Enabled {
+		t.Fatalf("pause crossed feature boundary: %#v", schedules)
 	}
 }
 
