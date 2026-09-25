@@ -22,7 +22,7 @@ func TestFactAcceptsLongerExactQuoteWithoutRetry(t *testing.T) {
 
 func TestFactRepairsLongQuoteOnceAndPreservesValidation(t *testing.T) {
 	quote := "The corridor was suspended along eight large concentric rings that were spaced equidistantly outside its walls and powered by two massive electric motors."
-	quote += " " + quote // 46 words: exceeds the hard ceiling.
+	quote += " " + quote + " " + quote // 69 words: exceeds the evidence ceiling.
 	short := "powered by two massive electric motors"
 	article := Article{Text: quote, URL: "https://en.wikipedia.org/w/index.php?oldid=123", Key: "wikipedia:Inception", Attribution: "Wikipedia"}
 	index := 0

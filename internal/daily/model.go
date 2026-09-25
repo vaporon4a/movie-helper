@@ -12,6 +12,8 @@ import (
 const Meme = "meme"
 const Fact = "fact"
 const MaxPreparationAttempts = 6
+const WikipediaLicenseURL = "https://creativecommons.org/licenses/by-sa/4.0/"
+const WikipediaAttribution = "По материалам Wikipedia, переработано AI. CC BY-SA 4.0: " + WikipediaLicenseURL
 
 const (
 	FetchTimeout   = 4 * time.Minute

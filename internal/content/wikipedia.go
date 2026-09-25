@@ -146,7 +146,7 @@ func (w *Wikipedia) article(ctx context.Context, title string) (*gemini.Article,
 	}
 	return &gemini.Article{Title: p.Title, Text: text,
 		URL:         fmt.Sprintf("https://en.wikipedia.org/w/index.php?oldid=%d", p.Revisions[0].ID),
-		Attribution: "По материалам Wikipedia, переработано AI. CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/",
+		Attribution: daily.WikipediaAttribution,
 	}, nil
 }
 

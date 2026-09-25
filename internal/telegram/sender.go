@@ -25,7 +25,10 @@ func (s Sender) Send(ctx context.Context, chatID int64, item daily.Item) (int, e
 			Caption: memeCaption(item), ParseMode: models.ParseModeHTML,
 		})
 	} else {
-		message, err = s.API.SendMessage(ctx, &bot.SendMessageParams{ChatID: chatID, Text: "Факт о кино\n" + item.Text + "\nИсточник: " + item.Source})
+		message, err = s.API.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: chatID, Text: factMessage(item), ParseMode: models.ParseModeHTML,
+			LinkPreviewOptions: disabledLinkPreview(),
+		})
 	}
 	if err != nil {
 		return 0, classify(err)
@@ -49,6 +52,30 @@ func memeCaption(item daily.Item) string {
 		parts = append(parts, html.EscapeString(title))
 	}
 	if item.Source != "" {
+		parts = append(parts, `🔗 <a href="`+html.EscapeString(item.Source)+`">Источник</a>`)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func factMessage(item daily.Item) string {
+	const previewPrefix = "Предпросмотр · "
+	text := strings.TrimSpace(item.Text)
+	heading := "🎬 <b>Факт о кино</b>"
+	if strings.HasPrefix(text, previewPrefix) {
+		heading += " · <i>предпросмотр</i>"
+		text = strings.TrimSpace(strings.TrimPrefix(text, previewPrefix))
+	}
+	body, wikipedia := strings.CutSuffix(text, "\n\n"+daily.WikipediaAttribution)
+	if wikipedia {
+		text = strings.TrimSpace(body)
+	}
+	parts := []string{heading}
+	if text != "" {
+		parts = append(parts, html.EscapeString(text))
+	}
+	if wikipedia {
+		parts = append(parts, `📚 <a href="`+html.EscapeString(item.Source)+`">Wikipedia</a> · <a href="`+daily.WikipediaLicenseURL+`">CC BY-SA 4.0</a>`+"\n<i>Текст переработан AI</i>")
+	} else if item.Source != "" {
 		parts = append(parts, `🔗 <a href="`+html.EscapeString(item.Source)+`">Источник</a>`)
 	}
 	return strings.Join(parts, "\n\n")
