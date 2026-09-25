@@ -55,6 +55,22 @@ func TestMovieSchedulesAreIndependentByFeature(t *testing.T) {
 	}
 }
 
+func TestFailedTelegramSelectionCanBeRetriedAfterDeliveryFix(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	setup(t, store, -1)
+	roundID, err := store.StartMovieRound(ctx, movieclub.Reference, 601, -1, testNow, 5*time.Minute, nil)
+	must(t, err)
+	_, err = store.db.ExecContext(ctx, "UPDATE movie_rounds SET state='failed',error_code='telegram_rejected' WHERE id=?", roundID)
+	must(t, err)
+	must(t, store.ResolveMovieRound(ctx, 602, -1, roundID, movieclub.ResolveRetry))
+	round, err := store.MovieRound(ctx, -1, roundID)
+	must(t, err)
+	if round.State != movieclub.StateReady || round.ErrorCode != "" {
+		t.Fatalf("round=%#v", round)
+	}
+}
+
 func TestMovieRoundRejectsInvalidAndConcurrentTransitions(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)

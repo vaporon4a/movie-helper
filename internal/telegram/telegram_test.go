@@ -26,6 +26,7 @@ type fakeAPI struct {
 	stops               []*bot.StopPollParams
 	mediaGroups         []*bot.SendMediaGroupParams
 	adminErr, errorSend error
+	photoErr            error
 }
 
 type testDailyApp struct {
@@ -80,6 +81,9 @@ func (a *fakeAPI) EditMessageText(_ context.Context, p *bot.EditMessageTextParam
 }
 func (a *fakeAPI) SendPhoto(_ context.Context, p *bot.SendPhotoParams) (*models.Message, error) {
 	a.photos = append(a.photos, p)
+	if a.photoErr != nil {
+		return &models.Message{ID: 99}, a.photoErr
+	}
 	return &models.Message{ID: 99}, a.errorSend
 }
 func (a *fakeAPI) SendPoll(_ context.Context, p *bot.SendPollParams) (*models.Message, error) {
@@ -341,6 +345,24 @@ func TestReferenceSummaryUsesWinnerPosterAndBoundedCaption(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(api.photos) != 1 || len(api.messages) != 0 || api.photos[0].ParseMode != models.ParseModeHTML || len([]rune(api.photos[0].Caption)) > 1024 {
+		t.Fatalf("photos=%#v messages=%#v", api.photos, api.messages)
+	}
+}
+
+func TestReferenceSummaryFallsBackToTextWhenTelegramRejectsPoster(t *testing.T) {
+	api := &fakeAPI{photoErr: fmt.Errorf("%w, failed to get HTTP URL content", bot.ErrorBadRequest)}
+	sender, err := NewMovieSender(api, testCatalog{}.PosterURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary := movieclub.Summary{
+		Feature: movieclub.Reference, Winner: "Матрица (1999)", Hero: movieclub.Movie{PosterPath: "/matrix.jpg"},
+		Movies: []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 1, Title: "Тёмный город", Rating: 7.3}, Relation: "similar"}}, Total: 1,
+	}
+	if _, err = sender.SendSummary(context.Background(), -1, summary, 7, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.photos) != 1 || len(api.messages) != 1 || !strings.Contains(api.messages[0].Text, "Фильм-ориентир") {
 		t.Fatalf("photos=%#v messages=%#v", api.photos, api.messages)
 	}
 }

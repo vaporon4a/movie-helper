@@ -85,13 +85,17 @@ func (s MovieSender) SendSummary(ctx context.Context, chat int64, summary moviec
 			ChatID: chat, Photo: &models.InputFileString{Data: poster}, Caption: selectionSummaryWithin(summary, more, 1024),
 			ParseMode: models.ParseModeHTML, ReplyMarkup: markup,
 		})
-		if err != nil {
-			return 0, classifyMovie(err)
+		if err == nil && message != nil {
+			return message.ID, nil
 		}
-		if message == nil {
+		if err == nil {
 			return 0, &movieclub.DeliveryError{Kind: movieclub.DeliveryUnknown}
 		}
-		return message.ID, nil
+		classified := classifyMovie(err)
+		typed, permanent := errors.AsType[*movieclub.DeliveryError](classified)
+		if !permanent || typed.Kind != movieclub.DeliveryPermanent {
+			return 0, classified
+		}
 	}
 	params := &bot.SendMessageParams{
 		ChatID: chat, Text: selectionSummary(summary, more), ParseMode: models.ParseModeHTML,
@@ -298,19 +302,27 @@ func movieSettingsText(settings movieclub.SettingsView) string {
 		lines = append(lines, fmt.Sprintf("%s · %s %s — %s", kind, movieclub.WeekdayName(schedule.Weekday), schedule.Clock, state))
 	}
 	for _, round := range settings.Rounds {
-		if round.State == movieclub.StatePublished || round.State == movieclub.StateCancelled || round.State == movieclub.StateFailed {
-			continue
-		}
-		line := fmt.Sprintf("Раунд #%d · %s: %s", round.ID, round.Feature, round.State)
-		if round.State == movieclub.StateOpen {
-			line += ", закрытие " + time.Unix(round.ClosesAt, 0).Format(time.RFC3339)
-		}
-		if round.ErrorCode != "" {
-			line += ", ошибка " + round.ErrorCode
-		}
-		lines = append(lines, line)
+		lines = appendMovieRoundSettings(lines, round)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func appendMovieRoundSettings(lines []string, round movieclub.Round) []string {
+	if round.State == movieclub.StatePublished || round.State == movieclub.StateCancelled {
+		return lines
+	}
+	line := fmt.Sprintf("Раунд #%d · %s: %s", round.ID, round.Feature, round.State)
+	if round.State == movieclub.StateOpen {
+		line += ", закрытие " + time.Unix(round.ClosesAt, 0).Format(time.RFC3339)
+	}
+	if round.ErrorCode != "" {
+		line += ", ошибка " + round.ErrorCode
+	}
+	lines = append(lines, line)
+	if round.State == movieclub.StateFailed && round.ErrorCode == "telegram_rejected" {
+		lines = append(lines, fmt.Sprintf("Повторить сохранённую подборку: /movie_resolve %d retry", round.ID))
+	}
+	return lines
 }
 
 func movieCaption(movie movieclub.Recommendation) string {

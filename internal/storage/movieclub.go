@@ -484,7 +484,11 @@ func (s *Store) FinishMoviePage2(ctx context.Context, chat, id int64, state stri
 
 func (s *Store) ResolveMovieRound(ctx context.Context, op, chat, id int64, action movieclub.ResolveAction) error {
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		handled, err := resolveMoviePage2(ctx, tx, chat, id, action)
+		handled, err := retryFailedMovieRound(ctx, tx, chat, id, action)
+		if err != nil || handled {
+			return err
+		}
+		handled, err = resolveMoviePage2(ctx, tx, chat, id, action)
 		if err != nil || handled {
 			return err
 		}
@@ -499,6 +503,19 @@ func (s *Store) ResolveMovieRound(ctx context.Context, op, chat, id int64, actio
 		result, err := tx.ExecContext(ctx, "UPDATE movie_rounds SET state=?,error_code='' WHERE id=? AND chat_id=? AND state='unknown'", target, id, chat)
 		return changed(result, err)
 	})
+}
+
+func retryFailedMovieRound(ctx context.Context, tx *sql.Tx, chat, id int64, action movieclub.ResolveAction) (bool, error) {
+	if action != movieclub.ResolveRetry {
+		return false, nil
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE movie_rounds SET state='ready',error_code='',next_attempt=0
+ WHERE id=? AND chat_id=? AND state='failed' AND error_code='telegram_rejected'`, id, chat)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n == 1, err
 }
 
 func resolveMoviePage2(ctx context.Context, tx *sql.Tx, chat, id int64, action movieclub.ResolveAction) (bool, error) {
