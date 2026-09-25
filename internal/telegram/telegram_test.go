@@ -192,10 +192,13 @@ func TestSenderAndErrors(t *testing.T) {
 	a := &fakeAPI{}
 	s := Sender{API: a}
 	ctx := context.Background()
-	if id, err := s.Send(ctx, -1, daily.Item{Kind: daily.Meme, Image: "telegram-file-id", Text: "Мем", Source: "https://redd.it/a"}); err != nil || id != 99 {
+	if id, err := s.Send(ctx, -1, daily.Item{Kind: daily.Meme, Image: "telegram-file-id", Text: "Предпросмотр · <b>Мем</b> & шутка", Source: "https://redd.it/a?x=1&y=2"}); err != nil || id != 99 {
 		t.Fatal(id, err)
 	}
-	if p := a.photos[0]; p.Photo.(*models.InputFileString).Data != "telegram-file-id" || !strings.Contains(p.Caption, "https://redd.it/a") {
+	if p := a.photos[0]; p.Photo.(*models.InputFileString).Data != "telegram-file-id" || p.ParseMode != models.ParseModeHTML ||
+		!strings.Contains(p.Caption, "🎭 <b>Мем дня</b> · <i>предпросмотр</i>") ||
+		!strings.Contains(p.Caption, "&lt;b&gt;Мем&lt;/b&gt; &amp; шутка") ||
+		!strings.Contains(p.Caption, `href="https://redd.it/a?x=1&amp;y=2"`) || strings.Contains(p.Caption, "Предпросмотр ·") {
 		t.Fatal(p)
 	}
 	for _, tc := range []struct {
@@ -447,7 +450,7 @@ func TestPreviewUsesGeminiProviderWithoutQueueOrSchedule(t *testing.T) {
 	}
 	h.Handle(ctx, nil, update(4, -1, 42, "/preview meme"))
 	h.Handle(ctx, nil, update(5, -1, 42, "/preview fact"))
-	if p.calls != 2 || len(a.photos) != 1 || !strings.Contains(a.photos[0].Caption, "Предпросмотр") || !strings.Contains(a.messages[len(a.messages)-1].Text, "Предпросмотр") {
+	if p.calls != 2 || len(a.photos) != 1 || !strings.Contains(a.photos[0].Caption, "предпросмотр") || !strings.Contains(a.messages[len(a.messages)-1].Text, "Предпросмотр") {
 		t.Fatal("preview not delivered")
 	}
 	if p.remaining < 230*time.Second {
