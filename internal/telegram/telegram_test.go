@@ -348,6 +348,9 @@ func TestReferenceSummaryUsesWinnerPosterAndBoundedCaption(t *testing.T) {
 	if len(api.photos) != 1 || len(api.messages) != 0 || api.photos[0].ParseMode != "" || len([]rune(api.photos[0].Caption)) > 1024 {
 		t.Fatalf("photos=%#v messages=%#v", api.photos, api.messages)
 	}
+	if api.photos[0].ReplyMarkup != nil {
+		t.Fatalf("unexpected reply markup without second page: %#v", api.photos[0].ReplyMarkup)
+	}
 }
 
 func TestReferenceSummaryFallsBackToTextWhenTelegramRejectsPoster(t *testing.T) {
@@ -370,6 +373,9 @@ func TestReferenceSummaryFallsBackToTextWhenTelegramRejectsPoster(t *testing.T) 
 	}
 	if api.messages[0].ParseMode != "" {
 		t.Fatalf("fallback parse mode=%q", api.messages[0].ParseMode)
+	}
+	if api.messages[0].ReplyMarkup != nil {
+		t.Fatalf("unexpected fallback reply markup without second page: %#v", api.messages[0].ReplyMarkup)
 	}
 	if got := logs.String(); !strings.Contains(got, "operation=winner_poster") || !strings.Contains(got, "reason=photo_url_fetch") || !strings.Contains(got, "telegram movie delivery fallback") {
 		t.Fatalf("logs=%q", got)

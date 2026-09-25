@@ -81,7 +81,7 @@ func (s MovieSender) ClosePoll(ctx context.Context, chat int64, messageID int) (
 }
 
 func (s MovieSender) SendSummary(ctx context.Context, chat int64, summary movieclub.Summary, roundID int64, more bool) (int, error) {
-	var markup *models.InlineKeyboardMarkup
+	var markup models.ReplyMarkup
 	if more {
 		markup = moreMoviesKeyboard(roundID)
 	}
@@ -453,6 +453,8 @@ func telegramRejectionReason(err error) string {
 		return "caption_too_long"
 	case strings.Contains(message, "message is too long"):
 		return "message_too_long"
+	case strings.Contains(message, "object expected as reply markup"):
+		return "invalid_reply_markup"
 	case errors.Is(err, bot.ErrorNotFound):
 		return "not_found"
 	default:
