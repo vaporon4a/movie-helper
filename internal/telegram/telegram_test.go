@@ -472,7 +472,7 @@ func TestPreviewUsesGeminiProviderWithoutQueueOrSchedule(t *testing.T) {
 	}
 	p.empty = true
 	h.Handle(ctx, nil, update(6, -1, 42, "/preview meme"))
-	if len(a.photos) != 1 || !strings.Contains(a.messages[len(a.messages)-1].Text, "Подходящего материала нет") {
+	if len(a.photos) != 1 || !strings.Contains(a.messages[len(a.messages)-1].Text, "Подходящего мема") || strings.Contains(a.messages[len(a.messages)-1].Text, "ключ") {
 		t.Fatal("empty result bypassed")
 	}
 	p.err = errors.New("upstream secret")

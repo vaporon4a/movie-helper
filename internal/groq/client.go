@@ -109,8 +109,9 @@ func (c *Client) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Ite
 	return &selected[0], nil
 }
 func (c *Client) SelectMemes(ctx context.Context, items []daily.Item, limit int) ([]daily.Item, error) {
-	// One image per batch leaves token headroom for a second candidate.
-	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 1}
+	// Qwen accepts three images per request. Reviewing one candidate from each
+	// default source together stays within the free per-minute token allowance.
+	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 1, MaxImages: 3}
 	return e.SelectMemes(ctx, items, limit)
 }
 func (c *Client) Fact(ctx context.Context, articles []ai.Article) (*daily.Item, error) {

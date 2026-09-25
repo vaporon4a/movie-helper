@@ -82,7 +82,11 @@ func (h *Handler) preview(ctx context.Context, chatID int64, kind string) error 
 		return errResponseSent
 	}
 	if len(items) == 0 {
-		h.reply(ctx, chatID, "Подходящего материала нет. AI мог отклонить кандидатов; для автоматического подбора нужен ключ Gemini или Groq.")
+		message := "Подходящего факта среди проверенных материалов не нашлось. Попробуйте позже."
+		if kind == daily.Meme {
+			message = "Подходящего мема среди проверенных кандидатов не нашлось. Попробуйте ещё раз через минуту: отклонённые варианты повторно не проверяются."
+		}
+		h.reply(ctx, chatID, message)
 		return errResponseSent
 	}
 	item := items[0]

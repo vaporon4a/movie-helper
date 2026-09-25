@@ -99,14 +99,14 @@ func TestVisionPayloadSelectionAndBudget(t *testing.T) {
 				}
 			}
 		}
-		if n != 1 {
+		if n != 3 {
 			t.Fatalf("sent %d images", n)
 		}
-		return response(200, answer(`{"index":0,"text":"invented","evidence":"","reviews":{"0":{"reason":"accepted","detail":"Понятная шутка"}}}`, "stop")), nil
+		return response(200, answer(`{"index":2,"text":"","evidence":"","reviews":{"0":{"reason":"not_meme","detail":"Нет шутки"},"1":{"reason":"unsuitable","detail":"Грубый текст"},"2":{"reason":"accepted","detail":"Понятная шутка"}}}`, "stop")), nil
 	}, b)
 	items := []daily.Item{{Image: "https://i.redd.it/a.png", Key: "a"}, {Image: "https://i.redd.it/b.png", Key: "b"}, {Image: "https://i.redd.it/c.png", Key: "c"}}
 	item, err := c.SelectMeme(context.Background(), items)
-	if err != nil || item == nil || *item != items[0] || images != 1 || calls != 1 || b.calls != 1 {
+	if err != nil || item == nil || *item != items[2] || images != 3 || calls != 1 || b.calls != 1 {
 		t.Fatal(item, err, images, calls, b.calls)
 	}
 	b.allowed = false
