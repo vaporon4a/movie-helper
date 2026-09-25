@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -49,6 +50,35 @@ func TestCandidatesFilterAndFallback(t *testing.T) {
 	} {
 		if bestPreview([]string{raw}) != "" {
 			t.Errorf("accepted preview %s", raw)
+		}
+	}
+}
+
+func TestCandidatesInterleaveSourcesByScore(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sub := strings.Split(r.URL.Path, "/")[2]
+		posts := map[string][]post{
+			"first": {
+				{Title: "Первый 100", URL: "https://i.redd.it/a.png", Link: "https://redd.it/a", Ups: 100},
+				{Title: "Первый 90", URL: "https://i.redd.it/b.png", Link: "https://redd.it/b", Ups: 90},
+			},
+			"second": {
+				{Title: "Второй 50", URL: "https://i.redd.it/c.png", Link: "https://redd.it/c", Ups: 50},
+				{Title: "Второй 40", URL: "https://i.redd.it/d.png", Link: "https://redd.it/d", Ups: 40},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"memes": posts[sub]})
+	}))
+	defer srv.Close()
+	c := Client{HTTP: srv.Client(), BaseURL: srv.URL, Subreddits: []string{"first", "second"}}
+	got, err := c.Candidates(context.Background())
+	if err != nil || len(got) != 4 {
+		t.Fatal(got, err)
+	}
+	want := []string{"Первый 100", "Второй 50", "Первый 90", "Второй 40"}
+	for i := range want {
+		if got[i].Text != want[i] {
+			t.Fatal(got)
 		}
 	}
 }

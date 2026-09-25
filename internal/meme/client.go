@@ -34,7 +34,7 @@ type post struct {
 }
 
 func (c *Client) Candidates(ctx context.Context) ([]daily.Item, error) {
-	var posts []post
+	var groups [][]post
 	var lastErr error
 	for _, sub := range c.Subreddits {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/gimme/"+url.PathEscape(sub)+"/50", nil)
@@ -63,9 +63,12 @@ func (c *Client) Candidates(ctx context.Context) ([]daily.Item, error) {
 			lastErr = errors.New("invalid meme response")
 			continue
 		}
-		posts = append(posts, body.Memes...)
+		sort.SliceStable(body.Memes, func(i, j int) bool { return body.Memes[i].Ups > body.Memes[j].Ups })
+		if len(body.Memes) > 0 {
+			groups = append(groups, body.Memes)
+		}
 	}
-	sort.SliceStable(posts, func(i, j int) bool { return posts[i].Ups > posts[j].Ups })
+	posts := interleave(groups)
 	var out []daily.Item
 	seen := make(map[string]bool)
 	for _, p := range posts {
@@ -83,6 +86,22 @@ func (c *Client) Candidates(ctx context.Context) ([]daily.Item, error) {
 		return nil, lastErr
 	}
 	return out, nil
+}
+
+func interleave(groups [][]post) []post {
+	total := 0
+	for _, group := range groups {
+		total += len(group)
+	}
+	posts := make([]post, 0, total)
+	for index := 0; len(posts) < total; index++ {
+		for _, group := range groups {
+			if index < len(group) {
+				posts = append(posts, group[index])
+			}
+		}
+	}
+	return posts
 }
 
 func bestPreview(previews []string) string {
