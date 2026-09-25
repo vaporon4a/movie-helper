@@ -90,10 +90,10 @@ func (s MovieSender) SendSummary(ctx context.Context, chat int64, summary moviec
 		poster = s.posterURL(summary.Hero.PosterPath)
 	}
 	if summary.Feature == movieclub.Reference && poster != "" {
-		caption := selectionSummaryWithin(summary, more, 1024)
+		caption := referenceSummaryPlain(summary, 1024)
 		message, err := s.api.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID: chat, Photo: &models.InputFileString{Data: poster}, Caption: caption,
-			ParseMode: models.ParseModeHTML, ReplyMarkup: markup,
+			ReplyMarkup: markup,
 		})
 		if err == nil && message != nil {
 			return message.ID, nil
@@ -110,8 +110,14 @@ func (s MovieSender) SendSummary(ctx context.Context, chat int64, summary moviec
 		}
 		s.log.Info("telegram movie delivery fallback", "operation", "winner_summary_text", "round_id", roundID, "chat_id", chat)
 	}
+	text := selectionSummary(summary, more)
+	parseMode := models.ParseModeHTML
+	if summary.Feature == movieclub.Reference {
+		text = referenceSummaryPlain(summary, 4096)
+		parseMode = ""
+	}
 	params := &bot.SendMessageParams{
-		ChatID: chat, Text: selectionSummary(summary, more), ParseMode: models.ParseModeHTML,
+		ChatID: chat, Text: text, ParseMode: parseMode,
 		LinkPreviewOptions: disabledLinkPreview(),
 		ReplyMarkup:        markup,
 	}
@@ -289,6 +295,62 @@ func referenceRelationTitle(relation string) string {
 	default:
 		return "🎞 <b>Ещё фильмы</b>"
 	}
+}
+
+func referenceSummaryPlain(summary movieclub.Summary, limit int) string {
+	if summary.NoVotes {
+		return "Опрос завершён без голосов — подборки сегодня не будет."
+	}
+	lines := []string{
+		"🎬 Фильм-ориентир: " + summary.Winner,
+		fmt.Sprintf("✨ %d рекомендаций по результатам выбора", max(summary.Total, len(summary.Movies))),
+	}
+	lastRelation, position := "", 0
+	for _, movie := range summary.Movies {
+		if movie.Relation != lastRelation {
+			lines = append(lines, "", referenceRelationPlain(movie.Relation))
+			lastRelation, position = movie.Relation, 0
+		}
+		position++
+		title := movie.Title
+		if title == "" {
+			title = "Без названия"
+		}
+		line := fmt.Sprintf("%d. %s", position, title)
+		if movie.Year != 0 {
+			line += fmt.Sprintf(" · %d", movie.Year)
+		}
+		line += fmt.Sprintf(" · ⭐ %.1f", movie.Rating)
+		lines = append(lines, line)
+	}
+	lines = append(lines, "", "Данные и постеры: TMDB")
+	return truncateRunes(strings.Join(lines, "\n"), limit)
+}
+
+func referenceRelationPlain(relation string) string {
+	switch relation {
+	case "similar":
+		return "🔎 Похожи по настроению и жанру"
+	case "director":
+		return "🎥 Другие фильмы режиссёра"
+	case "screenwriter":
+		return "✍️ Работы сценариста"
+	case "book_author":
+		return "📚 Другие экранизации автора"
+	default:
+		return "🎞 Ещё фильмы"
+	}
+}
+
+func truncateRunes(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	if limit <= 1 {
+		return "…"
+	}
+	return strings.TrimSpace(string(runes[:limit-1])) + "…"
 }
 
 func movieSummaryTitle(movie movieclub.Recommendation, limit int) string {

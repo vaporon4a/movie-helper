@@ -345,7 +345,7 @@ func TestReferenceSummaryUsesWinnerPosterAndBoundedCaption(t *testing.T) {
 	if _, err = sender.SendSummary(context.Background(), -1, summary, 7, false); err != nil {
 		t.Fatal(err)
 	}
-	if len(api.photos) != 1 || len(api.messages) != 0 || api.photos[0].ParseMode != models.ParseModeHTML || len([]rune(api.photos[0].Caption)) > 1024 {
+	if len(api.photos) != 1 || len(api.messages) != 0 || api.photos[0].ParseMode != "" || len([]rune(api.photos[0].Caption)) > 1024 {
 		t.Fatalf("photos=%#v messages=%#v", api.photos, api.messages)
 	}
 }
@@ -368,8 +368,34 @@ func TestReferenceSummaryFallsBackToTextWhenTelegramRejectsPoster(t *testing.T) 
 	if len(api.photos) != 1 || len(api.messages) != 1 || !strings.Contains(api.messages[0].Text, "Фильм-ориентир") {
 		t.Fatalf("photos=%#v messages=%#v", api.photos, api.messages)
 	}
+	if api.messages[0].ParseMode != "" {
+		t.Fatalf("fallback parse mode=%q", api.messages[0].ParseMode)
+	}
 	if got := logs.String(); !strings.Contains(got, "operation=winner_poster") || !strings.Contains(got, "reason=photo_url_fetch") || !strings.Contains(got, "telegram movie delivery fallback") {
 		t.Fatalf("logs=%q", got)
+	}
+}
+
+func TestReferencePlainSummaryAlwaysFitsTelegramCaption(t *testing.T) {
+	movies := make([]movieclub.Recommendation, 10)
+	for i := range movies {
+		movies[i] = movieclub.Recommendation{
+			Movie:    movieclub.Movie{ID: int64(i + 1), Title: strings.Repeat("Очень длинное название & ", 20), Year: 2000 + i, Rating: 7.5},
+			Relation: "similar",
+		}
+	}
+	text := referenceSummaryPlain(movieclub.Summary{Feature: movieclub.Reference, Winner: strings.Repeat("Матрица ", 50), Movies: movies, Total: 10}, 1024)
+	if len([]rune(text)) > 1024 || strings.ContainsAny(text, "<>") {
+		t.Fatalf("caption runes=%d text=%q", len([]rune(text)), text)
+	}
+}
+
+func TestMovieResolveReportsRetryInsteadOfScheduleChange(t *testing.T) {
+	h, api := handler(t)
+	h.MovieClub = &movieClubStub{}
+	h.Handle(context.Background(), nil, update(700, -1, 42, "/movie_resolve 6 retry"))
+	if len(api.messages) == 0 || api.messages[len(api.messages)-1].Text != "Подборка #6 поставлена на повторную отправку." {
+		t.Fatalf("messages=%#v", api.messages)
 	}
 }
 

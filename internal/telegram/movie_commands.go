@@ -129,5 +129,17 @@ func (h *Handler) resolveMovieRound(ctx context.Context, operationID, chatID int
 	if err != nil {
 		return err
 	}
-	return h.MovieClub.Resolve(ctx, operationID, chatID, roundID, movieclub.ResolveAction(fields[1]))
+	action := movieclub.ResolveAction(fields[1])
+	if err = h.MovieClub.Resolve(ctx, operationID, chatID, roundID, action); err != nil {
+		return err
+	}
+	switch action {
+	case movieclub.ResolveRetry:
+		h.reply(ctx, chatID, fmt.Sprintf("Подборка #%d поставлена на повторную отправку.", roundID))
+	case movieclub.ResolveSent:
+		h.reply(ctx, chatID, fmt.Sprintf("Подборка #%d отмечена как доставленная.", roundID))
+	case movieclub.ResolveCancel:
+		h.reply(ctx, chatID, fmt.Sprintf("Подборка #%d отменена.", roundID))
+	}
+	return errResponseSent
 }
