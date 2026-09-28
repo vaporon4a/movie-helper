@@ -142,7 +142,7 @@ func (s *Service) fullSummary(ctx context.Context, round Round) (Summary, error)
 }
 
 func (s *Service) Resolve(ctx context.Context, operationID, chatID, roundID int64, action ResolveAction) error {
-	return s.store.ResolveMovieRound(ctx, operationID, chatID, roundID, action)
+	return s.store.ResolveMovieRound(ctx, operationID, chatID, roundID, action, s.now())
 }
 
 func pageFailure(err error) string {

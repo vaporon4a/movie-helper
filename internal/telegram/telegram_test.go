@@ -400,8 +400,23 @@ func TestMovieResolveReportsRetryInsteadOfScheduleChange(t *testing.T) {
 	h, api := handler(t)
 	h.MovieClub = &movieClubStub{}
 	h.Handle(context.Background(), nil, update(700, -1, 42, "/movie_resolve 6 retry"))
-	if len(api.messages) == 0 || api.messages[len(api.messages)-1].Text != "Подборка #6 поставлена на повторную отправку." {
+	if len(api.messages) == 0 || api.messages[len(api.messages)-1].Text != "Опрос или подборка #6 возвращены в очередь. Если это пропущенный опрос, он откроется на 24 часа." {
 		t.Fatalf("messages=%#v", api.messages)
+	}
+}
+
+func TestMovieSettingsShowsTimezoneParallelRoundsAndRecovery(t *testing.T) {
+	text := movieSettingsText(movieclub.SettingsView{
+		Schedules: []movieclub.Schedule{{Feature: movieclub.Genre, Weekday: int(time.Monday), Clock: "09:00", Zone: "Asia/Novosibirsk", Enabled: true}},
+		Rounds: []movieclub.Round{
+			{ID: 7, Feature: movieclub.Genre, State: movieclub.StateOpen, ClosesAt: 100},
+			{ID: 8, Feature: movieclub.Reference, State: movieclub.StateCancelled, ErrorCode: "active_round"},
+		},
+	})
+	for _, want := range []string{"Часовой пояс: Asia/Novosibirsk", "Раунд #7", "Раунд #8", "/movie_resolve 8 retry"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("settings missing %q: %s", want, text)
+		}
 	}
 }
 

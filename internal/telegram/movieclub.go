@@ -371,6 +371,9 @@ func movieSummaryTitle(movie movieclub.Recommendation, limit int) string {
 
 func movieSettingsText(settings movieclub.SettingsView) string {
 	lines := []string{"🎬 Киноопросы:"}
+	if len(settings.Schedules) > 0 && settings.Schedules[0].Zone != "" {
+		lines = append(lines, "Часовой пояс: "+settings.Schedules[0].Zone)
+	}
 	if len(settings.Schedules) == 0 {
 		lines = append(lines, "расписание выключено")
 	}
@@ -392,7 +395,7 @@ func movieSettingsText(settings movieclub.SettingsView) string {
 }
 
 func appendMovieRoundSettings(lines []string, round movieclub.Round) []string {
-	if round.State == movieclub.StatePublished || round.State == movieclub.StateCancelled {
+	if round.State == movieclub.StatePublished || (round.State == movieclub.StateCancelled && round.ErrorCode != "active_round") {
 		return lines
 	}
 	line := fmt.Sprintf("Раунд #%d · %s: %s", round.ID, round.Feature, round.State)
@@ -405,6 +408,9 @@ func appendMovieRoundSettings(lines []string, round movieclub.Round) []string {
 	lines = append(lines, line)
 	if round.State == movieclub.StateFailed && round.ErrorCode == "telegram_rejected" {
 		lines = append(lines, fmt.Sprintf("Повторить сохранённую подборку: /movie_resolve %d retry", round.ID))
+	}
+	if round.State == movieclub.StateCancelled && round.ErrorCode == "active_round" {
+		lines = append(lines, fmt.Sprintf("Вернуть пропущенный опрос: /movie_resolve %d retry", round.ID))
 	}
 	return lines
 }

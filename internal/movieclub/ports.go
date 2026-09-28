@@ -16,7 +16,7 @@ type ServiceRepository interface {
 	MovieRecommendations(context.Context, int64, int) ([]Recommendation, error)
 	ClaimMoviePage2(context.Context, int64, int64) (bool, error)
 	FinishMoviePage2(context.Context, int64, int64, string) error
-	ResolveMovieRound(context.Context, int64, int64, int64, ResolveAction) error
+	ResolveMovieRound(context.Context, int64, int64, int64, ResolveAction, time.Time) error
 }
 
 type CoordinatorRepository interface {

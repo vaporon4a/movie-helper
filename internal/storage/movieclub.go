@@ -140,15 +140,15 @@ func reserveMovieRound(ctx context.Context, tx *sql.Tx, feature movieclub.Featur
 		return 0, movieclub.ErrUnknownFeature
 	}
 	var active int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM movie_rounds WHERE chat_id=? AND state IN
- ('planned','poll_creating','open','closing','selecting','ready','publishing','unknown')`, chat).Scan(&active); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM movie_rounds WHERE chat_id=? AND feature=? AND state IN
+ ('planned','poll_creating','open','closing','selecting','ready','publishing','unknown')`, chat, feature).Scan(&active); err != nil {
 		return 0, err
 	}
 	if active != 0 {
 		if skipIfActive {
 			_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO movie_rounds(chat_id,feature,slot_at,state,closes_at,error_code)
  VALUES(?,?,?,'cancelled',?,'active_round')`, chat, feature, slotAt, closesAt)
-			return 0, err
+			return -1, err
 		}
 		return 0, movieclub.ErrActiveRound
 	}
@@ -184,6 +184,9 @@ func (s *Store) ReserveMovieRound(ctx context.Context, feature movieclub.Feature
 		id, err = reserveMovieRound(ctx, tx, feature, chat, slotAt, closesAt, options, true)
 		return err
 	})
+	if err == nil && id == -1 {
+		return 0, movieclub.ErrActiveRound
+	}
 	return id, err
 }
 
@@ -482,9 +485,13 @@ func (s *Store) FinishMoviePage2(ctx context.Context, chat, id int64, state stri
 	return changed(result, err)
 }
 
-func (s *Store) ResolveMovieRound(ctx context.Context, op, chat, id int64, action movieclub.ResolveAction) error {
+func (s *Store) ResolveMovieRound(ctx context.Context, op, chat, id int64, action movieclub.ResolveAction, now time.Time) error {
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		handled, err := retryFailedMovieRound(ctx, tx, chat, id, action)
+		handled, err := retryCancelledMovieRound(ctx, tx, chat, id, action, now)
+		if err != nil || handled {
+			return err
+		}
+		handled, err = retryFailedMovieRound(ctx, tx, chat, id, action)
 		if err != nil || handled {
 			return err
 		}
@@ -503,6 +510,36 @@ func (s *Store) ResolveMovieRound(ctx context.Context, op, chat, id int64, actio
 		result, err := tx.ExecContext(ctx, "UPDATE movie_rounds SET state=?,error_code='' WHERE id=? AND chat_id=? AND state='unknown'", target, id, chat)
 		return changed(result, err)
 	})
+}
+
+func retryCancelledMovieRound(ctx context.Context, tx *sql.Tx, chat, id int64, action movieclub.ResolveAction, now time.Time) (bool, error) {
+	if action != movieclub.ResolveRetry {
+		return false, nil
+	}
+	var feature movieclub.Feature
+	var state movieclub.State
+	var code string
+	if err := tx.QueryRowContext(ctx, "SELECT feature,state,error_code FROM movie_rounds WHERE id=? AND chat_id=?", id, chat).Scan(&feature, &state, &code); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, movieclub.ErrConflict
+		}
+		return false, err
+	}
+	if state != movieclub.StateCancelled || code != "active_round" {
+		return false, nil
+	}
+	var active int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM movie_rounds WHERE chat_id=? AND feature=? AND id<>? AND state IN
+ ('planned','poll_creating','open','closing','selecting','ready','publishing','unknown')`, chat, feature, id).Scan(&active); err != nil {
+		return true, err
+	}
+	if active != 0 {
+		return true, movieclub.ErrActiveRound
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE movie_rounds SET state='planned',telegram_poll_id='',poll_message_id=0,
+ opened_at=0,closes_at=?,winner='',result_text='',next_attempt=?,error_code='',publish_stage=0,page2_state='none'
+ WHERE id=? AND chat_id=? AND state='cancelled' AND error_code='active_round'`, now.Add(24*time.Hour).Unix(), now.Unix(), id, chat)
+	return true, changed(result, err)
 }
 
 func retryFailedMovieRound(ctx context.Context, tx *sql.Tx, chat, id int64, action movieclub.ResolveAction) (bool, error) {

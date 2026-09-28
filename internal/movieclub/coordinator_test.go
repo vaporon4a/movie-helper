@@ -62,7 +62,7 @@ func (f *fakeTransport) OpenPoll(_ context.Context, _ int64, _ movieclub.Feature
 		return "", 0, fmt.Errorf("got %d options", len(labels))
 	}
 	f.optionCount = len(labels)
-	return "poll-1", 101, nil
+	return fmt.Sprintf("poll-%d", f.opened), 100 + f.opened, nil
 }
 
 func (f *fakeTransport) ClosePoll(context.Context, int64, int) ([]int, error) {
@@ -328,6 +328,54 @@ func TestScenarioContractRunsReferenceRoundThroughSharedLifecycle(t *testing.T) 
 	round, err := store.MovieRound(ctx, chat, roundID)
 	if err != nil || round.Feature != movieclub.Reference || round.State != movieclub.StatePublished || round.Hero.ID != 7 || len(round.Options) != 8 {
 		t.Fatalf("reference round = %#v, err=%v", round, err)
+	}
+}
+
+func TestDifferentMovieFeaturesOpenInParallel(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "parallel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	const chat int64 = -104
+	if err = store.EnsureChat(ctx, chat); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)
+	transport := &fakeTransport{}
+	genre, err := movieclub.NewGenreScenario(fakeCatalog{}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenarios, err := movieclub.NewScenarioSet(genre, referenceScenario{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	service, err := movieclub.NewService(store, transport, scenarios, log, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator, err := movieclub.NewCoordinator(store, transport, scenarios, map[int64]bool{chat: true}, log, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	genreID, err := service.Start(ctx, movieclub.Genre, 40, chat, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	referenceID, err := service.Start(ctx, movieclub.Reference, 41, chat, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = coordinator.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	genreRound, genreErr := store.MovieRound(ctx, chat, genreID)
+	referenceRound, referenceErr := store.MovieRound(ctx, chat, referenceID)
+	if genreErr != nil || referenceErr != nil || genreRound.State != movieclub.StateOpen || referenceRound.State != movieclub.StateOpen || transport.opened != 2 {
+		t.Fatalf("genre=%#v reference=%#v opened=%d errors=%v/%v", genreRound, referenceRound, transport.opened, genreErr, referenceErr)
 	}
 }
 

@@ -135,7 +135,7 @@ func (h *Handler) resolveMovieRound(ctx context.Context, operationID, chatID int
 	}
 	switch action {
 	case movieclub.ResolveRetry:
-		h.reply(ctx, chatID, fmt.Sprintf("Подборка #%d поставлена на повторную отправку.", roundID))
+		h.reply(ctx, chatID, fmt.Sprintf("Опрос или подборка #%d возвращены в очередь. Если это пропущенный опрос, он откроется на 24 часа.", roundID))
 	case movieclub.ResolveSent:
 		h.reply(ctx, chatID, fmt.Sprintf("Подборка #%d отмечена как доставленная.", roundID))
 	case movieclub.ResolveCancel:

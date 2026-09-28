@@ -91,7 +91,11 @@ func (c *Coordinator) reserveSchedule(ctx context.Context, schedule Schedule, no
 		return ErrUnknownFeature
 	}
 	roundID, err := c.store.ReserveMovieRound(ctx, schedule.Feature, schedule.ChatID, slot.Unix(), slot.Add(defaultPollDuration).Unix(), nil)
-	if errors.Is(err, ErrActiveRound) || errors.Is(err, ErrDuplicate) || errors.Is(err, context.Canceled) {
+	if errors.Is(err, ErrActiveRound) {
+		c.log.Info("movieclub scheduled round skipped", "chat_id", schedule.ChatID, "feature", schedule.Feature, "slot_at", slot.Unix(), "reason", "active_same_feature")
+		return nil
+	}
+	if errors.Is(err, ErrDuplicate) || errors.Is(err, context.Canceled) {
 		return nil
 	}
 	if err != nil {
