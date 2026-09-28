@@ -133,6 +133,9 @@ func TestMovieRoundIsolationTransitionsAndRecovery(t *testing.T) {
 	if skippedID != 0 {
 		t.Fatalf("scheduled overlap returned round %d", skippedID)
 	}
+	if _, err = store.ReserveMovieRound(ctx, movieclub.Genre, -1, testNow.Add(time.Hour).Unix(), testNow.Add(25*time.Hour).Unix(), options); !errors.Is(err, movieclub.ErrDuplicate) {
+		t.Fatalf("repeated skipped slot error = %v", err)
+	}
 	latest, err := store.LatestMovieRounds(ctx, -1)
 	must(t, err)
 	if latest[0].State != movieclub.StateCancelled || latest[0].ErrorCode != "active_round" {

@@ -139,6 +139,13 @@ func reserveMovieRound(ctx context.Context, tx *sql.Tx, feature movieclub.Featur
 	if !feature.Valid() {
 		return 0, movieclub.ErrUnknownFeature
 	}
+	var duplicate int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM movie_rounds WHERE chat_id=? AND feature=? AND slot_at=?", chat, feature, slotAt).Scan(&duplicate); err != nil {
+		return 0, err
+	}
+	if duplicate != 0 {
+		return 0, movieclub.ErrDuplicate
+	}
 	var active int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM movie_rounds WHERE chat_id=? AND feature=? AND state IN
  ('planned','poll_creating','open','closing','selecting','ready','publishing','unknown')`, chat, feature).Scan(&active); err != nil {
