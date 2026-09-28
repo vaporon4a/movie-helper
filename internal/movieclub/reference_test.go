@@ -35,6 +35,8 @@ func (c referenceCatalogStub) PersonMovies(_ context.Context, id int64) ([]Perso
 type referenceHistoryStub struct {
 	recentMovies map[int64]bool
 	recentSeeds  map[int64]bool
+	mode         PersonalizationMode
+	taste        []TasteRound
 }
 
 func (h referenceHistoryStub) RecentMovieIDs(context.Context, int64, time.Time) (map[int64]bool, error) {
@@ -42,6 +44,19 @@ func (h referenceHistoryStub) RecentMovieIDs(context.Context, int64, time.Time) 
 }
 func (h referenceHistoryStub) RecentReferenceSeedIDs(context.Context, int64, time.Time) (map[int64]bool, error) {
 	return h.recentSeeds, nil
+}
+func (h referenceHistoryStub) MoviePreferenceSettings(_ context.Context, chatID int64, _ time.Time) (PreferenceSettings, error) {
+	mode, policy := h.mode, RankingPolicyV1
+	if mode == "" {
+		mode, policy = PersonalizationOff, LegacyPolicyVersion
+	}
+	return PreferenceSettings{ChatID: chatID, Mode: mode, PolicyVersion: policy}, nil
+}
+func (h referenceHistoryStub) MovieTasteHistory(context.Context, int64, int64, time.Time) ([]TasteRound, error) {
+	return h.taste, nil
+}
+func (referenceHistoryStub) MovieExposureCounts(context.Context, int64, time.Time) (map[int64]int, error) {
+	return map[int64]int{}, nil
 }
 
 func TestReferenceSeedsAreCuratedAndDiverse(t *testing.T) {
@@ -57,6 +72,22 @@ func TestReferenceSeedsAreCuratedAndDiverse(t *testing.T) {
 	}
 	if len(groups) < 8 || len(decades) < 6 {
 		t.Fatalf("groups=%d decades=%d", len(groups), len(decades))
+	}
+}
+
+func TestAdaptiveReferenceSeedsUseGenrePollProfile(t *testing.T) {
+	candidates := []ReferenceSeed{
+		{1, "Drama", seedDrama, 1990},
+		{2, "Comedy", seedComedy, 1990},
+		{3, "Adventure", seedAdventure, 1990},
+	}
+	profile := ChatTasteProfile{
+		GenreAffinity: map[int64]float64{35: 1, 18: 0.1, 12: 0.2},
+		GenreExposure: map[int64]int{}, DecadeAffinity: map[int]float64{}, DecadeExposure: map[int]int{},
+	}
+	ordered := adaptiveReferenceSeeds(candidates, profile)
+	if ordered[0].ID != 2 {
+		t.Fatalf("genre taste did not affect reference seeds: %#v", ordered)
 	}
 }
 
@@ -111,10 +142,11 @@ func TestReferenceRecommendationsGroupAndDeduplicateResults(t *testing.T) {
 		},
 	}
 	scenario := &ReferenceScenario{Catalog: catalog, History: referenceHistoryStub{recentMovies: map[int64]bool{15: true}}}
-	hero, got, err := scenario.Recommendations(context.Background(), Round{ID: 7, ChatID: -1}, []Option{{ProviderID: 100}}, time.Now())
+	selection, err := scenario.Recommendations(context.Background(), Round{ID: 7, ChatID: -1}, []Option{{ProviderID: 100}}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
+	hero, got := selection.Hero, selection.Movies
 	if hero.ID != 100 || len(got) != 10 {
 		t.Fatalf("hero=%#v recommendations=%#v", hero, got)
 	}
@@ -125,5 +157,41 @@ func TestReferenceRecommendationsGroupAndDeduplicateResults(t *testing.T) {
 			t.Fatalf("recommendation %d=%#v", index, recommendation)
 		}
 		seen[recommendation.ID] = true
+	}
+}
+
+func TestReferenceRecommendationsCanPromoteCandidateOutsideLegacyTopFive(t *testing.T) {
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	movie := func(id int64, votes int, rating float64, genre int64) Movie {
+		return Movie{ID: id, Title: fmt.Sprintf("Movie %d", id), Year: 2000, VoteCount: votes, Rating: rating, Genres: []int64{genre}}
+	}
+	seed := movie(100, 1000, 8, 18)
+	recs := []Movie{
+		movie(1, 1000, 8, 18), movie(2, 900, 8, 18), movie(3, 800, 8, 18),
+		movie(4, 700, 8, 18), movie(5, 600, 8, 18), movie(6, 500, 9, 35),
+	}
+	history := referenceHistoryStub{mode: PersonalizationOn, taste: []TasteRound{{ID: 1, ClosedAt: now.Unix(), Feature: Genre, Options: []Option{
+		{Kind: OptionGenre, ProviderID: 35, Votes: 10}, {Kind: OptionGenre, ProviderID: 18, Votes: 0},
+	}}}}
+	scenario := &ReferenceScenario{Catalog: referenceCatalogStub{details: map[int64]MovieDetails{100: {Movie: seed}}, recs: recs}, History: history}
+	selection, err := scenario.Recommendations(context.Background(), Round{ID: 8, ChatID: -1}, []Option{{ProviderID: 100}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, recommendation := range selection.Movies {
+		found = found || recommendation.ID == 6
+	}
+	if !found {
+		t.Fatalf("adaptive top five did not include promoted candidate: %#v", selection.Movies)
+	}
+	var snapshot RankingCandidate
+	for _, candidate := range selection.Candidates {
+		if candidate.TMDBID == 6 && candidate.SourceBucket == "similar" {
+			snapshot = candidate
+		}
+	}
+	if snapshot.LegacyPosition != 5 || snapshot.AdaptivePosition >= 5 || snapshot.SelectedMode != "adaptive" {
+		t.Fatalf("candidate snapshot=%#v", snapshot)
 	}
 }

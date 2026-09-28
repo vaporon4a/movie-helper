@@ -69,7 +69,43 @@ func (s *Service) Settings(ctx context.Context, chatID int64) (SettingsView, err
 	if err != nil {
 		return SettingsView{}, err
 	}
-	return SettingsView{Schedules: schedules, Rounds: rounds}, nil
+	preference, err := s.store.MoviePreferenceSettings(ctx, chatID, s.now())
+	if err != nil {
+		return SettingsView{}, err
+	}
+	return SettingsView{Schedules: schedules, Rounds: rounds, Preference: preference}, nil
+}
+
+func (s *Service) SetPersonalization(ctx context.Context, operationID, chatID int64, mode PersonalizationMode) error {
+	if !mode.Valid() {
+		return errors.New("invalid movie personalization mode")
+	}
+	err := s.store.SetMoviePreferenceMode(ctx, operationID, chatID, mode, s.now())
+	if err == nil {
+		s.log.Info("movieclub personalization changed", "chat_id", chatID, "mode", mode, "policy_version", RankingPolicyV1)
+	}
+	return err
+}
+
+func (s *Service) Taste(ctx context.Context, chatID int64) (PreferenceSettings, ChatTasteProfile, error) {
+	now := s.now()
+	settings, err := s.store.MoviePreferenceSettings(ctx, chatID, now)
+	if err != nil {
+		return settings, ChatTasteProfile{}, err
+	}
+	rounds, err := s.store.MovieTasteHistory(ctx, chatID, 0, now)
+	if err != nil {
+		return settings, ChatTasteProfile{}, err
+	}
+	return settings, ProjectTaste(rounds, now), nil
+}
+
+func (s *Service) ResetTaste(ctx context.Context, operationID, chatID int64) error {
+	err := s.store.ResetMovieTaste(ctx, operationID, chatID, s.now())
+	if err == nil {
+		s.log.Info("movieclub taste reset", "chat_id", chatID, "policy_version", RankingPolicyV1)
+	}
+	return err
 }
 
 func (s *Service) PollClosed(ctx context.Context, pollID string, votes []int) error {

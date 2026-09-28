@@ -205,3 +205,56 @@ func TestMovieRoundsAreIndependentByFeatureAndCancelledRoundCanRecover(t *testin
 		t.Fatalf("recovered round = %#v", recovered)
 	}
 }
+
+func TestMovieTasteSettingsHistoryAndCandidateSnapshot(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	setup(t, store, -1)
+
+	settings, err := store.MoviePreferenceSettings(ctx, -1, testNow)
+	must(t, err)
+	if settings.Mode != movieclub.PersonalizationShadow || settings.PolicyVersion != movieclub.RankingPolicyV1 {
+		t.Fatalf("default settings=%#v", settings)
+	}
+	must(t, store.SetMoviePreferenceMode(ctx, 9001, -1, movieclub.PersonalizationOn, testNow.Add(time.Minute)))
+	settings, err = store.MoviePreferenceSettings(ctx, -1, testNow.Add(time.Minute))
+	must(t, err)
+	if settings.Mode != movieclub.PersonalizationOn {
+		t.Fatalf("settings=%#v", settings)
+	}
+
+	options := []movieclub.Option{
+		{ProviderID: 101, Kind: movieclub.OptionMovie, Label: "One", Metadata: movieclub.MovieMetadata{GenreIDs: []int64{35}, ReleaseYear: 1999}, SelectionRole: movieclub.SelectionExploit, PolicyVersion: movieclub.RankingPolicyV1},
+		{ProviderID: 102, Kind: movieclub.OptionMovie, Label: "Two", Metadata: movieclub.MovieMetadata{GenreIDs: []int64{18}, ReleaseYear: 2001}, SelectionRole: movieclub.SelectionExplore, PolicyVersion: movieclub.RankingPolicyV1},
+	}
+	roundID, err := store.StartMovieRound(ctx, movieclub.Reference, 9002, -1, testNow, 10*time.Minute, options)
+	must(t, err)
+	_, err = store.db.ExecContext(ctx, "UPDATE movie_poll_options SET votes=CASE position WHEN 0 THEN 3 ELSE 1 END WHERE round_id=?", roundID)
+	must(t, err)
+	_, err = store.db.ExecContext(ctx, "UPDATE movie_rounds SET state='selecting' WHERE id=?", roundID)
+	must(t, err)
+
+	history, err := store.MovieTasteHistory(ctx, -1, 0, testNow.Add(time.Hour))
+	must(t, err)
+	if len(history) != 1 || len(history[0].Options) != 2 || history[0].Options[0].Metadata.ReleaseYear != 1999 {
+		t.Fatalf("history=%#v", history)
+	}
+	selection := movieclub.Selection{
+		Mode: movieclub.PersonalizationOn, PolicyVersion: movieclub.RankingPolicyV1,
+		Movies:     []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 201, Title: "Result", Year: 2005, Genres: []int64{35}}, RoundID: roundID, Page: 1, Position: 0, Relation: "similar", PolicyVersion: movieclub.RankingPolicyV1}},
+		Candidates: []movieclub.RankingCandidate{{RoundID: roundID, TMDBID: 201, SourceBucket: "similar", Movie: movieclub.Movie{ID: 201, Year: 2005, Genres: []int64{35}}, LegacyPosition: 1, AdaptivePosition: 0, PolicyVersion: movieclub.RankingPolicyV1, SelectedMode: "adaptive"}},
+	}
+	must(t, store.SaveMovieSelection(ctx, roundID, "One", selection))
+	var candidateCount int
+	must(t, store.db.QueryRowContext(ctx, "SELECT count(*) FROM movie_ranking_candidates WHERE round_id=?", roundID).Scan(&candidateCount))
+	if candidateCount != 1 {
+		t.Fatalf("candidate count=%d", candidateCount)
+	}
+
+	must(t, store.ResetMovieTaste(ctx, 9003, -1, testNow.Add(2*time.Hour)))
+	history, err = store.MovieTasteHistory(ctx, -1, 0, testNow.Add(3*time.Hour))
+	must(t, err)
+	if len(history) != 0 {
+		t.Fatalf("history after reset=%#v", history)
+	}
+}

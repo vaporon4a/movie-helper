@@ -3,6 +3,8 @@ package movieclub
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -39,32 +41,156 @@ func NewGenreScenario(catalog Catalog, history RecommendationHistory) (*GenreSce
 }
 
 func (*GenreScenario) Feature() Feature { return Genre }
-func (*GenreScenario) Options(_ context.Context, _ int64, seed uint64, _ time.Time) ([]Option, error) {
-	return GenreOptions(seed), nil
+func (s *GenreScenario) Options(ctx context.Context, chatID int64, seed uint64, now time.Time) ([]Option, error) {
+	legacy := GenreOptions(seed)
+	settings, profile, _, err := loadTaste(ctx, s.History, nil, chatID, 0, now)
+	if err != nil {
+		slog.WarnContext(ctx, "movieclub taste fallback", "chat_id", chatID, "feature", Genre, "operation", "options", "reason", "profile_unavailable")
+		return legacy, nil
+	}
+	if settings.Mode == PersonalizationOff || profile.CompletedRounds == 0 {
+		return legacy, nil
+	}
+	adaptive := AdaptiveGenreOptions(seed, profile)
+	if settings.Mode == PersonalizationShadow {
+		slog.InfoContext(ctx, "movieclub genre option shadow", "chat_id", chatID, "policy_version", RankingPolicyV1,
+			"overlap", optionOverlap(legacy, adaptive), "legacy_count", len(legacy), "adaptive_count", len(adaptive))
+		return legacy, nil
+	}
+	return adaptive, nil
 }
 func (*GenreScenario) Winners(options []Option, seed uint64) []Option {
 	return Winners(options, seed)
 }
 
-func (s *GenreScenario) Recommendations(ctx context.Context, round Round, winners []Option, now time.Time) (Movie, []Recommendation, error) {
+func (s *GenreScenario) Recommendations(ctx context.Context, round Round, winners []Option, now time.Time) (Selection, error) {
 	recent, err := s.History.RecentMovieIDs(ctx, round.ChatID, now.Add(-recentWindow))
 	if err != nil {
-		return Movie{}, nil, err
+		return Selection{}, err
 	}
-	groups := make([][]Movie, len(winners))
+	metadataCatalog, _ := s.Catalog.(ReferenceCatalog)
+	settings, profile, exposures, err := loadTaste(ctx, s.History, metadataCatalog, round.ChatID, round.ID, now)
+	if err != nil {
+		slog.WarnContext(ctx, "movieclub taste fallback", "round_id", round.ID, "chat_id", round.ChatID, "feature", Genre,
+			"operation", "recommendations", "reason", "profile_unavailable")
+		settings = PreferenceSettings{ChatID: round.ChatID, Mode: PersonalizationOff, PolicyVersion: LegacyPolicyVersion}
+		profile = ProjectTaste(nil, now)
+		exposures = nil
+	}
+	legacyGroups := make([][]Movie, len(winners))
+	adaptiveGroups := make([][]Movie, len(winners))
+	var candidates []RankingCandidate
 	seen := make(map[int64]bool)
 	for i, winner := range winners {
-		groups[i], err = s.genreMovies(ctx, round.ID, winner.ProviderID, 20/len(winners), recent, seen, now)
+		legacyGroups[i], err = s.genreMovies(ctx, round.ID, winner.ProviderID, 20/len(winners), recent, seen, now)
 		if err != nil {
-			return Movie{}, nil, err
+			return Selection{}, err
 		}
+		ranked := rankGenreMovies(legacyGroups[i], profile, exposures, now)
+		if profile.CompletedRounds == 0 {
+			ranked = RankMoviesInCurrentOrder(legacyGroups[i], profile, exposures, DefaultRankingPolicy)
+		}
+		adaptiveGroups[i] = rankedMovieValues(ranked)
+		candidates = append(candidates, rankingCandidates(round.ID, fmt.Sprintf("genre:%d", winner.ProviderID), legacyGroups[i], ranked)...)
 	}
-	selected := interleaveMovies(groups, 20)
+	legacy := interleaveMovies(legacyGroups, 20)
+	adaptive := interleaveMovies(adaptiveGroups, 20)
+	selected := legacy
+	if settings.Mode == PersonalizationOn {
+		selected = adaptive
+	}
 	out := make([]Recommendation, len(selected))
 	for i, movie := range selected {
-		out[i] = Recommendation{Movie: movie, RoundID: round.ID, Page: i/10 + 1, Position: i % 10, Relation: "top"}
+		ranked := findRanked(movie.ID, candidates)
+		out[i] = Recommendation{Movie: movie, RoundID: round.ID, Page: i/10 + 1, Position: i % 10, Relation: "top",
+			RankingScore: ranked.RankingScore, Ranking: ranked.Ranking, PolicyVersion: settings.PolicyVersion}
 	}
-	return Movie{}, out, nil
+	markCandidateSelections(candidates, recommendationsFromMovies(round.ID, legacy), recommendationsFromMovies(round.ID, adaptive), settings.Mode)
+	if settings.Mode != PersonalizationOff {
+		slog.InfoContext(ctx, "movieclub genre ranking compared", "round_id", round.ID, "chat_id", round.ChatID,
+			"mode", settings.Mode, "policy_version", settings.PolicyVersion, "overlap_at_10", overlapAt(legacy, adaptive, 10))
+	}
+	return Selection{Movies: out, Candidates: candidates, Mode: settings.Mode, PolicyVersion: settings.PolicyVersion}, nil
+}
+
+func recommendationsFromMovies(roundID int64, movies []Movie) []Recommendation {
+	out := make([]Recommendation, len(movies))
+	for index := range movies {
+		out[index] = Recommendation{Movie: movies[index], RoundID: roundID, Relation: "top"}
+	}
+	return out
+}
+
+func rankGenreMovies(movies []Movie, profile ChatTasteProfile, exposures map[int64]int, now time.Time) []RankedMovie {
+	periods := releasePeriods(now)
+	movieGroups := make([][]Movie, len(periods))
+	for _, movie := range movies {
+		if index := releasePeriodIndex(periods, movie.Year); index >= 0 {
+			movieGroups[index] = append(movieGroups[index], movie)
+		}
+	}
+	groups := make([][]RankedMovie, len(periods))
+	for index := range groups {
+		groups[index] = RankMovies(movieGroups[index], profile, exposures, nil, DefaultRankingPolicy)
+	}
+	return interleaveRankedMovies(groups, len(movies))
+}
+
+func releasePeriodIndex(periods []releasePeriod, year int) int {
+	for index, period := range periods {
+		if year >= period.from.Year() && year <= period.to.Year() {
+			return index
+		}
+	}
+	return -1
+}
+
+func interleaveRankedMovies(groups [][]RankedMovie, limit int) []RankedMovie {
+	var out []RankedMovie
+	for position := 0; len(out) < limit; position++ {
+		added := false
+		for _, group := range groups {
+			if position < len(group) {
+				out = append(out, group[position])
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	return out
+}
+
+func rankedMovieValues(values []RankedMovie) []Movie {
+	out := make([]Movie, len(values))
+	for index := range values {
+		out[index] = values[index].Movie
+	}
+	return out
+}
+
+func findRanked(id int64, candidates []RankingCandidate) RankingCandidate {
+	for _, candidate := range candidates {
+		if candidate.TMDBID == id {
+			return candidate
+		}
+	}
+	return RankingCandidate{}
+}
+
+func optionOverlap(first, second []Option) int {
+	seen := make(map[int64]bool, len(first))
+	for _, option := range first {
+		seen[option.ProviderID] = true
+	}
+	overlap := 0
+	for _, option := range second {
+		if seen[option.ProviderID] {
+			overlap++
+		}
+	}
+	return overlap
 }
 
 type releasePeriod struct {

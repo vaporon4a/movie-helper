@@ -17,6 +17,10 @@ type ServiceRepository interface {
 	ClaimMoviePage2(context.Context, int64, int64) (bool, error)
 	FinishMoviePage2(context.Context, int64, int64, string) error
 	ResolveMovieRound(context.Context, int64, int64, int64, ResolveAction, time.Time) error
+	MoviePreferenceSettings(context.Context, int64, time.Time) (PreferenceSettings, error)
+	SetMoviePreferenceMode(context.Context, int64, int64, PersonalizationMode, time.Time) error
+	ResetMovieTaste(context.Context, int64, int64, time.Time) error
+	MovieTasteHistory(context.Context, int64, int64, time.Time) ([]TasteRound, error)
 }
 
 type CoordinatorRepository interface {
@@ -29,7 +33,7 @@ type CoordinatorRepository interface {
 	OpenMovieRound(context.Context, int64, string, int, time.Time, time.Time) error
 	DeferMovieRound(context.Context, int64, State, State, time.Time, string) error
 	SaveMoviePoll(context.Context, int64, []int) error
-	SaveMovieSelection(context.Context, int64, string, Movie, []Recommendation) error
+	SaveMovieSelection(context.Context, int64, string, Selection) error
 	MovieRecommendations(context.Context, int64, int) ([]Recommendation, error)
 	SetMoviePublishStage(context.Context, int64, int, State) error
 	DisableMovieSchedules(context.Context, int64) error
@@ -44,6 +48,16 @@ type ReferenceHistory interface {
 	RecentReferenceSeedIDs(context.Context, int64, time.Time) (map[int64]bool, error)
 }
 
+type TasteHistory interface {
+	MoviePreferenceSettings(context.Context, int64, time.Time) (PreferenceSettings, error)
+	MovieTasteHistory(context.Context, int64, int64, time.Time) ([]TasteRound, error)
+	MovieExposureCounts(context.Context, int64, time.Time) (map[int64]int, error)
+}
+
+type TasteMetadataStore interface {
+	SaveMovieOptionMetadata(context.Context, int64, int, MovieMetadata) error
+}
+
 type Transport interface {
 	OpenPoll(context.Context, int64, Feature, []string) (string, int, error)
 	ClosePoll(context.Context, int64, int) ([]int, error)
@@ -55,5 +69,5 @@ type Scenario interface {
 	Feature() Feature
 	Options(context.Context, int64, uint64, time.Time) ([]Option, error)
 	Winners([]Option, uint64) []Option
-	Recommendations(context.Context, Round, []Option, time.Time) (Movie, []Recommendation, error)
+	Recommendations(context.Context, Round, []Option, time.Time) (Selection, error)
 }

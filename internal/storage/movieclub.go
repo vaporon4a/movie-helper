@@ -175,13 +175,24 @@ func reserveMovieRound(ctx context.Context, tx *sql.Tx, feature movieclub.Featur
 	if err != nil {
 		return 0, err
 	}
-	for position, option := range options {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO movie_poll_options(round_id,position,option_kind,provider_id,label)
- VALUES(?,?,?,?,?)`, id, position, option.Kind, option.ProviderID, option.Label); err != nil {
-			return 0, err
-		}
+	if err = insertMovieOptions(ctx, tx, id, options); err != nil {
+		return 0, err
 	}
 	return id, nil
+}
+
+func insertMovieOptions(ctx context.Context, tx *sql.Tx, roundID int64, options []movieclub.Option) error {
+	for position, option := range options {
+		metadata, err := encodeMovieMetadata(option.Metadata)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO movie_poll_options(round_id,position,option_kind,provider_id,label,metadata_json,selection_role,selection_score,policy_version)
+	VALUES(?,?,?,?,?,?,?,?,?)`, roundID, position, option.Kind, option.ProviderID, option.Label, metadata, optionRole(option), option.SelectionScore, optionPolicy(option)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) ReserveMovieRound(ctx context.Context, feature movieclub.Feature, chat, slotAt, closesAt int64, options []movieclub.Option) (int64, error) {
@@ -270,7 +281,7 @@ func (s *Store) LatestMovieRounds(ctx context.Context, chat int64) ([]movieclub.
 }
 
 func (s *Store) MovieOptions(ctx context.Context, round int64) ([]movieclub.Option, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT round_id,position,option_kind,provider_id,label,votes
+	rows, err := s.db.QueryContext(ctx, `SELECT round_id,position,option_kind,provider_id,label,votes,metadata_json,selection_role,selection_score,policy_version
  FROM movie_poll_options WHERE round_id=? ORDER BY position`, round)
 	if err != nil {
 		return nil, err
@@ -279,7 +290,13 @@ func (s *Store) MovieOptions(ctx context.Context, round int64) ([]movieclub.Opti
 	var out []movieclub.Option
 	for rows.Next() {
 		var value movieclub.Option
-		if err = rows.Scan(&value.RoundID, &value.Position, &value.Kind, &value.ProviderID, &value.Label, &value.Votes); err != nil {
+		var metadata string
+		if err = rows.Scan(&value.RoundID, &value.Position, &value.Kind, &value.ProviderID, &value.Label, &value.Votes,
+			&metadata, &value.SelectionRole, &value.SelectionScore, &value.PolicyVersion); err != nil {
+			return nil, err
+		}
+		value.Metadata, err = decodeMovieMetadata(metadata)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, value)
@@ -301,13 +318,7 @@ func (s *Store) SaveMovieOptions(ctx context.Context, round int64, options []mov
 		if state != movieclub.StatePlanned || count != 0 {
 			return movieclub.ErrConflict
 		}
-		for position, option := range options {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO movie_poll_options(round_id,position,option_kind,provider_id,label)
- VALUES(?,?,?,?,?)`, round, position, option.Kind, option.ProviderID, option.Label); err != nil {
-				return err
-			}
-		}
-		return nil
+		return insertMovieOptions(ctx, tx, round, options)
 	})
 }
 
@@ -382,28 +393,23 @@ func (s *Store) SaveMoviePollByID(ctx context.Context, pollID string, votes []in
 	return s.SaveMoviePoll(ctx, id, votes)
 }
 
-func (s *Store) SaveMovieSelection(ctx context.Context, id int64, winner string, hero movieclub.Movie, movies []movieclub.Recommendation) error {
-	resultText := ""
-	if hero.ID != 0 {
-		payload, err := json.Marshal(hero)
-		if err != nil {
-			return err
-		}
-		resultText = string(payload)
+func (s *Store) SaveMovieSelection(ctx context.Context, id int64, winner string, selection movieclub.Selection) error {
+	resultText, err := encodeMovieHero(selection.Hero)
+	if err != nil {
+		return err
 	}
 	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM movie_recommendations WHERE round_id=?", id); err != nil {
+		if err := resetMovieSelection(ctx, tx, id); err != nil {
 			return err
 		}
-		for _, movie := range movies {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO movie_recommendations(round_id,page,position,relation,tmdb_id,title,release_year,overview,poster_path,rating,vote_count,popularity)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, movie.Page, movie.Position, movie.Relation, movie.ID, movie.Title, movie.Year,
-				movie.Overview, movie.PosterPath, movie.Rating, movie.VoteCount, movie.Popularity); err != nil {
-				return err
-			}
+		if err := saveRankingCandidates(ctx, tx, id, selection.Candidates); err != nil {
+			return err
+		}
+		if err := saveMovieRecommendations(ctx, tx, id, selection.Movies); err != nil {
+			return err
 		}
 		page2 := "none"
-		if len(movies) > 10 {
+		if len(selection.Movies) > 10 {
 			page2 = "ready"
 		}
 		result, err := tx.ExecContext(ctx, `UPDATE movie_rounds SET state='ready',winner=?,result_text=?,page2_state=?,next_attempt=0,error_code=''
@@ -412,8 +418,62 @@ func (s *Store) SaveMovieSelection(ctx context.Context, id int64, winner string,
 	})
 }
 
+func encodeMovieHero(hero movieclub.Movie) (string, error) {
+	if hero.ID == 0 {
+		return "", nil
+	}
+	payload, err := json.Marshal(hero)
+	return string(payload), err
+}
+
+func resetMovieSelection(ctx context.Context, tx *sql.Tx, roundID int64) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM movie_recommendations WHERE round_id=?", roundID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "DELETE FROM movie_ranking_candidates WHERE round_id=?", roundID)
+	return err
+}
+
+func saveRankingCandidates(ctx context.Context, tx *sql.Tx, roundID int64, candidates []movieclub.RankingCandidate) error {
+	counts := make(map[string]int)
+	for _, candidate := range candidates {
+		counts[candidate.SourceBucket]++
+		if counts[candidate.SourceBucket] > 100 {
+			return errors.New("movie ranking candidate pool exceeds limit")
+		}
+		if err := insertRankingCandidate(ctx, tx, roundID, candidate); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func saveMovieRecommendations(ctx context.Context, tx *sql.Tx, roundID int64, movies []movieclub.Recommendation) error {
+	for _, movie := range movies {
+		if err := insertMovieRecommendation(ctx, tx, roundID, movie); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func insertMovieRecommendation(ctx context.Context, tx *sql.Tx, roundID int64, movie movieclub.Recommendation) error {
+	genres, err := encodeGenreIDs(movie.Genres)
+	if err != nil {
+		return err
+	}
+	breakdown, err := encodeRankingBreakdown(movie.Ranking)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO movie_recommendations(round_id,page,position,relation,tmdb_id,title,release_year,overview,poster_path,rating,vote_count,popularity,genre_ids_json,ranking_score,ranking_breakdown_json,policy_version)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, roundID, movie.Page, movie.Position, movie.Relation, movie.ID, movie.Title, movie.Year,
+		movie.Overview, movie.PosterPath, movie.Rating, movie.VoteCount, movie.Popularity, genres, movie.RankingScore, breakdown, recommendationPolicy(movie))
+	return err
+}
+
 func (s *Store) MovieRecommendations(ctx context.Context, round int64, page int) ([]movieclub.Recommendation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT round_id,page,position,relation,tmdb_id,title,release_year,overview,poster_path,rating,vote_count,popularity
+	rows, err := s.db.QueryContext(ctx, `SELECT round_id,page,position,relation,tmdb_id,title,release_year,overview,poster_path,rating,vote_count,popularity,genre_ids_json,ranking_score,ranking_breakdown_json,policy_version
  FROM movie_recommendations WHERE round_id=? AND page=? ORDER BY position`, round, page)
 	if err != nil {
 		return nil, err
@@ -422,8 +482,17 @@ func (s *Store) MovieRecommendations(ctx context.Context, round int64, page int)
 	var out []movieclub.Recommendation
 	for rows.Next() {
 		var value movieclub.Recommendation
+		var genres, breakdown string
 		if err = rows.Scan(&value.RoundID, &value.Page, &value.Position, &value.Relation, &value.ID, &value.Title, &value.Year,
-			&value.Overview, &value.PosterPath, &value.Rating, &value.VoteCount, &value.Popularity); err != nil {
+			&value.Overview, &value.PosterPath, &value.Rating, &value.VoteCount, &value.Popularity, &genres, &value.RankingScore, &breakdown, &value.PolicyVersion); err != nil {
+			return nil, err
+		}
+		value.Genres, err = decodeGenreIDs(genres)
+		if err != nil {
+			return nil, err
+		}
+		value.Ranking, err = decodeRankingBreakdown(breakdown)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, value)

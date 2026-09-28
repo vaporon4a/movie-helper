@@ -371,6 +371,9 @@ func movieSummaryTitle(movie movieclub.Recommendation, limit int) string {
 
 func movieSettingsText(settings movieclub.SettingsView) string {
 	lines := []string{"🎬 Киноопросы:"}
+	if settings.Preference.Mode != "" {
+		lines = append(lines, fmt.Sprintf("Персонализация: %s · %s", settings.Preference.Mode, settings.Preference.PolicyVersion))
+	}
 	if len(settings.Schedules) > 0 && settings.Schedules[0].Zone != "" {
 		lines = append(lines, "Часовой пояс: "+settings.Schedules[0].Zone)
 	}

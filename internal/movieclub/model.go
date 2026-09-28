@@ -13,6 +13,8 @@ type DeliveryKind string
 type ResolveAction string
 type OptionKind string
 type DiscoverSort string
+type PersonalizationMode string
+type SelectionRole string
 
 const (
 	Genre       Feature    = "genre"
@@ -20,7 +22,16 @@ const (
 	OptionGenre OptionKind = "genre"
 	OptionMovie OptionKind = "movie"
 
-	DiscoverByRating DiscoverSort = "vote_average.desc"
+	DiscoverByRating      DiscoverSort        = "vote_average.desc"
+	PersonalizationOff    PersonalizationMode = "off"
+	PersonalizationShadow PersonalizationMode = "shadow"
+	PersonalizationOn     PersonalizationMode = "on"
+	SelectionLegacy       SelectionRole       = "legacy"
+	SelectionExploit      SelectionRole       = "exploit"
+	SelectionExplore      SelectionRole       = "explore"
+	SelectionWildcard     SelectionRole       = "wildcard"
+	RankingPolicyV1                           = "taste-v1"
+	LegacyPolicyVersion                       = "legacy"
 
 	DeliveryRetry     DeliveryKind = "retry"
 	DeliveryForbidden DeliveryKind = "forbidden"
@@ -66,6 +77,10 @@ type Option struct {
 	Position, Votes     int
 	Kind                OptionKind
 	Label               string
+	Metadata            MovieMetadata
+	SelectionRole       SelectionRole
+	SelectionScore      float64
+	PolicyVersion       string
 }
 
 type Movie struct {
@@ -74,6 +89,12 @@ type Movie struct {
 	PosterPath         string
 	Year, VoteCount    int
 	Rating, Popularity float64
+	Genres             []int64
+}
+
+type MovieMetadata struct {
+	GenreIDs    []int64 `json:"genre_ids,omitempty"`
+	ReleaseYear int     `json:"release_year,omitempty"`
 }
 
 type Credit struct {
@@ -84,8 +105,7 @@ type Credit struct {
 
 type MovieDetails struct {
 	Movie
-	Genres []int64
-	Crew   []Credit
+	Crew []Credit
 }
 
 type PersonMovie struct {
@@ -98,6 +118,63 @@ type Recommendation struct {
 	RoundID        int64
 	Page, Position int
 	Relation       string
+	RankingScore   float64
+	Ranking        RankingBreakdown
+	PolicyVersion  string
+}
+
+type RankingBreakdown struct {
+	Quality         float64 `json:"quality"`
+	Affinity        float64 `json:"affinity"`
+	Novelty         float64 `json:"novelty"`
+	Exploration     float64 `json:"exploration"`
+	SourceRelevance float64 `json:"source_relevance"`
+}
+
+type RankingCandidate struct {
+	RoundID, TMDBID                  int64
+	SourceBucket, SelectedMode       string
+	Movie                            Movie
+	LegacyPosition, AdaptivePosition int
+	RankingScore                     float64
+	Ranking                          RankingBreakdown
+	PolicyVersion                    string
+}
+
+type Selection struct {
+	Hero          Movie
+	Movies        []Recommendation
+	Candidates    []RankingCandidate
+	Mode          PersonalizationMode
+	PolicyVersion string
+}
+
+type PreferenceSettings struct {
+	ChatID        int64
+	Mode          PersonalizationMode
+	EffectiveFrom int64
+	PolicyVersion string
+	UpdatedAt     int64
+}
+
+func (m PersonalizationMode) Valid() bool {
+	return m == PersonalizationOff || m == PersonalizationShadow || m == PersonalizationOn
+}
+
+type TasteRound struct {
+	ID, ClosedAt int64
+	Feature      Feature
+	Options      []Option
+}
+
+type ChatTasteProfile struct {
+	GenreAffinity   map[int64]float64
+	DecadeAffinity  map[int]float64
+	GenreExposure   map[int64]int
+	DecadeExposure  map[int]int
+	EffectiveVotes  float64
+	CompletedRounds int
+	SkippedRecords  int
 }
 
 type Round struct {
@@ -112,8 +189,9 @@ type Round struct {
 }
 
 type SettingsView struct {
-	Schedules []Schedule
-	Rounds    []Round
+	Schedules  []Schedule
+	Rounds     []Round
+	Preference PreferenceSettings
 }
 
 type Summary struct {

@@ -6,6 +6,7 @@ const (
 	seedComedy         = "comedy"
 	seedAdventure      = "adventure"
 	seedRussian        = "russian"
+	seedCrime          = "crime"
 )
 
 type ReferenceSeed struct {
@@ -26,10 +27,10 @@ var ReferenceSeeds = []ReferenceSeed{
 	{120, "Властелин колец: Братство Кольца", "fantasy", 2000},
 	{129, "Унесённые призраками", "fantasy", 2000},
 	{1417, "Лабиринт Фавна", "fantasy", 2000},
-	{680, "Криминальное чтиво", "crime", 1990},
-	{238, "Крёстный отец", "crime", 1970},
-	{101, "Леон", "crime", 1990},
-	{807, "Семь", "crime", 1990},
+	{680, "Криминальное чтиво", seedCrime, 1990},
+	{238, "Крёстный отец", seedCrime, 1970},
+	{101, "Леон", seedCrime, 1990},
+	{807, "Семь", seedCrime, 1990},
 	{550, "Бойцовский клуб", seedDrama, 1990},
 	{13, "Форрест Гамп", seedDrama, 1990},
 	{496243, "Паразиты", seedDrama, 2010},
@@ -66,4 +67,31 @@ var ReferenceSeeds = []ReferenceSeed{
 	{218, "Терминатор", "action", 1980},
 	{562, "Крепкий орешек", "action", 1980},
 	{19995, "Аватар", seedAdventure, 2000},
+}
+
+func referenceSeedGenres(group string) []int64 {
+	switch group {
+	case seedScienceFiction:
+		return []int64{878}
+	case seedDrama, seedRussian, "book_adaptation":
+		return []int64{18}
+	case seedComedy:
+		return []int64{35}
+	case seedAdventure:
+		return []int64{12}
+	case "fantasy":
+		return []int64{14}
+	case seedCrime:
+		return []int64{80}
+	case "romance":
+		return []int64{10749}
+	case "animation":
+		return []int64{16}
+	case "horror":
+		return []int64{27}
+	case "action", "superhero":
+		return []int64{28, 12}
+	default:
+		return nil
+	}
 }

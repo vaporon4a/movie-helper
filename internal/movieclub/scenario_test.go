@@ -62,10 +62,11 @@ func TestGenreScenarioBalancesReleasePeriodsDeterministically(t *testing.T) {
 	round := Round{ID: 42, ChatID: -1}
 	winner := []Option{{ProviderID: 35, Label: "Комедия"}}
 
-	_, first, err := scenario.Recommendations(context.Background(), round, winner, now)
+	selection, err := scenario.Recommendations(context.Background(), round, winner, now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	first := selection.Movies
 	if len(first) != 20 || len(catalog.calls) != 5 {
 		t.Fatalf("movies=%d calls=%d", len(first), len(catalog.calls))
 	}
@@ -73,18 +74,20 @@ func TestGenreScenarioBalancesReleasePeriodsDeterministically(t *testing.T) {
 	assertPeriodCounts(t, first[:10], now, []int{2, 2, 2, 2, 2})
 
 	catalog.calls = nil
-	_, second, err := scenario.Recommendations(context.Background(), round, winner, now)
+	selection, err = scenario.Recommendations(context.Background(), round, winner, now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	second := selection.Movies
 	if !reflect.DeepEqual(movieIDs(first), movieIDs(second)) {
 		t.Fatalf("same round changed selection: %v != %v", movieIDs(first), movieIDs(second))
 	}
 	catalog.calls = nil
-	_, other, err := scenario.Recommendations(context.Background(), Round{ID: 43, ChatID: -1}, winner, now)
+	selection, err = scenario.Recommendations(context.Background(), Round{ID: 43, ChatID: -1}, winner, now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	other := selection.Movies
 	if reflect.DeepEqual(movieIDs(first), movieIDs(other)) {
 		t.Fatal("different rounds produced identical ordering")
 	}
@@ -97,10 +100,11 @@ func TestGenreScenarioFallsBackOnlyForSparsePeriods(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
-	_, movies, err := scenario.Recommendations(context.Background(), Round{ID: 10, ChatID: -1}, []Option{{ProviderID: 37}}, now)
+	selection, err := scenario.Recommendations(context.Background(), Round{ID: 10, ChatID: -1}, []Option{{ProviderID: 37}}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	movies := selection.Movies
 	if len(movies) != 20 || len(catalog.calls) != 10 {
 		t.Fatalf("movies=%d calls=%d", len(movies), len(catalog.calls))
 	}
@@ -132,10 +136,11 @@ func TestGenreScenarioExcludesRecentMoviesBeforeRotation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, movies, err := scenario.Recommendations(context.Background(), Round{ID: 12, ChatID: -1}, []Option{{ProviderID: 35}}, now)
+	selection, err := scenario.Recommendations(context.Background(), Round{ID: 12, ChatID: -1}, []Option{{ProviderID: 35}}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	movies := selection.Movies
 	if len(movies) != 20 || len(catalog.calls) != 5 {
 		t.Fatalf("movies=%d calls=%d", len(movies), len(catalog.calls))
 	}
@@ -154,10 +159,11 @@ func TestGenreScenarioTransfersEmptyPeriodQuotaAndKeepsGenreParity(t *testing.T)
 	}
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	winners := []Option{{ProviderID: 28}, {ProviderID: 16}}
-	_, movies, err := scenario.Recommendations(context.Background(), Round{ID: 11, ChatID: -1}, winners, now)
+	selection, err := scenario.Recommendations(context.Background(), Round{ID: 11, ChatID: -1}, winners, now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	movies := selection.Movies
 	if len(movies) != 20 {
 		t.Fatalf("movies=%d", len(movies))
 	}
@@ -180,7 +186,7 @@ func TestGenreScenarioFailsWholeSelectionOnCatalogError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = scenario.Recommendations(context.Background(), Round{ID: 1, ChatID: -1}, []Option{{ProviderID: 35}}, time.Now())
+	_, err = scenario.Recommendations(context.Background(), Round{ID: 1, ChatID: -1}, []Option{{ProviderID: 35}}, time.Now())
 	if !errors.Is(err, catalogErr) {
 		t.Fatalf("error=%v", err)
 	}

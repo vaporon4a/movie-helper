@@ -67,6 +67,13 @@ func (s *movieClubStub) More(_ context.Context, chat, roundID int64) (movieclub.
 func (*movieClubStub) Resolve(context.Context, int64, int64, int64, movieclub.ResolveAction) error {
 	return nil
 }
+func (*movieClubStub) SetPersonalization(context.Context, int64, int64, movieclub.PersonalizationMode) error {
+	return nil
+}
+func (*movieClubStub) Taste(context.Context, int64) (movieclub.PreferenceSettings, movieclub.ChatTasteProfile, error) {
+	return movieclub.PreferenceSettings{Mode: movieclub.PersonalizationShadow, PolicyVersion: movieclub.RankingPolicyV1}, movieclub.ChatTasteProfile{}, nil
+}
+func (*movieClubStub) ResetTaste(context.Context, int64, int64) error { return nil }
 
 func (a *testDailyApp) Candidates(ctx context.Context, kind string, chatID int64) ([]daily.Item, error) {
 	if a.provider == nil {
@@ -437,6 +444,32 @@ func TestMovieCommandsCreateIsolatedRoundAndSchedule(t *testing.T) {
 	}
 	ctx := context.Background()
 	h.Handle(ctx, nil, update(100, -1, 42, "/timezone UTC"))
+	h.Handle(ctx, nil, update(103, -1, 42, "/movie_personalization on"))
+	preference, err := store.MoviePreferenceSettings(ctx, -1, h.Now())
+	if err != nil || preference.Mode != movieclub.PersonalizationOn {
+		t.Fatalf("preference=%#v err=%v", preference, err)
+	}
+	h.Handle(ctx, nil, update(104, -1, 42, "/movie_taste"))
+	if len(api.messages) == 0 || !strings.Contains(api.messages[len(api.messages)-1].Text, "Профиль киноклуба") {
+		t.Fatalf("taste response=%#v", api.messages)
+	}
+	h.Handle(ctx, nil, update(105, -1, 42, "/movie_taste_reset"))
+	resetMessage := api.messages[len(api.messages)-1]
+	resetKeyboard, ok := resetMessage.ReplyMarkup.(*models.InlineKeyboardMarkup)
+	if !ok || resetKeyboard.InlineKeyboard[0][0].CallbackData != "movie_taste_reset:confirm" {
+		t.Fatalf("reset keyboard=%#v", resetMessage.ReplyMarkup)
+	}
+	resetUpdate := &models.Update{ID: 106, CallbackQuery: &models.CallbackQuery{ID: "taste-reset", From: models.User{ID: 42},
+		Data: "movie_taste_reset:confirm", Message: models.MaybeInaccessibleMessage{Message: &models.Message{ID: 77, Chat: models.Chat{ID: -1}}}}}
+	h.Handle(ctx, nil, resetUpdate)
+	preference, err = store.MoviePreferenceSettings(ctx, -1, h.Now())
+	if err != nil || preference.EffectiveFrom != h.Now().Unix() {
+		t.Fatalf("reset preference=%#v err=%v", preference, err)
+	}
+	h.Handle(ctx, nil, resetUpdate)
+	if preferenceAfterReplay, replayErr := store.MoviePreferenceSettings(ctx, -1, h.Now()); replayErr != nil || preferenceAfterReplay.EffectiveFrom != preference.EffectiveFrom {
+		t.Fatalf("reset replay changed state: %#v err=%v", preferenceAfterReplay, replayErr)
+	}
 	h.Handle(ctx, nil, update(101, -1, 42, "/movie_schedule genre wed 19:00"))
 	schedules, err := store.MovieSchedules(ctx, -1)
 	if err != nil || len(schedules) != 1 || schedules[0].Weekday != int(time.Wednesday) {

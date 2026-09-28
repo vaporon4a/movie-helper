@@ -53,6 +53,9 @@ type MovieClub interface {
 	PollClosed(context.Context, string, []int) error
 	More(context.Context, int64, int64) (movieclub.Summary, error)
 	Resolve(context.Context, int64, int64, int64, movieclub.ResolveAction) error
+	SetPersonalization(context.Context, int64, int64, movieclub.PersonalizationMode) error
+	Taste(context.Context, int64) (movieclub.PreferenceSettings, movieclub.ChatTasteProfile, error)
+	ResetTaste(context.Context, int64, int64) error
 }
 
 type FeatureVotes interface {

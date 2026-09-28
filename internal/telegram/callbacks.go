@@ -33,6 +33,9 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 		h.reply(ctx, message.Chat.ID, "Одобрять материалы может администратор чата.")
 		return
 	}
+	if h.tasteResetCallback(ctx, update.ID, query.Data, message) {
+		return
+	}
 	action, raw, ok := strings.Cut(query.Data, ":")
 	if !ok || (action != "approve" && action != "reject") {
 		return
@@ -47,6 +50,26 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 		return
 	}
 	h.reply(ctx, message.Chat.ID, "Решение сохранено.")
+}
+
+func (h *Handler) tasteResetCallback(ctx context.Context, operationID int64, data string, message *models.Message) bool {
+	action, ok := strings.CutPrefix(data, "movie_taste_reset:")
+	if !ok || h.MovieClub == nil {
+		return false
+	}
+	text := "Сброс профиля отменён."
+	if action == "confirm" {
+		if err := h.MovieClub.ResetTaste(ctx, operationID, message.Chat.ID); err != nil {
+			h.reply(ctx, message.Chat.ID, "Не удалось сбросить профиль. Попробуйте ещё раз.")
+			return true
+		}
+		text = "Профиль вкусов сброшен. Новые голосования начнут формировать его заново."
+	} else if action != "cancel" {
+		return true
+	}
+	_, _ = h.API.EditMessageText(ctx, &bot.EditMessageTextParams{ChatID: message.Chat.ID, MessageID: message.ID, Text: text,
+		ReplyMarkup: &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{}}})
+	return true
 }
 
 func (h *Handler) movieMore(ctx context.Context, message *models.Message, rawRoundID string) {

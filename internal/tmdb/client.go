@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,6 +46,7 @@ type movieResult struct {
 	VoteCount   int     `json:"vote_count"`
 	Popularity  float64 `json:"popularity"`
 	Adult       bool    `json:"adult"`
+	GenreIDs    []int64 `json:"genre_ids"`
 }
 
 type creditResult struct {
@@ -105,7 +107,9 @@ func (c *Client) Details(ctx context.Context, id int64) (movieclub.MovieDetails,
 	details := movieclub.MovieDetails{Movie: movies[0]}
 	for _, genre := range payload.Genres {
 		if genre.ID > 0 {
-			details.Genres = append(details.Genres, genre.ID)
+			if !slices.Contains(details.Genres, genre.ID) {
+				details.Genres = append(details.Genres, genre.ID)
+			}
 		}
 	}
 	for _, credit := range payload.Credits.Crew {
@@ -160,24 +164,43 @@ func (c *Client) PersonMovies(ctx context.Context, id int64) ([]movieclub.Person
 func moviesFromResults(values []movieResult) []movieclub.Movie {
 	out := make([]movieclub.Movie, 0, len(values))
 	for _, value := range values {
-		title := strings.TrimSpace(value.Title)
-		if value.Adult || value.ID <= 0 || title == "" || value.VoteCount < 0 || value.VoteAverage < 0 || value.VoteAverage > 10 || value.Popularity < 0 {
+		movie, ok := movieFromResult(value)
+		if !ok {
 			continue
 		}
-		year := 0
-		if len(value.ReleaseDate) >= 4 {
-			year, _ = strconv.Atoi(value.ReleaseDate[:4])
+		out = append(out, movie)
+	}
+	return out
+}
+
+func movieFromResult(value movieResult) (movieclub.Movie, bool) {
+	title := strings.TrimSpace(value.Title)
+	if value.Adult || value.ID <= 0 || title == "" || value.VoteCount < 0 || value.VoteAverage < 0 || value.VoteAverage > 10 || value.Popularity < 0 {
+		return movieclub.Movie{}, false
+	}
+	year := 0
+	if len(value.ReleaseDate) >= 4 {
+		year, _ = strconv.Atoi(value.ReleaseDate[:4])
+	}
+	overview := strings.TrimSpace(value.Overview)
+	if utf8.RuneCountInString(overview) > 450 {
+		runes := []rune(overview)
+		overview = strings.TrimSpace(string(runes[:447])) + "…"
+	}
+	poster := ""
+	if strings.HasPrefix(value.PosterPath, "/") && !strings.ContainsAny(value.PosterPath, "\r\n?#") {
+		poster = value.PosterPath
+	}
+	return movieclub.Movie{ID: value.ID, Title: title, Overview: overview, PosterPath: poster, Year: year,
+		VoteCount: value.VoteCount, Rating: value.VoteAverage, Popularity: value.Popularity, Genres: uniquePositiveIDs(value.GenreIDs)}, true
+}
+
+func uniquePositiveIDs(values []int64) []int64 {
+	out := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value > 0 && !slices.Contains(out, value) {
+			out = append(out, value)
 		}
-		overview := strings.TrimSpace(value.Overview)
-		if utf8.RuneCountInString(overview) > 450 {
-			runes := []rune(overview)
-			overview = strings.TrimSpace(string(runes[:447])) + "…"
-		}
-		poster := ""
-		if strings.HasPrefix(value.PosterPath, "/") && !strings.ContainsAny(value.PosterPath, "\r\n?#") {
-			poster = value.PosterPath
-		}
-		out = append(out, movieclub.Movie{ID: value.ID, Title: title, Overview: overview, PosterPath: poster, Year: year, VoteCount: value.VoteCount, Rating: value.VoteAverage, Popularity: value.Popularity})
 	}
 	return out
 }

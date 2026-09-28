@@ -25,7 +25,7 @@ func TestDiscoverUsesBearerAndMovieFilters(t *testing.T) {
 			r.URL.Query().Get("primary_release_date.lte") != "2009-12-31" {
 			t.Errorf("unexpected request %s", r.URL.String())
 		}
-		_, _ = w.Write([]byte(`{"results":[{"id":7,"title":"Фильм","overview":"Описание","poster_path":"/p.jpg","release_date":"2024-02-03","vote_average":7.4,"vote_count":400,"popularity":99.5},{"id":0,"title":"bad"}]}`))
+		_, _ = w.Write([]byte(`{"results":[{"id":7,"title":"Фильм","overview":"Описание","poster_path":"/p.jpg","release_date":"2024-02-03","vote_average":7.4,"vote_count":400,"popularity":99.5,"genre_ids":[35,18,35]},{"id":0,"title":"bad"}]}`))
 	}))
 	defer server.Close()
 
@@ -35,7 +35,7 @@ func TestDiscoverUsesBearerAndMovieFilters(t *testing.T) {
 	if err != nil || len(movies) != 1 {
 		t.Fatalf("Discover() = %#v, %v", movies, err)
 	}
-	if movies[0].ID != 7 || movies[0].Year != 2024 || movies[0].PosterPath != "/p.jpg" {
+	if movies[0].ID != 7 || movies[0].Year != 2024 || movies[0].PosterPath != "/p.jpg" || len(movies[0].Genres) != 2 {
 		t.Fatalf("movie = %#v", movies[0])
 	}
 }

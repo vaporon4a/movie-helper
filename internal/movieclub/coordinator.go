@@ -243,11 +243,11 @@ func (c *Coordinator) prepareSelection(ctx context.Context, round Round, now tim
 	}
 	winners := scenario.Winners(options, uint64(round.ID))
 	if len(winners) == 0 {
-		return c.store.SaveMovieSelection(ctx, round.ID, "", Movie{}, nil)
+		return c.store.SaveMovieSelection(ctx, round.ID, "", Selection{})
 	}
 	selectionCtx, cancel := context.WithTimeout(ctx, selectionTimeout)
 	defer cancel()
-	hero, movies, err := scenario.Recommendations(selectionCtx, round, winners, now)
+	selection, err := scenario.Recommendations(selectionCtx, round, winners, now)
 	if err != nil {
 		return c.store.DeferMovieRound(ctx, round.ID, StateSelecting, StateSelecting, now.Add(time.Hour), catalogReason(err))
 	}
@@ -255,11 +255,12 @@ func (c *Coordinator) prepareSelection(ctx context.Context, round Round, now tim
 	for i, winner := range winners {
 		winnerNames[i] = winner.Label
 	}
-	if err = c.store.SaveMovieSelection(ctx, round.ID, strings.Join(winnerNames, " + "), hero, movies); err != nil {
+	if err = c.store.SaveMovieSelection(ctx, round.ID, strings.Join(winnerNames, " + "), selection); err != nil {
 		return err
 	}
-	counts := recommendationCounts(movies)
-	c.log.Info("movieclub selection prepared", "round_id", round.ID, "chat_id", round.ChatID, "winners", len(winners), "movies", len(movies),
+	counts := recommendationCounts(selection.Movies)
+	c.log.Info("movieclub selection prepared", "round_id", round.ID, "chat_id", round.ChatID, "winners", len(winners), "movies", len(selection.Movies),
+		"personalization_mode", selection.Mode, "policy_version", selection.PolicyVersion, "candidates", len(selection.Candidates),
 		"similar", counts["similar"], "director", counts["director"], "screenwriter", counts["screenwriter"], "book_author", counts["book_author"])
 	return nil
 }

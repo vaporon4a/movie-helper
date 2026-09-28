@@ -3,10 +3,12 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/movieclub"
 )
@@ -38,6 +40,33 @@ func (h *Handler) handleMovieCommand(ctx context.Context, update *models.Update,
 		return true, err
 	case "/movie_resolve":
 		return true, h.resolveMovieRound(ctx, update.ID, chatID, args)
+	case "/movie_personalization":
+		mode := movieclub.PersonalizationMode(strings.ToLower(strings.TrimSpace(args)))
+		if !mode.Valid() {
+			h.reply(ctx, chatID, "Формат: /movie_personalization off|shadow|on.")
+			return true, errResponseSent
+		}
+		if err := h.MovieClub.SetPersonalization(ctx, update.ID, chatID, mode); err != nil {
+			return true, err
+		}
+		h.reply(ctx, chatID, personalizationChangedText(mode))
+		return true, errResponseSent
+	case "/movie_taste":
+		settings, profile, err := h.MovieClub.Taste(ctx, chatID)
+		if err != nil {
+			return true, err
+		}
+		h.reply(ctx, chatID, movieTasteText(settings, profile))
+		return true, errResponseSent
+	case "/movie_taste_reset":
+		if strings.TrimSpace(args) != "" {
+			h.reply(ctx, chatID, "Формат: /movie_taste_reset")
+			return true, errResponseSent
+		}
+		_, err := h.API.SendMessage(ctx, &bot.SendMessageParams{ChatID: chatID,
+			Text:        "Сбросить накопленный профиль вкусов этого чата? История опросов останется в базе.",
+			ReplyMarkup: tasteResetKeyboard()})
+		return true, responseResult(err)
 	default:
 		return false, nil
 	}
@@ -45,11 +74,76 @@ func (h *Handler) handleMovieCommand(ctx context.Context, update *models.Update,
 
 func isMovieCommand(command string) bool {
 	switch command {
-	case "/genre_poll", "/reference_poll", "/movie_schedule", "/movie_pause", "/movie_settings", "/movie_resolve":
+	case "/genre_poll", "/reference_poll", "/movie_schedule", "/movie_pause", "/movie_settings", "/movie_resolve",
+		"/movie_personalization", "/movie_taste", "/movie_taste_reset":
 		return true
 	default:
 		return false
 	}
+}
+
+func personalizationChangedText(mode movieclub.PersonalizationMode) string {
+	switch mode {
+	case movieclub.PersonalizationOn:
+		return "Персонализация включена: новые опросы и подборки учитывают историю голосований чата."
+	case movieclub.PersonalizationShadow:
+		return "Режим наблюдения включён: бот сравнивает алгоритмы, но публикует прежнюю выдачу."
+	default:
+		return "Персонализация выключена: используется базовая ротация. История продолжает сохраняться."
+	}
+}
+
+func tasteResetKeyboard() *models.InlineKeyboardMarkup {
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{
+		{Text: "Сбросить", CallbackData: "movie_taste_reset:confirm"},
+		{Text: "Отмена", CallbackData: "movie_taste_reset:cancel"},
+	}}}
+}
+
+func movieTasteText(settings movieclub.PreferenceSettings, profile movieclub.ChatTasteProfile) string {
+	type item struct {
+		id    int64
+		value float64
+	}
+	items := make([]item, 0, len(profile.GenreAffinity))
+	for id, value := range profile.GenreAffinity {
+		if value > 0 {
+			items = append(items, item{id, value})
+		}
+	}
+	slices.SortStableFunc(items, func(a, b item) int {
+		if a.value > b.value {
+			return -1
+		}
+		if a.value < b.value {
+			return 1
+		}
+		return int(a.id - b.id)
+	})
+	lines := []string{fmt.Sprintf("🎯 Профиль киноклуба · %s", settings.Mode),
+		fmt.Sprintf("Завершённых опросов: %d", profile.CompletedRounds),
+		fmt.Sprintf("Эффективных голосов: %.1f", profile.EffectiveVotes)}
+	if len(items) == 0 {
+		lines = append(lines, "Предпочтения появятся после завершённых голосований.")
+	} else {
+		lines = append(lines, "Любимые жанры:")
+		for _, value := range items[:min(5, len(items))] {
+			label := movieclub.GenreLabel(value.id)
+			if label == "" {
+				label = fmt.Sprintf("жанр %d", value.id)
+			}
+			lines = append(lines, fmt.Sprintf("• %s · %.0f%%", label, value.value*100))
+		}
+	}
+	lines = append(lines, "Политика: "+settings.PolicyVersion)
+	return strings.Join(lines, "\n")
+}
+
+func responseResult(err error) error {
+	if err != nil {
+		return err
+	}
+	return errResponseSent
 }
 
 func (h *Handler) startMoviePoll(ctx context.Context, feature movieclub.Feature, operationID, chatID int64, args string) error {

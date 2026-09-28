@@ -42,8 +42,8 @@ func (referenceScenario) Options(_ context.Context, _ int64, seed uint64, _ time
 func (referenceScenario) Winners(options []movieclub.Option, seed uint64) []movieclub.Option {
 	return movieclub.Winners(options, seed)
 }
-func (referenceScenario) Recommendations(context.Context, movieclub.Round, []movieclub.Option, time.Time) (movieclub.Movie, []movieclub.Recommendation, error) {
-	return movieclub.Movie{ID: 7, Title: "Ориентир", PosterPath: "/7.jpg"}, []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 1, Title: "Похожий фильм", PosterPath: "/1.jpg"}, Page: 1, Relation: "similar"}}, nil
+func (referenceScenario) Recommendations(context.Context, movieclub.Round, []movieclub.Option, time.Time) (movieclub.Selection, error) {
+	return movieclub.Selection{Hero: movieclub.Movie{ID: 7, Title: "Ориентир", PosterPath: "/7.jpg"}, Movies: []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 1, Title: "Похожий фильм", PosterPath: "/1.jpg"}, Page: 1, Relation: "similar"}}}, nil
 }
 
 type fakeTransport struct {
