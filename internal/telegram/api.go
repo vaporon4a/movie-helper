@@ -21,7 +21,6 @@ type API interface {
 	StopPoll(context.Context, *bot.StopPollParams) (*models.Poll, error)
 	SendMediaGroup(context.Context, *bot.SendMediaGroupParams) ([]*models.Message, error)
 	GetChatAdministrators(context.Context, *bot.GetChatAdministratorsParams) ([]models.ChatMember, error)
-	GetChatMember(context.Context, *bot.GetChatMemberParams) (*models.ChatMember, error)
 	AnswerCallbackQuery(context.Context, *bot.AnswerCallbackQueryParams) (bool, error)
 }
 

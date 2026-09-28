@@ -29,7 +29,6 @@ type fakeAPI struct {
 	mediaGroups         []*bot.SendMediaGroupParams
 	adminErr, errorSend error
 	photoErr            error
-	memberDenied        bool
 }
 
 type testDailyApp struct {
@@ -107,12 +106,6 @@ func (a *fakeAPI) SendMediaGroup(_ context.Context, p *bot.SendMediaGroupParams)
 }
 func (a *fakeAPI) GetChatAdministrators(context.Context, *bot.GetChatAdministratorsParams) ([]models.ChatMember, error) {
 	return []models.ChatMember{{Type: models.ChatMemberTypeOwner, Owner: &models.ChatMemberOwner{User: &models.User{ID: 42}}}}, a.adminErr
-}
-func (a *fakeAPI) GetChatMember(_ context.Context, p *bot.GetChatMemberParams) (*models.ChatMember, error) {
-	if a.memberDenied {
-		return &models.ChatMember{Type: models.ChatMemberTypeLeft, Left: &models.ChatMemberLeft{Status: models.ChatMemberTypeLeft, User: &models.User{ID: p.UserID}}}, a.adminErr
-	}
-	return &models.ChatMember{Type: models.ChatMemberTypeMember, Member: &models.ChatMemberMember{User: &models.User{ID: p.UserID}}}, a.adminErr
 }
 func (a *fakeAPI) AnswerCallbackQuery(context.Context, *bot.AnswerCallbackQueryParams) (bool, error) {
 	return true, nil
@@ -260,11 +253,6 @@ func TestFeaturePrivateVotingUsesPagedDetailsAndOneChoice(t *testing.T) {
 	view, err := store.FeatureView(ctx, "private-token", 7)
 	if err != nil || view.SelectedID != first.ID {
 		t.Fatalf("view=%#v err=%v", view, err)
-	}
-	api.memberDenied = true
-	h.Handle(ctx, nil, private)
-	if got := api.messages[len(api.messages)-1].Text; !strings.Contains(got, "только участникам чата") {
-		t.Fatalf("membership denial=%q", got)
 	}
 }
 

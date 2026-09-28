@@ -84,10 +84,6 @@ func (h *Handler) sendFeatureList(ctx context.Context, chatID, userID int64, tok
 		h.reply(ctx, chatID, "Голосование не найдено или уже недоступно.")
 		return
 	}
-	if !h.featureMember(ctx, view.Round.ChatID, userID) {
-		h.reply(ctx, chatID, "Голосование доступно только участникам чата, где оно опубликовано.")
-		return
-	}
 	text, keyboard := featureListView(view, token, page)
 	h.sendOrEditFeatureView(ctx, chatID, messageID, text, keyboard)
 }
@@ -96,10 +92,6 @@ func (h *Handler) sendFeatureDetail(ctx context.Context, chatID, userID int64, t
 	view, err := h.Features.View(ctx, token, userID)
 	if err != nil {
 		h.reply(ctx, chatID, "Голосование не найдено или уже недоступно.")
-		return
-	}
-	if !h.featureMember(ctx, view.Round.ChatID, userID) {
-		h.reply(ctx, chatID, "Голосование доступно только участникам чата, где оно опубликовано.")
 		return
 	}
 	option := featureOption(view.Options, ideaID)
@@ -196,15 +188,6 @@ func featureLeaders(options []featurevote.Option) (int, int) {
 	return leaders, maxVotes
 }
 
-func (h *Handler) featureMember(ctx context.Context, chatID, userID int64) bool {
-	member, err := h.API.GetChatMember(ctx, &bot.GetChatMemberParams{ChatID: chatID, UserID: userID})
-	if err != nil || member == nil {
-		h.Log.Warn("feature vote membership unavailable", "chat_id", chatID)
-		return false
-	}
-	return member.Type != models.ChatMemberTypeLeft && member.Type != models.ChatMemberTypeBanned
-}
-
 func truncateFeatureButton(value string) string {
 	runes := []rune(value)
 	if len(runes) <= 56 {
@@ -295,11 +278,6 @@ func (h *Handler) featureVoteCallback(ctx context.Context, query *models.Callbac
 	}
 	ideaID, err := strconv.ParseInt(parts[3], 10, 64)
 	if err != nil {
-		return
-	}
-	view, err := h.Features.View(ctx, token, query.From.ID)
-	if err != nil || !h.featureMember(ctx, view.Round.ChatID, query.From.ID) {
-		_, _ = h.API.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{CallbackQueryID: query.ID, Text: "Нет доступа к голосованию"})
 		return
 	}
 	if err = h.Features.Vote(ctx, token, query.From.ID, ideaID); err != nil {
