@@ -126,14 +126,14 @@ func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time)
 		return err
 	}
 	round.Options = options
-	messageID, sendErr := c.sender.OpenRound(ctx, round, c.deepLink(round.Token))
+	opened, sendErr := c.sender.OpenRound(ctx, round, c.deepLink(round.Token))
 	if sendErr != nil {
 		return c.handleFailure(ctx, round, RoundOpening, sendErr, now)
 	}
-	if err = c.store.OpenFeatureRound(ctx, round.ID, messageID, now); err != nil {
+	if err = c.store.OpenFeatureRound(ctx, round.ID, opened, now); err != nil {
 		return err
 	}
-	c.log.Info("feature vote opened", "round_id", round.ID, "chat_id", round.ChatID, "ideas", len(options), "runoff", round.ParentID != 0)
+	c.log.Info("feature vote opened", "round_id", round.ID, "chat_id", round.ChatID, "ideas", len(options), "runoff", round.ParentID != 0, "ballot_mode", opened.Mode)
 	return nil
 }
 
@@ -181,22 +181,37 @@ func (c *Coordinator) closeDue(ctx context.Context, now time.Time) error {
 		if round.ClosesAt > now.Unix() || round.NextAttempt > now.Unix() {
 			continue
 		}
-		claimed, claimErr := c.store.ClaimFeatureRound(ctx, round.ID, RoundOpen, RoundClosing, now)
-		if claimErr != nil {
-			return claimErr
-		}
-		if !claimed {
-			continue
-		}
-		token, tokenErr := c.token()
-		if tokenErr != nil {
-			return tokenErr
-		}
-		if _, err = c.store.FinalizeFeatureRound(ctx, round.ID, token, now); err != nil {
+		if err = c.closeRound(ctx, round, now); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (c *Coordinator) closeRound(ctx context.Context, round Round, now time.Time) error {
+	claimed, err := c.store.ClaimFeatureRound(ctx, round.ID, RoundOpen, RoundClosing, now)
+	if err != nil || !claimed {
+		return err
+	}
+	if round.BallotMode == BallotNative {
+		round.Options, err = c.store.FeatureRoundOptions(ctx, round.ID)
+		if err != nil {
+			return err
+		}
+		votes, closeErr := c.sender.CloseRound(ctx, round)
+		if closeErr != nil {
+			return c.handleFailure(ctx, round, RoundClosing, closeErr, now)
+		}
+		if err = c.store.SaveFeaturePoll(ctx, round.ID, votes); err != nil {
+			return err
+		}
+	}
+	token, err := c.token()
+	if err != nil {
+		return err
+	}
+	_, err = c.store.FinalizeFeatureRound(ctx, round.ID, token, now)
+	return err
 }
 
 func (c *Coordinator) publishReady(ctx context.Context, now time.Time) error {
@@ -257,6 +272,9 @@ func retryState(from RoundState) RoundState {
 	}
 	if from == RoundPublishing {
 		return RoundReady
+	}
+	if from == RoundClosing {
+		return RoundOpen
 	}
 	return from
 }

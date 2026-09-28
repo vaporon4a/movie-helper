@@ -66,6 +66,7 @@ type FeatureVotes interface {
 	Start(context.Context, int64, int64, time.Duration) (int64, error)
 	View(context.Context, string, int64) (featurevote.View, error)
 	Vote(context.Context, string, int64, int64) error
+	PollClosed(context.Context, string, []int) error
 	Resolve(context.Context, int64, int64, int64, featurevote.ResolveAction) error
 }
 

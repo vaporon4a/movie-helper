@@ -250,12 +250,13 @@ func (s *Store) ReserveFeatureRound(ctx context.Context, chat, slot, closes int6
 	return id, err
 }
 
-const featureRoundColumns = "id,chat_id,slot_at,token,state,message_id,opened_at,closes_at,next_attempt,COALESCE(winner_id,0),COALESCE(parent_id,0),COALESCE(runoff_id,0),outcome,error_code"
+const featureRoundColumns = "id,chat_id,slot_at,token,state,message_id,opened_at,closes_at,next_attempt,COALESCE(winner_id,0),COALESCE(parent_id,0),COALESCE(runoff_id,0),outcome,error_code,ballot_mode,telegram_poll_id"
 
 func scanFeatureRound(row interface{ Scan(...any) error }) (featurevote.Round, error) {
 	var round featurevote.Round
 	err := row.Scan(&round.ID, &round.ChatID, &round.SlotAt, &round.Token, &round.State, &round.MessageID, &round.OpenedAt,
-		&round.ClosesAt, &round.NextAttempt, &round.WinnerID, &round.ParentID, &round.RunoffID, &round.Outcome, &round.ErrorCode)
+		&round.ClosesAt, &round.NextAttempt, &round.WinnerID, &round.ParentID, &round.RunoffID, &round.Outcome, &round.ErrorCode,
+		&round.BallotMode, &round.PollID)
 	return round, err
 }
 
@@ -354,9 +355,13 @@ func (s *Store) ClaimFeatureRound(ctx context.Context, id int64, from, to featur
 	return n == 1, err
 }
 
-func (s *Store) OpenFeatureRound(ctx context.Context, id int64, messageID int, now time.Time) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE feature_rounds SET state='open',message_id=?,opened_at=?,next_attempt=0,error_code=''
- WHERE id=? AND state='opening'`, messageID, now.Unix(), id)
+func (s *Store) OpenFeatureRound(ctx context.Context, id int64, opened featurevote.OpenResult, now time.Time) error {
+	if opened.MessageID <= 0 || (opened.Mode != featurevote.BallotPrivate && opened.Mode != featurevote.BallotNative) ||
+		(opened.Mode == featurevote.BallotNative && opened.PollID == "") || (opened.Mode == featurevote.BallotPrivate && opened.PollID != "") {
+		return featurevote.ErrConflict
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE feature_rounds SET state='open',message_id=?,opened_at=?,next_attempt=0,error_code='',ballot_mode=?,telegram_poll_id=?
+	 WHERE id=? AND state='opening'`, opened.MessageID, now.Unix(), opened.Mode, opened.PollID, id)
 	if err != nil {
 		return err
 	}
@@ -404,13 +409,14 @@ func (s *Store) VoteFeature(ctx context.Context, token string, user, ideaID int6
 	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
 		var roundID, closes int64
 		var state featurevote.RoundState
-		if err := tx.QueryRowContext(ctx, "SELECT id,state,closes_at FROM feature_rounds WHERE token=?", token).Scan(&roundID, &state, &closes); err != nil {
+		var mode featurevote.BallotMode
+		if err := tx.QueryRowContext(ctx, "SELECT id,state,closes_at,ballot_mode FROM feature_rounds WHERE token=?", token).Scan(&roundID, &state, &closes, &mode); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return featurevote.ErrNotFound
 			}
 			return err
 		}
-		if state != featurevote.RoundOpen || closes <= now.Unix() {
+		if mode != featurevote.BallotPrivate || state != featurevote.RoundOpen || closes <= now.Unix() {
 			return featurevote.ErrClosed
 		}
 		var exists bool
@@ -423,6 +429,42 @@ func (s *Store) VoteFeature(ctx context.Context, token string, user, ideaID int6
 		_, err := tx.ExecContext(ctx, `INSERT INTO feature_votes(round_id,user_id,idea_id,updated_at) VALUES(?,?,?,?)
  ON CONFLICT(round_id,user_id) DO UPDATE SET idea_id=excluded.idea_id,updated_at=excluded.updated_at`, roundID, user, ideaID, now.Unix())
 		return err
+	})
+}
+
+func (s *Store) SaveFeaturePollByID(ctx context.Context, pollID string, votes []int) error {
+	var id int64
+	err := s.db.QueryRowContext(ctx, "SELECT id FROM feature_rounds WHERE telegram_poll_id=?", pollID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return featurevote.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return s.SaveFeaturePoll(ctx, id, votes)
+}
+
+func (s *Store) SaveFeaturePoll(ctx context.Context, id int64, votes []int) error {
+	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
+		var count int
+		var mode featurevote.BallotMode
+		var state featurevote.RoundState
+		if err := tx.QueryRowContext(ctx, `SELECT ballot_mode,state,
+ (SELECT count(*) FROM feature_round_options WHERE round_id=?) FROM feature_rounds WHERE id=?`, id, id).Scan(&mode, &state, &count); err != nil {
+			return err
+		}
+		if mode != featurevote.BallotNative || count != len(votes) || (state != featurevote.RoundOpen && state != featurevote.RoundClosing && state != featurevote.RoundUnknown) {
+			return featurevote.ErrConflict
+		}
+		for position, vote := range votes {
+			if vote < 0 {
+				return featurevote.ErrConflict
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE feature_round_options SET votes=? WHERE round_id=? AND position=?", vote, id, position); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 
@@ -458,7 +500,7 @@ func loadFeatureTally(ctx context.Context, tx *sql.Tx, id int64) (featurevote.Ro
 	if err != nil {
 		return round, nil, nil, 0, err
 	}
-	leaders, total, err := tallyFeatureOptions(ctx, tx, options)
+	leaders, total, err := tallyFeatureOptions(ctx, tx, round, options)
 	return round, options, leaders, total, err
 }
 
@@ -562,11 +604,13 @@ func featureOptionsTx(ctx context.Context, tx *sql.Tx, roundID int64) ([]feature
 	return options, rows.Err()
 }
 
-func tallyFeatureOptions(ctx context.Context, tx *sql.Tx, options []featurevote.Option) ([]featurevote.Option, int, error) {
+func tallyFeatureOptions(ctx context.Context, tx *sql.Tx, round featurevote.Round, options []featurevote.Option) ([]featurevote.Option, int, error) {
 	maxVotes, total := 0, 0
 	for i := range options {
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feature_votes WHERE round_id=? AND idea_id=?", options[i].RoundID, options[i].IdeaID).Scan(&options[i].Votes); err != nil {
-			return nil, 0, err
+		if round.BallotMode == featurevote.BallotPrivate {
+			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feature_votes WHERE round_id=? AND idea_id=?", options[i].RoundID, options[i].IdeaID).Scan(&options[i].Votes); err != nil {
+				return nil, 0, err
+			}
 		}
 		total += options[i].Votes
 		maxVotes = max(maxVotes, options[i].Votes)

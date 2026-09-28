@@ -65,15 +65,24 @@ func (h *Handler) handleMembership(ctx context.Context, member *models.ChatMembe
 }
 
 func (h *Handler) handlePoll(ctx context.Context, poll *models.Poll) {
-	if h.MovieClub == nil || !poll.IsClosed {
+	if !poll.IsClosed {
 		return
 	}
 	votes := make([]int, len(poll.Options))
 	for i, option := range poll.Options {
 		votes[i] = option.VoterCount
 	}
-	if err := h.MovieClub.PollClosed(ctx, poll.ID, votes); err != nil && !errors.Is(err, movieclub.ErrConflict) {
-		h.Log.Warn("movie poll update not applied")
+	handled := false
+	if h.MovieClub != nil {
+		err := h.MovieClub.PollClosed(ctx, poll.ID, votes)
+		handled = err == nil || errors.Is(err, movieclub.ErrConflict)
+	}
+	if h.Features != nil {
+		err := h.Features.PollClosed(ctx, poll.ID, votes)
+		handled = handled || err == nil || errors.Is(err, featurevote.ErrConflict)
+	}
+	if !handled {
+		h.Log.Warn("closed poll update not applied")
 	}
 }
 

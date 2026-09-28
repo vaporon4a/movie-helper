@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ type fakeAPI struct {
 	mediaGroups         []*bot.SendMediaGroupParams
 	adminErr, errorSend error
 	photoErr            error
+	stopResult          *models.Poll
 }
 
 type testDailyApp struct {
@@ -94,6 +96,9 @@ func (a *fakeAPI) SendPoll(_ context.Context, p *bot.SendPollParams) (*models.Me
 }
 func (a *fakeAPI) StopPoll(_ context.Context, p *bot.StopPollParams) (*models.Poll, error) {
 	a.stops = append(a.stops, p)
+	if a.stopResult != nil {
+		return a.stopResult, a.errorSend
+	}
 	return &models.Poll{}, a.errorSend
 }
 func (a *fakeAPI) SendMediaGroup(_ context.Context, p *bot.SendMediaGroupParams) ([]*models.Message, error) {
@@ -236,7 +241,7 @@ func TestFeaturePrivateVotingUsesPagedDetailsAndOneChoice(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatal(claimed, err)
 	}
-	if err = store.OpenFeatureRound(ctx, roundID, 90, h.Now()); err != nil {
+	if err = store.OpenFeatureRound(ctx, roundID, featurevote.OpenResult{MessageID: 90, Mode: featurevote.BallotPrivate}, h.Now()); err != nil {
 		t.Fatal(err)
 	}
 	private := &models.Update{ID: 813, Message: &models.Message{Text: "/start ideas_private-token", Chat: models.Chat{ID: 7, Type: models.ChatTypePrivate}, From: &models.User{ID: 7}}}
@@ -253,6 +258,43 @@ func TestFeaturePrivateVotingUsesPagedDetailsAndOneChoice(t *testing.T) {
 	view, err := store.FeatureView(ctx, "private-token", 7)
 	if err != nil || view.SelectedID != first.ID {
 		t.Fatalf("view=%#v err=%v", view, err)
+	}
+}
+
+func TestFeatureClosedPollUpdatePersistsNativeVotes(t *testing.T) {
+	h, _ := handler(t)
+	store := attachFeatureService(t, h)
+	ctx := context.Background()
+	if err := store.EnsureChat(ctx, -1); err != nil {
+		t.Fatal(err)
+	}
+	mustIdea := func(op, author int64, text, hash string) featurevote.Idea {
+		idea, err := store.AddFeature(ctx, op, -1, author, text, hash, h.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return idea
+	}
+	first := mustIdea(820, 7, "Добавить общий список просмотренных фильмов", "poll-first")
+	second := mustIdea(821, 8, "Добавить напоминания перед началом киновечера", "poll-second")
+	roundID, err := store.StartFeatureRound(ctx, 822, -1, h.Now(), time.Hour, "poll-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.SaveFeatureRoundOptions(ctx, roundID, []featurevote.Option{{IdeaID: first.ID, Title: "Общий список просмотренных фильмов", Text: first.Text}, {IdeaID: second.ID, Title: "Напоминания перед началом киновечера", Text: second.Text}}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimFeatureRound(ctx, roundID, featurevote.RoundPlanned, featurevote.RoundOpening, h.Now())
+	if err != nil || !claimed {
+		t.Fatal(claimed, err)
+	}
+	if err = store.OpenFeatureRound(ctx, roundID, featurevote.OpenResult{MessageID: 91, PollID: "feature-poll", Mode: featurevote.BallotNative}, h.Now()); err != nil {
+		t.Fatal(err)
+	}
+	h.Handle(ctx, nil, &models.Update{Poll: &models.Poll{ID: "feature-poll", IsClosed: true, Options: []models.PollOption{{VoterCount: 4}, {VoterCount: 2}}}})
+	options, err := store.FeatureRoundOptions(ctx, roundID)
+	if err != nil || len(options) != 2 || options[0].Votes != 4 || options[1].Votes != 2 {
+		t.Fatalf("options=%#v err=%v", options, err)
 	}
 }
 
@@ -273,6 +315,41 @@ func TestFeatureSenderPublishesDeepLinkAndEscapedWinner(t *testing.T) {
 	}
 	if got := api.messages[1].Text; !strings.Contains(got, "Список &lt;фильмов&gt;") || !strings.Contains(got, "Полный текст &amp; детали") {
 		t.Fatalf("winner=%q", got)
+	}
+}
+
+func TestFeatureSenderUsesNativePollWithDetailsButton(t *testing.T) {
+	api := &fakeAPI{stopResult: &models.Poll{Options: []models.PollOption{{VoterCount: 3}, {VoterCount: 1}}}}
+	sender := FeatureSender{API: api, Username: "film_bot"}
+	round := featurevote.Round{ID: 2, ChatID: -1, Token: "native-token", ClosesAt: time.Now().Add(time.Hour).Unix(), Options: []featurevote.Option{
+		{IdeaID: 9, Title: "Общий список просмотренных фильмов"},
+		{IdeaID: 10, Title: "Напоминания перед началом киновечера"},
+	}}
+	opened, err := sender.OpenRound(context.Background(), round, "ideas_native-token")
+	if err != nil || opened.Mode != featurevote.BallotNative || opened.PollID != "poll-99" || len(api.polls) != 1 {
+		t.Fatalf("opened=%#v polls=%d err=%v", opened, len(api.polls), err)
+	}
+	keyboard := api.polls[0].ReplyMarkup.(*models.InlineKeyboardMarkup)
+	if got := keyboard.InlineKeyboard[0][0].URL; got != "https://t.me/film_bot?start=ideas_native-token" {
+		t.Fatalf("details url=%q", got)
+	}
+	round.MessageID, round.PollID, round.BallotMode = int64(opened.MessageID), opened.PollID, opened.Mode
+	votes, err := sender.CloseRound(context.Background(), round)
+	if err != nil || !slices.Equal(votes, []int{3, 1}) || len(api.stops) != 1 {
+		t.Fatalf("votes=%v stops=%d err=%v", votes, len(api.stops), err)
+	}
+}
+
+func TestFeatureSenderFallsBackAboveTelegramPollLimit(t *testing.T) {
+	api := &fakeAPI{}
+	sender := FeatureSender{API: api, Username: "film_bot"}
+	round := featurevote.Round{ChatID: -1, ClosesAt: time.Now().Add(time.Hour).Unix()}
+	for i := 0; i < featurevote.NativePollMaxOptions+1; i++ {
+		round.Options = append(round.Options, featurevote.Option{IdeaID: int64(i + 1), Title: fmt.Sprintf("Идея номер %d для голосования", i+1)})
+	}
+	opened, err := sender.OpenRound(context.Background(), round, "ideas_large")
+	if err != nil || opened.Mode != featurevote.BallotPrivate || len(api.messages) != 1 || len(api.polls) != 0 {
+		t.Fatalf("opened=%#v messages=%d polls=%d err=%v", opened, len(api.messages), len(api.polls), err)
 	}
 }
 func TestCallbackScopeAndAnonymousAdmin(t *testing.T) {

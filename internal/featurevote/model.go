@@ -9,6 +9,7 @@ import (
 
 type IdeaState string
 type RoundState string
+type BallotMode string
 type DeliveryKind string
 type ResolveAction string
 
@@ -29,6 +30,9 @@ const (
 	RoundFailed     RoundState = "failed"
 	RoundUnknown    RoundState = "unknown"
 
+	BallotPrivate BallotMode = "private"
+	BallotNative  BallotMode = "native"
+
 	DeliveryRetry     DeliveryKind = "retry"
 	DeliveryForbidden DeliveryKind = "forbidden"
 	DeliveryPermanent DeliveryKind = "permanent"
@@ -46,6 +50,7 @@ const (
 	MaxIdeaRunes         = 1500
 	MinIdeaRunes         = 20
 	MaxIdeasPerWeek      = 20
+	NativePollMaxOptions = 12
 )
 
 var (
@@ -80,9 +85,16 @@ type Option struct {
 type Round struct {
 	ID, ChatID, SlotAt, OpenedAt, ClosesAt, NextAttempt int64
 	MessageID, WinnerID, ParentID, RunoffID             int64
-	Token, ErrorCode, Outcome                           string
+	Token, PollID, ErrorCode, Outcome                   string
 	State                                               RoundState
+	BallotMode                                          BallotMode
 	Options                                             []Option
+}
+
+type OpenResult struct {
+	MessageID int
+	PollID    string
+	Mode      BallotMode
 }
 
 type View struct {
@@ -111,6 +123,7 @@ type TitleGenerator interface {
 }
 
 type Transport interface {
-	OpenRound(context.Context, Round, string) (int, error)
+	OpenRound(context.Context, Round, string) (OpenResult, error)
+	CloseRound(context.Context, Round) ([]int, error)
 	SendResult(context.Context, Round) error
 }

@@ -19,15 +19,23 @@ func (titleStub) Title(context.Context, string) string {
 }
 
 type featureSenderStub struct {
-	opens, results int
+	opens, closes, results int
 }
 
-func (s *featureSenderStub) OpenRound(_ context.Context, round featurevote.Round, payload string) (int, error) {
+func (s *featureSenderStub) OpenRound(_ context.Context, round featurevote.Round, payload string) (featurevote.OpenResult, error) {
 	s.opens++
 	if len(round.Options) == 0 || payload == "" {
-		return 0, featurevote.ErrConflict
+		return featurevote.OpenResult{}, featurevote.ErrConflict
 	}
-	return 77, nil
+	return featurevote.OpenResult{MessageID: 77, PollID: "native-poll", Mode: featurevote.BallotNative}, nil
+}
+
+func (s *featureSenderStub) CloseRound(_ context.Context, round featurevote.Round) ([]int, error) {
+	s.closes++
+	if round.PollID == "" || len(round.Options) != 2 {
+		return nil, featurevote.ErrConflict
+	}
+	return []int{1, 0}, nil
 }
 
 func (s *featureSenderStub) SendResult(_ context.Context, round featurevote.Round) error {
@@ -84,9 +92,6 @@ func TestCoordinatorOpensAllActiveIdeasAndPublishesWinner(t *testing.T) {
 	if err != nil || len(options) != 2 || options[0].IdeaID != first.ID || options[1].IdeaID != second.ID {
 		t.Fatalf("options=%#v err=%v", options, err)
 	}
-	if err = service.Vote(ctx, "main-token", 201, first.ID); err != nil {
-		t.Fatal(err)
-	}
 	now = now.Add(6 * time.Minute)
 	if err = coordinator.Tick(ctx); err != nil {
 		t.Fatal(err)
@@ -95,8 +100,8 @@ func TestCoordinatorOpensAllActiveIdeasAndPublishesWinner(t *testing.T) {
 	if err != nil || round.State != featurevote.RoundPublished || round.WinnerID != first.ID {
 		t.Fatalf("round=%#v err=%v", round, err)
 	}
-	if sender.opens != 1 || sender.results != 1 {
-		t.Fatalf("sender opens=%d results=%d", sender.opens, sender.results)
+	if sender.opens != 1 || sender.closes != 1 || sender.results != 1 {
+		t.Fatalf("sender opens=%d closes=%d results=%d", sender.opens, sender.closes, sender.results)
 	}
 	backlog, err := service.Backlog(ctx, -1)
 	if err != nil || len(backlog) != 1 || backlog[0].ID != first.ID {

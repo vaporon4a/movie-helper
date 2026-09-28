@@ -32,7 +32,7 @@ func openFeatureRound(t *testing.T, store *Store, token string, ideas []featurev
 	if !claimed {
 		t.Fatal("round not claimed")
 	}
-	must(t, store.OpenFeatureRound(ctx, id, 99, testNow))
+	must(t, store.OpenFeatureRound(ctx, id, featurevote.OpenResult{MessageID: 99, Mode: featurevote.BallotPrivate}, testNow))
 	return id
 }
 
@@ -91,6 +91,40 @@ func TestFeatureVoteWinnerMovesOnlyWinnerToBacklog(t *testing.T) {
 	}
 }
 
+func TestNativeFeaturePollPersistsTelegramTally(t *testing.T) {
+	store := testStore(t)
+	setup(t, store, -1)
+	first := addFeature(t, store, 30, 7, "Добавить общий список просмотренных фильмов", "native-first")
+	second := addFeature(t, store, 31, 8, "Добавить напоминания перед началом киновечера", "native-second")
+	ctx := context.Background()
+	roundID, err := store.StartFeatureRound(ctx, 32, -1, testNow, time.Hour, "native-token")
+	must(t, err)
+	must(t, store.SaveFeatureRoundOptions(ctx, roundID, []featurevote.Option{
+		{IdeaID: first.ID, Title: "Общий список просмотренных фильмов", Text: first.Text},
+		{IdeaID: second.ID, Title: "Напоминания перед началом киновечера", Text: second.Text},
+	}))
+	claimed, err := store.ClaimFeatureRound(ctx, roundID, featurevote.RoundPlanned, featurevote.RoundOpening, testNow)
+	must(t, err)
+	if !claimed {
+		t.Fatal("native round not claimed")
+	}
+	must(t, store.OpenFeatureRound(ctx, roundID, featurevote.OpenResult{MessageID: 101, PollID: "telegram-native", Mode: featurevote.BallotNative}, testNow))
+	if err = store.VoteFeature(ctx, "native-token", 201, first.ID, testNow.Add(time.Minute)); !errors.Is(err, featurevote.ErrClosed) {
+		t.Fatalf("private vote accepted for native poll: %v", err)
+	}
+	must(t, store.SaveFeaturePollByID(ctx, "telegram-native", []int{3, 1}))
+	claimed, err = store.ClaimFeatureRound(ctx, roundID, featurevote.RoundOpen, featurevote.RoundClosing, testNow.Add(time.Hour))
+	must(t, err)
+	if !claimed {
+		t.Fatal("native round not closed")
+	}
+	result, err := store.FinalizeFeatureRound(ctx, roundID, "unused", testNow.Add(time.Hour))
+	must(t, err)
+	if result.Outcome != "winner" || result.WinnerID != first.ID || result.Options[0].Votes != 3 {
+		t.Fatalf("native result=%#v", result)
+	}
+}
+
 func TestFeatureVoteTieCreatesRunoffWithLeaders(t *testing.T) {
 	store := testStore(t)
 	setup(t, store, -1)
@@ -121,7 +155,7 @@ func TestFeatureVoteTieCreatesRunoffWithLeaders(t *testing.T) {
 	if !claimed {
 		t.Fatal("runoff not claimed")
 	}
-	must(t, store.OpenFeatureRound(context.Background(), runoff.ID, 100, testNow.Add(time.Hour)))
+	must(t, store.OpenFeatureRound(context.Background(), runoff.ID, featurevote.OpenResult{MessageID: 100, Mode: featurevote.BallotPrivate}, testNow.Add(time.Hour)))
 	must(t, store.VoteFeature(context.Background(), "runoff-token", 201, first.ID, testNow.Add(time.Hour+time.Minute)))
 	must(t, store.VoteFeature(context.Background(), "runoff-token", 202, second.ID, testNow.Add(time.Hour+time.Minute)))
 	claimed, err = store.ClaimFeatureRound(context.Background(), runoff.ID, featurevote.RoundOpen, featurevote.RoundClosing, testNow.Add(featurevote.RunoffDuration+time.Hour))

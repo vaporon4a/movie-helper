@@ -16,6 +16,7 @@ type ServiceRepository interface {
 	StartFeatureRound(context.Context, int64, int64, time.Time, time.Duration, string) (int64, error)
 	FeatureView(context.Context, string, int64) (View, error)
 	VoteFeature(context.Context, string, int64, int64, time.Time) error
+	SaveFeaturePollByID(context.Context, string, []int) error
 	ResolveFeatureRound(context.Context, int64, int64, int64, ResolveAction, time.Time) error
 }
 
@@ -29,7 +30,8 @@ type CoordinatorRepository interface {
 	SaveFeatureTitle(context.Context, int64, string) error
 	SaveFeatureRoundOptions(context.Context, int64, []Option) error
 	ClaimFeatureRound(context.Context, int64, RoundState, RoundState, time.Time) (bool, error)
-	OpenFeatureRound(context.Context, int64, int, time.Time) error
+	OpenFeatureRound(context.Context, int64, OpenResult, time.Time) error
+	SaveFeaturePoll(context.Context, int64, []int) error
 	CancelEmptyFeatureRound(context.Context, int64) error
 	FinalizeFeatureRound(context.Context, int64, string, time.Time) (Round, error)
 	PublishFeatureRound(context.Context, int64) error

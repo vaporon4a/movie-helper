@@ -22,7 +22,40 @@ type FeatureSender struct {
 	Username string
 }
 
-func (s FeatureSender) OpenRound(ctx context.Context, round featurevote.Round, payload string) (int, error) {
+func (s FeatureSender) OpenRound(ctx context.Context, round featurevote.Round, payload string) (featurevote.OpenResult, error) {
+	link := "https://t.me/" + s.Username + "?start=" + url.QueryEscape(payload)
+	if len(round.Options) >= 2 && len(round.Options) <= featurevote.NativePollMaxOptions {
+		return s.openNativeRound(ctx, round, link)
+	}
+	return s.openPrivateRound(ctx, round, link)
+}
+
+func (s FeatureSender) openNativeRound(ctx context.Context, round featurevote.Round, link string) (featurevote.OpenResult, error) {
+	options := make([]models.InputPollOption, len(round.Options))
+	for i, option := range round.Options {
+		options[i] = models.InputPollOption{Text: option.Title}
+	}
+	anonymous := true
+	question := "Какую функцию добавить следующей?"
+	if round.ParentID != 0 {
+		question = "Какая идея победит во втором туре?"
+	}
+	message, err := s.API.SendPoll(ctx, &bot.SendPollParams{
+		ChatID: round.ChatID, Question: question, Options: options,
+		IsAnonymous: &anonymous, Type: "regular", AllowsRevoting: true,
+		Description: "Короткие названия подготовлены AI. Откройте полные описания перед выбором.",
+		ReplyMarkup: featureDetailsKeyboard(link),
+	})
+	if err != nil {
+		return featurevote.OpenResult{}, classifyFeature(err)
+	}
+	if message == nil || message.Poll == nil || message.Poll.ID == "" {
+		return featurevote.OpenResult{}, &featurevote.DeliveryError{Kind: featurevote.DeliveryUnknown, Reason: "empty_poll"}
+	}
+	return featurevote.OpenResult{MessageID: message.ID, PollID: message.Poll.ID, Mode: featurevote.BallotNative}, nil
+}
+
+func (s FeatureSender) openPrivateRound(ctx context.Context, round featurevote.Round, link string) (featurevote.OpenResult, error) {
 	title := "💡 <b>Выбираем следующую функцию бота</b>"
 	lead := "Откройте список, прочитайте описания и выберите одну идею. Голос можно изменить до закрытия."
 	if round.ParentID != 0 {
@@ -30,18 +63,39 @@ func (s FeatureSender) OpenRound(ctx context.Context, round featurevote.Round, p
 		lead = "Лидеры набрали поровну. Выберите одну идею во втором туре."
 	}
 	text := fmt.Sprintf("%s\n\n%s\n\nВариантов: %d · закрытие через %s\nПобедитель попадёт в бэклог разработки.", title, lead, len(round.Options), time.Until(time.Unix(round.ClosesAt, 0)).Round(time.Minute))
-	link := "https://t.me/" + s.Username + "?start=" + url.QueryEscape(payload)
 	message, err := s.API.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: round.ChatID, Text: text, ParseMode: models.ParseModeHTML,
-		ReplyMarkup: &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{{Text: "🗳 Голосовать и читать идеи", URL: link}}}},
+		ReplyMarkup: featureDetailsKeyboard(link),
 	})
 	if err != nil {
-		return 0, classifyFeature(err)
+		return featurevote.OpenResult{}, classifyFeature(err)
 	}
 	if message == nil {
-		return 0, &featurevote.DeliveryError{Kind: featurevote.DeliveryUnknown, Reason: "empty_message"}
+		return featurevote.OpenResult{}, &featurevote.DeliveryError{Kind: featurevote.DeliveryUnknown, Reason: "empty_message"}
 	}
-	return message.ID, nil
+	return featurevote.OpenResult{MessageID: message.ID, Mode: featurevote.BallotPrivate}, nil
+}
+
+func featureDetailsKeyboard(link string) *models.InlineKeyboardMarkup {
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{{Text: "📋 Полные описания", URL: link}}}}
+}
+
+func (s FeatureSender) CloseRound(ctx context.Context, round featurevote.Round) ([]int, error) {
+	if round.BallotMode != featurevote.BallotNative {
+		return nil, nil
+	}
+	poll, err := s.API.StopPoll(ctx, &bot.StopPollParams{ChatID: round.ChatID, MessageID: int(round.MessageID), ReplyMarkup: featureDetailsKeyboard("https://t.me/" + s.Username + "?start=ideas_" + url.QueryEscape(round.Token))})
+	if err != nil {
+		return nil, classifyFeature(err)
+	}
+	if poll == nil || len(poll.Options) != len(round.Options) {
+		return nil, &featurevote.DeliveryError{Kind: featurevote.DeliveryUnknown, Reason: "poll_option_mismatch"}
+	}
+	votes := make([]int, len(poll.Options))
+	for i, option := range poll.Options {
+		votes[i] = option.VoterCount
+	}
+	return votes, nil
 }
 
 func (s FeatureSender) SendResult(ctx context.Context, round featurevote.Round) error {
@@ -124,6 +178,9 @@ func featureListView(view featurevote.View, token string, page int) (string, *mo
 		state = "Голосование завершено"
 	}
 	lines := []string{"💡 <b>Идеи для следующей функции</b>", html.EscapeString(state), "", "Нажмите на название, чтобы прочитать полное описание."}
+	if view.Round.BallotMode == featurevote.BallotNative && view.Round.State == featurevote.RoundOpen {
+		lines = append(lines, "Голосуйте в опросе группы.")
+	}
 	var rows [][]models.InlineKeyboardButton
 	start := page * featurePageSize
 	end := min(start+featurePageSize, len(view.Options))
@@ -156,7 +213,7 @@ func featureDetailView(view featurevote.View, token string, option featurevote.O
 	}
 	text := fmt.Sprintf("💡 <b>%s</b>\n\n%s%s", html.EscapeString(option.Title), html.EscapeString(option.Text), selected)
 	rows := [][]models.InlineKeyboardButton{}
-	if view.Round.State == featurevote.RoundOpen {
+	if view.Round.State == featurevote.RoundOpen && view.Round.BallotMode == featurevote.BallotPrivate {
 		label := "Выбрать эту идею"
 		if view.SelectedID == option.IdeaID {
 			label = "✅ Идея выбрана"
@@ -164,6 +221,9 @@ func featureDetailView(view featurevote.View, token string, option featurevote.O
 		rows = append(rows, []models.InlineKeyboardButton{{Text: label, CallbackData: fmt.Sprintf("fv:v:%s:%d:%d", token, option.IdeaID, page)}})
 	}
 	rows = append(rows, []models.InlineKeyboardButton{{Text: "← Ко всем идеям", CallbackData: fmt.Sprintf("fv:p:%s:%d", token, page)}})
+	if view.Round.BallotMode == featurevote.BallotNative {
+		text += "\n\nВернитесь в опрос группы, чтобы выбрать или изменить голос."
+	}
 	return text, &models.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 

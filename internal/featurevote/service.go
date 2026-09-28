@@ -91,6 +91,13 @@ func (s *Service) Vote(ctx context.Context, token string, userID, ideaID int64) 
 	return s.store.VoteFeature(ctx, token, userID, ideaID, s.now())
 }
 
+func (s *Service) PollClosed(ctx context.Context, pollID string, votes []int) error {
+	if pollID == "" {
+		return ErrConflict
+	}
+	return s.store.SaveFeaturePollByID(ctx, pollID, votes)
+}
+
 func (s *Service) Resolve(ctx context.Context, operationID, chatID, roundID int64, action ResolveAction) error {
 	if action != ResolveSent && action != ResolveRetry && action != ResolveCancel {
 		return ErrConflict
