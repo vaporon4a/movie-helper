@@ -9,6 +9,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
+	"github.com/vaporon4a/movie-helper/internal/featurevote"
 	"github.com/vaporon4a/movie-helper/internal/movieclub"
 )
 
@@ -20,6 +21,7 @@ type API interface {
 	StopPoll(context.Context, *bot.StopPollParams) (*models.Poll, error)
 	SendMediaGroup(context.Context, *bot.SendMediaGroupParams) ([]*models.Message, error)
 	GetChatAdministrators(context.Context, *bot.GetChatAdministratorsParams) ([]models.ChatMember, error)
+	GetChatMember(context.Context, *bot.GetChatMemberParams) (*models.ChatMember, error)
 	AnswerCallbackQuery(context.Context, *bot.AnswerCallbackQueryParams) (bool, error)
 }
 
@@ -54,9 +56,24 @@ type MovieClub interface {
 	Resolve(context.Context, int64, int64, int64, movieclub.ResolveAction) error
 }
 
+type FeatureVotes interface {
+	Add(context.Context, int64, int64, int64, string) (featurevote.Idea, error)
+	Mine(context.Context, int64, int64) ([]featurevote.Idea, error)
+	Backlog(context.Context, int64) ([]featurevote.Idea, error)
+	ChangeState(context.Context, int64, int64, int64, int64, featurevote.IdeaState, bool) error
+	SetSchedule(context.Context, int64, int64, int, string) error
+	Pause(context.Context, int64, int64) error
+	Settings(context.Context, int64) (featurevote.SettingsView, error)
+	Start(context.Context, int64, int64, time.Duration) (int64, error)
+	View(context.Context, string, int64) (featurevote.View, error)
+	Vote(context.Context, string, int64, int64) error
+	Resolve(context.Context, int64, int64, int64, featurevote.ResolveAction) error
+}
+
 type Handler struct {
 	API       API
 	MovieClub MovieClub
+	Features  FeatureVotes
 	Daily     DailyApplication
 	Allowed   map[int64]bool
 	Username  string

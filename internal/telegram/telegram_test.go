@@ -15,6 +15,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
+	"github.com/vaporon4a/movie-helper/internal/featurevote"
 	"github.com/vaporon4a/movie-helper/internal/movieclub"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 )
@@ -28,6 +29,7 @@ type fakeAPI struct {
 	mediaGroups         []*bot.SendMediaGroupParams
 	adminErr, errorSend error
 	photoErr            error
+	memberDenied        bool
 }
 
 type testDailyApp struct {
@@ -106,6 +108,12 @@ func (a *fakeAPI) SendMediaGroup(_ context.Context, p *bot.SendMediaGroupParams)
 func (a *fakeAPI) GetChatAdministrators(context.Context, *bot.GetChatAdministratorsParams) ([]models.ChatMember, error) {
 	return []models.ChatMember{{Type: models.ChatMemberTypeOwner, Owner: &models.ChatMemberOwner{User: &models.User{ID: 42}}}}, a.adminErr
 }
+func (a *fakeAPI) GetChatMember(_ context.Context, p *bot.GetChatMemberParams) (*models.ChatMember, error) {
+	if a.memberDenied {
+		return &models.ChatMember{Type: models.ChatMemberTypeLeft, Left: &models.ChatMemberLeft{Status: models.ChatMemberTypeLeft, User: &models.User{ID: p.UserID}}}, a.adminErr
+	}
+	return &models.ChatMember{Type: models.ChatMemberTypeMember, Member: &models.ChatMemberMember{User: &models.User{ID: p.UserID}}}, a.adminErr
+}
 func (a *fakeAPI) AnswerCallbackQuery(context.Context, *bot.AnswerCallbackQueryParams) (bool, error) {
 	return true, nil
 }
@@ -123,6 +131,17 @@ func handler(t *testing.T) (*Handler, *fakeAPI) {
 	}
 	app := &testDailyApp{Service: service, store: s}
 	return &Handler{Daily: app, API: a, Allowed: map[int64]bool{-1: true, -2: true}, Username: "film_bot", Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: time.Now}, a
+}
+
+func attachFeatureService(t *testing.T, h *Handler) *storage.Store {
+	t.Helper()
+	store := h.Daily.(*testDailyApp).store
+	service, err := featurevote.NewService(store, h.Log, h.Now, func() (string, error) { return "test-token", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Features = service
+	return store
 }
 func update(id, chat, user int64, text string) *models.Update {
 	return &models.Update{ID: id, Message: &models.Message{Text: text, Chat: models.Chat{ID: chat, Type: models.ChatTypeSupergroup}, From: &models.User{ID: user}}}
@@ -169,6 +188,103 @@ func TestAuthorizationChatIsolationAndReplay(t *testing.T) {
 	h.Handle(ctx, nil, update(7, -1, 42, "/start@another_bot"))
 	if len(a.messages) != before {
 		t.Fatal("unrelated chat or bot responded")
+	}
+}
+
+func TestFeatureIdeaForceReplyAndParticipantCommands(t *testing.T) {
+	h, api := handler(t)
+	attachFeatureService(t, h)
+	ctx := context.Background()
+	h.Handle(ctx, nil, update(800, -1, 7, "/idea"))
+	if len(api.messages) != 1 || api.messages[0].Text != ideaPrompt {
+		t.Fatalf("prompt=%#v", api.messages)
+	}
+	if _, ok := api.messages[0].ReplyMarkup.(*models.ForceReply); !ok {
+		t.Fatalf("reply markup=%#v", api.messages[0].ReplyMarkup)
+	}
+	reply := update(801, -1, 7, "Добавить общий список просмотренных фильмов для участников")
+	reply.Message.ReplyToMessage = &models.Message{Text: ideaPrompt}
+	h.Handle(ctx, nil, reply)
+	h.Handle(ctx, nil, update(802, -1, 7, "/my_ideas"))
+	if got := api.messages[len(api.messages)-1].Text; !strings.Contains(got, "#1") || !strings.Contains(got, "Добавить общий список") {
+		t.Fatalf("ideas=%q", got)
+	}
+	h.Handle(ctx, nil, update(803, -1, 7, "/idea_cancel 1"))
+	ideas, err := h.Features.Mine(ctx, -1, 7)
+	if err != nil || len(ideas) != 0 {
+		t.Fatalf("ideas=%#v err=%v", ideas, err)
+	}
+}
+
+func TestFeaturePrivateVotingUsesPagedDetailsAndOneChoice(t *testing.T) {
+	h, api := handler(t)
+	store := attachFeatureService(t, h)
+	ctx := context.Background()
+	if err := store.EnsureChat(ctx, -1); err != nil {
+		t.Fatal(err)
+	}
+	mustIdea := func(op, author int64, text, hash string) featurevote.Idea {
+		idea, err := store.AddFeature(ctx, op, -1, author, text, hash, h.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return idea
+	}
+	first := mustIdea(810, 7, "Добавить общий список просмотренных фильмов", "first-private")
+	second := mustIdea(811, 8, "Добавить напоминания перед началом киновечера", "second-private")
+	roundID, err := store.StartFeatureRound(ctx, 812, -1, h.Now(), time.Hour, "private-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.SaveFeatureRoundOptions(ctx, roundID, []featurevote.Option{{IdeaID: first.ID, Title: "Общий список просмотренных фильмов", Text: first.Text}, {IdeaID: second.ID, Title: "Напоминания перед началом киновечера", Text: second.Text}}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimFeatureRound(ctx, roundID, featurevote.RoundPlanned, featurevote.RoundOpening, h.Now())
+	if err != nil || !claimed {
+		t.Fatal(claimed, err)
+	}
+	if err = store.OpenFeatureRound(ctx, roundID, 90, h.Now()); err != nil {
+		t.Fatal(err)
+	}
+	private := &models.Update{ID: 813, Message: &models.Message{Text: "/start ideas_private-token", Chat: models.Chat{ID: 7, Type: models.ChatTypePrivate}, From: &models.User{ID: 7}}}
+	h.Handle(ctx, nil, private)
+	if got := api.messages[len(api.messages)-1]; !strings.Contains(got.Text, "Идеи для следующей функции") || got.ReplyMarkup == nil {
+		t.Fatalf("private list=%#v", got)
+	}
+	callbackMessage := &models.Message{ID: 500, Chat: models.Chat{ID: 7, Type: models.ChatTypePrivate}}
+	h.Handle(ctx, nil, &models.Update{CallbackQuery: &models.CallbackQuery{ID: "detail", From: models.User{ID: 7}, Data: fmt.Sprintf("fv:d:private-token:%d:0", first.ID), Message: models.MaybeInaccessibleMessage{Message: callbackMessage}}})
+	if len(api.edits) == 0 || !strings.Contains(api.edits[len(api.edits)-1].Text, first.Text) {
+		t.Fatalf("detail edits=%#v", api.edits)
+	}
+	h.Handle(ctx, nil, &models.Update{CallbackQuery: &models.CallbackQuery{ID: "vote", From: models.User{ID: 7}, Data: fmt.Sprintf("fv:v:private-token:%d:0", first.ID), Message: models.MaybeInaccessibleMessage{Message: callbackMessage}}})
+	view, err := store.FeatureView(ctx, "private-token", 7)
+	if err != nil || view.SelectedID != first.ID {
+		t.Fatalf("view=%#v err=%v", view, err)
+	}
+	api.memberDenied = true
+	h.Handle(ctx, nil, private)
+	if got := api.messages[len(api.messages)-1].Text; !strings.Contains(got, "только участникам чата") {
+		t.Fatalf("membership denial=%q", got)
+	}
+}
+
+func TestFeatureSenderPublishesDeepLinkAndEscapedWinner(t *testing.T) {
+	api := &fakeAPI{}
+	sender := FeatureSender{API: api, Username: "film_bot"}
+	round := featurevote.Round{ID: 1, ChatID: -1, ClosesAt: time.Now().Add(time.Hour).Unix(), Options: []featurevote.Option{{IdeaID: 9, Title: "Список <фильмов>", Text: "Полный текст & детали"}}}
+	if _, err := sender.OpenRound(context.Background(), round, "ideas_token"); err != nil {
+		t.Fatal(err)
+	}
+	keyboard := api.messages[0].ReplyMarkup.(*models.InlineKeyboardMarkup)
+	if got := keyboard.InlineKeyboard[0][0].URL; got != "https://t.me/film_bot?start=ideas_token" {
+		t.Fatalf("url=%q", got)
+	}
+	round.Outcome, round.WinnerID = "winner", 9
+	if err := sender.SendResult(context.Background(), round); err != nil {
+		t.Fatal(err)
+	}
+	if got := api.messages[1].Text; !strings.Contains(got, "Список &lt;фильмов&gt;") || !strings.Contains(got, "Полный текст &amp; детали") {
+		t.Fatalf("winner=%q", got)
 	}
 }
 func TestCallbackScopeAndAnonymousAdmin(t *testing.T) {

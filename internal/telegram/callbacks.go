@@ -15,7 +15,13 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 		return
 	}
 	message := query.Message.Message
-	if message == nil || !h.Allowed[message.Chat.ID] || query.From.IsBot {
+	if message == nil || query.From.IsBot {
+		return
+	}
+	if strings.HasPrefix(query.Data, "fv:") && h.featureCallback(ctx, query, message) {
+		return
+	}
+	if !h.Allowed[message.Chat.ID] {
 		return
 	}
 	_, _ = h.API.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{CallbackQueryID: query.ID})

@@ -10,6 +10,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
+	"github.com/vaporon4a/movie-helper/internal/featurevote"
 	"github.com/vaporon4a/movie-helper/internal/movieclub"
 )
 
@@ -79,11 +80,17 @@ func (h *Handler) handlePoll(ctx context.Context, poll *models.Poll) {
 func (h *Handler) handleMessage(ctx context.Context, update *models.Update) {
 	message := update.Message
 	command, args := Command(message.Text, h.Username)
-	if h.handleBasicMessage(ctx, message, command) {
+	if h.handleBasicMessage(ctx, message, command, args) {
 		return
 	}
 	if message.From == nil || message.From.IsBot || message.SenderChat != nil {
 		h.reply(ctx, message.Chat.ID, "Отправьте команду от своего имени.")
+		return
+	}
+	if command == "" {
+		if h.handleIdeaReply(ctx, update) {
+			return
+		}
 		return
 	}
 	if requiresAdmin(command) && !h.admin(ctx, message.Chat.ID, message.From.ID) {
@@ -92,6 +99,9 @@ func (h *Handler) handleMessage(ctx context.Context, update *models.Update) {
 	}
 
 	handled, err := h.handleMovieCommand(ctx, update, command, args)
+	if !handled {
+		handled, err = h.handleFeatureCommand(ctx, update, command, args)
+	}
 	if !handled {
 		handled, err = h.handleDailyCommand(ctx, update, command, args)
 	}
@@ -102,13 +112,13 @@ func (h *Handler) handleMessage(ctx context.Context, update *models.Update) {
 	h.finishCommand(ctx, message.Chat.ID, command, err)
 }
 
-func (h *Handler) handleBasicMessage(ctx context.Context, message *models.Message, command string) bool {
+func (h *Handler) handleBasicMessage(ctx context.Context, message *models.Message, command, args string) bool {
 	if command == "/id" {
 		h.reply(ctx, message.Chat.ID, fmt.Sprintf("ID чата: %d", message.Chat.ID))
 		return true
 	}
 	if message.Chat.Type == models.ChatTypePrivate {
-		h.handlePrivate(ctx, message.Chat.ID, command)
+		h.handlePrivate(ctx, message, command, args)
 		return true
 	}
 	if !h.Allowed[message.Chat.ID] || (message.Chat.Type != models.ChatTypeGroup && message.Chat.Type != models.ChatTypeSupergroup) {
@@ -118,7 +128,7 @@ func (h *Handler) handleBasicMessage(ctx context.Context, message *models.Messag
 		h.handleMigration(ctx, message)
 		return true
 	}
-	if command == "" {
+	if command == "" && !isIdeaReply(message) {
 		return true
 	}
 	if err := h.Daily.EnsureChat(ctx, message.Chat.ID); err != nil {
@@ -131,7 +141,12 @@ func (h *Handler) handleBasicMessage(ctx context.Context, message *models.Messag
 	return false
 }
 
-func (h *Handler) handlePrivate(ctx context.Context, chatID int64, command string) {
+func (h *Handler) handlePrivate(ctx context.Context, message *models.Message, command, args string) {
+	chatID := message.Chat.ID
+	if command == "/start" && strings.HasPrefix(args, "ideas_") && h.Features != nil && message.From != nil {
+		h.sendFeatureList(ctx, chatID, message.From.ID, strings.TrimPrefix(args, "ideas_"), 0, 0)
+		return
+	}
 	switch command {
 	case "/start", "/help":
 		h.reply(ctx, chatID, help)
@@ -168,7 +183,12 @@ func (h *Handler) handleReference(ctx context.Context, chatID int64, command str
 }
 
 func requiresAdmin(command string) bool {
-	return command != "/suggest_meme" && command != "/suggest_fact" && command != "/settings"
+	switch command {
+	case "/suggest_meme", "/suggest_fact", "/settings", "/idea", "/feature", "/my_ideas", "/idea_cancel":
+		return false
+	default:
+		return true
+	}
 }
 
 func (h *Handler) finishCommand(ctx context.Context, chatID int64, command string, err error) {
@@ -181,6 +201,26 @@ func (h *Handler) finishCommand(ctx context.Context, chatID int64, command strin
 	}
 	if errors.Is(err, daily.ErrDuplicate) || errors.Is(err, movieclub.ErrDuplicate) {
 		h.reply(ctx, chatID, "Уже обработано или такой материал уже есть.")
+		return
+	}
+	if errors.Is(err, featurevote.ErrDuplicate) {
+		h.reply(ctx, chatID, "Такая идея уже есть в этом чате.")
+		return
+	}
+	if errors.Is(err, featurevote.ErrRateLimit) {
+		h.reply(ctx, chatID, "Можно предложить не более двух новых идей за 7 дней.")
+		return
+	}
+	if errors.Is(err, featurevote.ErrActiveRound) {
+		h.reply(ctx, chatID, "В этом чате уже идёт голосование за функции.")
+		return
+	}
+	if errors.Is(err, featurevote.ErrNotFound) {
+		h.reply(ctx, chatID, "Активные идеи или указанный объект не найдены.")
+		return
+	}
+	if errors.Is(err, featurevote.ErrConflict) {
+		h.reply(ctx, chatID, "Действие недоступно в текущем состоянии. Возможно, идея уже участвует в открытом голосовании.")
 		return
 	}
 	if errors.Is(err, movieclub.ErrActiveRound) {

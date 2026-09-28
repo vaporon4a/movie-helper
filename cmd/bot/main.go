@@ -15,9 +15,11 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/vaporon4a/movie-helper/internal/ai"
 	"github.com/vaporon4a/movie-helper/internal/config"
 	"github.com/vaporon4a/movie-helper/internal/content"
 	"github.com/vaporon4a/movie-helper/internal/daily"
+	"github.com/vaporon4a/movie-helper/internal/featurevote"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
 	"github.com/vaporon4a/movie-helper/internal/meme"
@@ -63,6 +65,9 @@ func run() error {
 	if err = store.RecoverMovieRounds(ctx); err != nil {
 		return errors.New("cannot recover movie poll state")
 	}
+	if err = store.RecoverFeatureRounds(ctx); err != nil {
+		return errors.New("cannot recover feature vote state")
+	}
 	var handler *telegram.Handler
 	b, err := bot.New(cfg.Token, bot.WithDefaultHandler(func(handlerCtx context.Context, telegramBot *bot.Bot, update *models.Update) {
 		if handler != nil {
@@ -88,7 +93,7 @@ func run() error {
 		return errors.New("webhook is active; remove it before running polling")
 	}
 	redirect := func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
-	provider := buildContentProvider(cfg, store, log, redirect)
+	provider, primaryAI, secondaryAI := buildContentProvider(cfg, store, log, redirect)
 
 	dailyService, err := daily.NewService(store, provider, log)
 	if err != nil {
@@ -104,6 +109,9 @@ func run() error {
 	}
 	var workers sync.WaitGroup
 	workers.Go(func() { s.Run(ctx) })
+	if err = startFeatureVoting(ctx, store, b, handler, cfg.Chats, log, primaryAI, secondaryAI, &workers); err != nil {
+		return err
+	}
 	if err = startMovieClub(ctx, cfg, store, b, handler, log, redirect, &workers); err != nil {
 		return err
 	}
@@ -115,7 +123,7 @@ func run() error {
 	return nil
 }
 
-func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Logger, redirect func(*http.Request, []*http.Request) error) *content.Provider {
+func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Logger, redirect func(*http.Request, []*http.Request) error) (*content.Provider, ai.Generator, ai.Generator) {
 	sourceHTTP := &http.Client{Timeout: 12 * time.Second, CheckRedirect: redirect}
 	memes := &meme.Client{HTTP: sourceHTTP, BaseURL: "https://meme-api.com", Subreddits: cfg.Subreddits}
 	provider := &content.Provider{
@@ -123,18 +131,37 @@ func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Log
 		Facts: &content.Wikipedia{HTTP: sourceHTTP, Endpoint: "https://en.wikipedia.org/w/api.php", Titles: cfg.FactWikiTitles},
 	}
 	fallback := &content.Fallback{Log: log, PrimaryTimeout: content.GeminiSelectionTimeout, SecondaryTimeout: content.GroqSelectionTimeout}
+	var primary, secondary ai.Generator
 	if cfg.GeminiKey != "" {
-		fallback.Primary = &gemini.Client{HTTP: &http.Client{Timeout: content.GeminiRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Reviews: store, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now, Log: log}
+		client := &gemini.Client{HTTP: &http.Client{Timeout: content.GeminiRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Reviews: store, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now, Log: log}
+		fallback.Primary, primary = client, client
 	}
 	if cfg.GroqKey != "" {
-		fallback.Secondary = &groq.Client{HTTP: &http.Client{Timeout: content.GroqRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Reviews: store, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now, Log: log}
+		client := &groq.Client{HTTP: &http.Client{Timeout: content.GroqRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Reviews: store, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now, Log: log}
+		fallback.Secondary, secondary = client, client
 	}
 	if fallback.Primary != nil || fallback.Secondary != nil {
 		provider.Editor = fallback
 	} else {
 		log.Warn("AI disabled: automatic publishing unavailable")
 	}
-	return provider
+	return provider, primary, secondary
+}
+
+func startFeatureVoting(ctx context.Context, store *storage.Store, api telegram.API, handler *telegram.Handler, allowed map[int64]bool, log *slog.Logger, primary, secondary ai.Generator, workers *sync.WaitGroup) error {
+	service, err := featurevote.NewService(store, log, time.Now, featurevote.RandomToken)
+	if err != nil {
+		return err
+	}
+	handler.Features = service
+	sender := telegram.FeatureSender{API: api, Username: handler.Username}
+	titles := ai.FeatureTitleGenerator{Primary: primary, Secondary: secondary, PrimaryTimeout: 30 * time.Second, SecondaryTimeout: 20 * time.Second, Log: log}
+	coordinator, err := featurevote.NewCoordinator(store, sender, titles, allowed, log, time.Now, featurevote.RandomToken)
+	if err != nil {
+		return err
+	}
+	workers.Go(func() { coordinator.Run(ctx) })
+	return nil
 }
 
 func startMovieClub(ctx context.Context, cfg config.Config, store *storage.Store, api telegram.API, handler *telegram.Handler, log *slog.Logger, redirect func(*http.Request, []*http.Request) error, workers *sync.WaitGroup) error {
