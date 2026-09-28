@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -39,17 +40,19 @@ func TestFeatureIdeasRateLimitDedupAndOwnership(t *testing.T) {
 	store := testStore(t)
 	setup(t, store, -1)
 	first := addFeature(t, store, 1, 7, "Первая достаточно длинная идея для нашего бота", "one")
-	addFeature(t, store, 2, 7, "Вторая достаточно длинная идея для нашего бота", "two")
-	if _, err := store.AddFeature(context.Background(), 3, -1, 7, "Третья достаточно длинная идея для нашего бота", "three", testNow); !errors.Is(err, featurevote.ErrRateLimit) {
+	for i := 2; i <= featurevote.MaxIdeasPerWeek; i++ {
+		addFeature(t, store, int64(i), 7, fmt.Sprintf("Достаточно длинная тестовая идея номер %d для бота", i), fmt.Sprintf("idea-%d", i))
+	}
+	if _, err := store.AddFeature(context.Background(), 21, -1, 7, "Идея сверх увеличенного недельного лимита", "over-limit", testNow); !errors.Is(err, featurevote.ErrRateLimit) {
 		t.Fatalf("rate limit error=%v", err)
 	}
-	if _, err := store.AddFeature(context.Background(), 4, -1, 8, "Повтор первой идеи с тем же хэшем", "one", testNow); !errors.Is(err, featurevote.ErrDuplicate) {
+	if _, err := store.AddFeature(context.Background(), 22, -1, 8, "Повтор первой идеи с тем же хэшем", "one", testNow); !errors.Is(err, featurevote.ErrDuplicate) {
 		t.Fatalf("duplicate error=%v", err)
 	}
-	if err := store.ChangeFeatureState(context.Background(), 5, -1, first.ID, 8, featurevote.IdeaRemoved, false, testNow); !errors.Is(err, featurevote.ErrConflict) {
+	if err := store.ChangeFeatureState(context.Background(), 23, -1, first.ID, 8, featurevote.IdeaRemoved, false, testNow); !errors.Is(err, featurevote.ErrConflict) {
 		t.Fatalf("foreign author removed idea: %v", err)
 	}
-	must(t, store.ChangeFeatureState(context.Background(), 6, -1, first.ID, 7, featurevote.IdeaRemoved, false, testNow))
+	must(t, store.ChangeFeatureState(context.Background(), 24, -1, first.ID, 7, featurevote.IdeaRemoved, false, testNow))
 }
 
 func TestFeatureVoteWinnerMovesOnlyWinnerToBacklog(t *testing.T) {

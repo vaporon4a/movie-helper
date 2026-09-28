@@ -25,7 +25,7 @@ func (s *Store) AddFeature(ctx context.Context, op, chat, author int64, text, ha
  WHERE chat_id=? AND author_id=? AND created_at>=?`, chat, author, now.Add(-7*24*time.Hour).Unix()).Scan(&recent); err != nil {
 			return err
 		}
-		if recent >= 2 {
+		if recent >= featurevote.MaxIdeasPerWeek {
 			return featurevote.ErrRateLimit
 		}
 		result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO feature_requests(chat_id,author_id,body,body_hash,created_at,updated_at)

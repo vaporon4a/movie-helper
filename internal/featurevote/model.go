@@ -45,6 +45,7 @@ const (
 	MinRoundDuration     = 5 * time.Minute
 	MaxIdeaRunes         = 1500
 	MinIdeaRunes         = 20
+	MaxIdeasPerWeek      = 20
 )
 
 var (

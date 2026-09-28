@@ -208,7 +208,7 @@ func (h *Handler) finishCommand(ctx context.Context, chatID int64, command strin
 		return
 	}
 	if errors.Is(err, featurevote.ErrRateLimit) {
-		h.reply(ctx, chatID, "Можно предложить не более двух новых идей за 7 дней.")
+		h.reply(ctx, chatID, fmt.Sprintf("Можно предложить не более %d новых идей за 7 дней.", featurevote.MaxIdeasPerWeek))
 		return
 	}
 	if errors.Is(err, featurevote.ErrActiveRound) {
