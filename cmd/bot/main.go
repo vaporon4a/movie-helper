@@ -124,10 +124,10 @@ func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Log
 	}
 	fallback := &content.Fallback{Log: log, PrimaryTimeout: content.GeminiSelectionTimeout, SecondaryTimeout: content.GroqSelectionTimeout}
 	if cfg.GeminiKey != "" {
-		fallback.Primary = &gemini.Client{HTTP: &http.Client{Timeout: content.GeminiRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Reviews: store, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now}
+		fallback.Primary = &gemini.Client{HTTP: &http.Client{Timeout: content.GeminiRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Reviews: store, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now, Log: log}
 	}
 	if cfg.GroqKey != "" {
-		fallback.Secondary = &groq.Client{HTTP: &http.Client{Timeout: content.GroqRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Reviews: store, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now}
+		fallback.Secondary = &groq.Client{HTTP: &http.Client{Timeout: content.GroqRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Reviews: store, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now, Log: log}
 	}
 	if fallback.Primary != nil || fallback.Secondary != nil {
 		provider.Editor = fallback

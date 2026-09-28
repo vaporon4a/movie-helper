@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -26,6 +27,7 @@ type Client struct {
 	DailyLimit          int
 	Now                 func() time.Time
 	Reviews             ai.ReviewCache
+	Log                 *slog.Logger
 }
 
 func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Part) (ai.Selection, error) {
@@ -115,6 +117,6 @@ func (c *Client) SelectMemes(ctx context.Context, items []daily.Item, limit int)
 	return e.SelectMemes(ctx, items, limit)
 }
 func (c *Client) Fact(ctx context.Context, articles []ai.Article) (*daily.Item, error) {
-	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 1}
+	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.FactGenerationPolicy, Now: c.Now, MaxBatches: 2, MaxImages: 1, Log: c.Log}
 	return e.Fact(ctx, articles)
 }

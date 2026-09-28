@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,18 +35,15 @@ type Client struct {
 	DailyLimit          int
 	Now                 func() time.Time
 	Reviews             ai.ReviewCache
+	Log                 *slog.Logger
+	RetryDelay          time.Duration
+	MaxRetryAfter       time.Duration
+	Wait                func(context.Context, time.Duration) error
 }
 type Article = ai.Article
 
 func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Part) (ai.Selection, error) {
 	var result ai.Selection
-	allowed, err := c.Budget.AllowAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
-	if err != nil {
-		return result, errors.New("gemini budget unavailable")
-	}
-	if !allowed {
-		return result, ErrDailyLimit
-	}
 	body := map[string]any{
 		"systemInstruction": map[string]any{"parts": []ai.Part{{Text: instruction + ai.SourceInstruction}}},
 		"contents":          []any{map[string]any{"role": "user", "parts": parts}},
@@ -54,20 +53,42 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	if err != nil {
 		return result, errors.New("cannot encode Gemini request")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/models/"+url.PathEscape(c.Model)+":generateContent", bytes.NewReader(data))
-	if err != nil {
-		return result, errors.New("invalid Gemini endpoint")
-	}
-	req.Header.Set("x-goog-api-key", c.Key)
-	req.Header.Set("Content-Type", "application/json")
-	r, err := c.HTTP.Do(req)
-	if err != nil {
-		return result, errors.New("gemini connection failed")
+	var r *http.Response
+	for attempt := 1; attempt <= 2; attempt++ {
+		allowed, budgetErr := c.Budget.AllowAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
+		if budgetErr != nil {
+			return result, errors.New("gemini budget unavailable")
+		}
+		if !allowed {
+			return result, ErrDailyLimit
+		}
+		req, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/models/"+url.PathEscape(c.Model)+":generateContent", bytes.NewReader(data))
+		if requestErr != nil {
+			return result, errors.New("invalid Gemini endpoint")
+		}
+		req.Header.Set("x-goog-api-key", c.Key)
+		req.Header.Set("Content-Type", "application/json")
+		r, err = c.HTTP.Do(req)
+		if err != nil {
+			return result, errors.New("gemini connection failed")
+		}
+		if r.StatusCode == http.StatusOK {
+			break
+		}
+		status := r.StatusCode
+		delay := c.retryAfter(r.Header.Get("Retry-After"))
+		_ = r.Body.Close()
+		if attempt == 2 || !temporaryStatus(status) {
+			return result, &HTTPError{Status: status}
+		}
+		if c.Log != nil {
+			c.Log.Warn("Gemini request will retry", "provider", "gemini", "status", status, "attempt", attempt, "delay_ms", delay.Milliseconds())
+		}
+		if err = c.wait(ctx, delay); err != nil {
+			return result, err
+		}
 	}
 	defer r.Body.Close()
-	if r.StatusCode != 200 {
-		return result, &HTTPError{Status: r.StatusCode}
-	}
 	var response struct {
 		Candidates []struct {
 			Content struct {
@@ -97,6 +118,45 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	return result, nil
 }
 
+func temporaryStatus(status int) bool {
+	return status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
+}
+
+func (c *Client) retryAfter(value string) time.Duration {
+	base := c.RetryDelay
+	if base <= 0 {
+		base = 2 * time.Second
+	}
+	maximum := c.MaxRetryAfter
+	if maximum <= 0 {
+		maximum = 10 * time.Second
+	}
+	delay := base
+	if seconds, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && seconds >= 0 {
+		delay = time.Duration(seconds) * time.Second
+	} else if at, err := http.ParseTime(value); err == nil {
+		delay = at.Sub(c.Now())
+	}
+	if delay < 0 {
+		delay = 0
+	}
+	return min(delay, maximum)
+}
+
+func (c *Client) wait(ctx context.Context, delay time.Duration) error {
+	if c.Wait != nil {
+		return c.Wait(ctx, delay)
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 func (c *Client) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Item, error) {
 	selected, err := c.SelectMemes(ctx, items, 1)
 	if err != nil || len(selected) == 0 {
@@ -109,6 +169,6 @@ func (c *Client) SelectMemes(ctx context.Context, items []daily.Item, limit int)
 	return e.SelectMemes(ctx, items, limit)
 }
 func (c *Client) Fact(ctx context.Context, articles []Article) (*daily.Item, error) {
-	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "gemini:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 4}
+	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "gemini:" + c.Model + ":" + ai.FactGenerationPolicy, Now: c.Now, MaxBatches: 2, MaxImages: 4, Log: c.Log}
 	return e.Fact(ctx, articles)
 }

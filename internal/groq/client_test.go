@@ -124,7 +124,7 @@ func TestFactValidationAndUpstreamFailures(t *testing.T) {
 		body, finish string
 		valid        bool
 	}{
-		{`{"index":0,"text":"Для фильма построили миниатюры.","evidence":"The production used miniature models"}`, "stop", true},
+		{`{"index":0,"text":"Для создания городских сцен команда фильма построила несколько подробных миниатюр зданий. Эти модели позволили снять масштабные планы без строительства полноразмерных декораций.","evidence":"The production used miniature models"}`, "stop", true},
 		{`{"index":0,"text":"Факт","evidence":"Invented evidence that is absent"}`, "stop", false},
 		{`{"text":"Факт"}`, "stop", false},
 		{`{"index":0,"text":"Факт","evidence":"The production used miniature models"}`, "length", false},
@@ -132,7 +132,7 @@ func TestFactValidationAndUpstreamFailures(t *testing.T) {
 		c := client(func(*http.Request) (*http.Response, error) { return response(200, answer(tc.body, tc.finish)), nil }, &budget{allowed: true})
 		item, err := c.Fact(context.Background(), []ai.Article{article})
 		if tc.valid {
-			if err != nil || item == nil || item.Source != article.URL || !strings.Contains(item.Text, article.Attribution) {
+			if err != nil || item == nil || item.Source != article.URL || !strings.Contains(item.Text, article.Attribution) || item.AIProvider != "groq" || item.GenerationPolicy != ai.FactGenerationPolicy {
 				t.Fatal(item, err)
 			}
 		} else if err == nil || item != nil {

@@ -229,8 +229,8 @@ func (s *Store) Add(ctx context.Context, op int64, i daily.Item, now time.Time) 
 	}
 	var id int64
 	err := s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		r, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at)
-  VALUES(?,?,?,?,?,?,?,'pending',?)`, i.ChatID, i.Kind, i.Text, i.Source, i.Image, i.Key, i.AuthorID, now.Unix())
+		r, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,source_evidence,ai_provider,generation_policy)
+  VALUES(?,?,?,?,?,?,?,'pending',?,?,?,?)`, i.ChatID, i.Kind, i.Text, i.Source, i.Image, i.Key, i.AuthorID, now.Unix(), i.SourceEvidence, i.AIProvider, i.GenerationPolicy)
 		if err != nil {
 			return err
 		}
@@ -244,11 +244,11 @@ func (s *Store) Add(ctx context.Context, op int64, i daily.Item, now time.Time) 
 	return id, err
 }
 
-const itemColumns = "id,chat_id,kind,text,source,image,content_key,author_id,state"
+const itemColumns = "id,chat_id,kind,text,source,image,content_key,author_id,state,source_evidence,ai_provider,generation_policy"
 
 func scanItem(row interface{ Scan(...any) error }) (daily.Item, error) {
 	var x daily.Item
-	err := row.Scan(&x.ID, &x.ChatID, &x.Kind, &x.Text, &x.Source, &x.Image, &x.Key, &x.AuthorID, &x.State)
+	err := row.Scan(&x.ID, &x.ChatID, &x.Kind, &x.Text, &x.Source, &x.Image, &x.Key, &x.AuthorID, &x.State, &x.SourceEvidence, &x.AIProvider, &x.GenerationPolicy)
 	return x, err
 }
 func (s *Store) Queue(ctx context.Context, chat int64, after int64) ([]daily.Item, error) {
@@ -349,8 +349,8 @@ func (s *Store) Attach(ctx context.Context, id int64, candidates []daily.Item, n
 				if err = i.Validate(); err != nil {
 					return err
 				}
-				r, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,ai_approved)
-   VALUES(?,?,?,?,?,?,0,?,?,1)`, chat, kind, i.Text, i.Source, i.Image, i.Key, state, now.Unix())
+				r, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,ai_approved,source_evidence,ai_provider,generation_policy)
+   VALUES(?,?,?,?,?,?,0,?,?,1,?,?,?)`, chat, kind, i.Text, i.Source, i.Image, i.Key, state, now.Unix(), i.SourceEvidence, i.AIProvider, i.GenerationPolicy)
 				if e != nil {
 					return e
 				}

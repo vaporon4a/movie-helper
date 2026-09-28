@@ -26,6 +26,7 @@ var ErrConflict = errors.New("item unavailable or state changed")
 type Item struct {
 	ID, ChatID, AuthorID                                 int64
 	Kind, Text, Source, Image, AnalysisImage, Key, State string
+	SourceEvidence, AIProvider, GenerationPolicy         string
 }
 
 type Schedule struct {
