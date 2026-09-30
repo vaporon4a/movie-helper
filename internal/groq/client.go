@@ -10,13 +10,29 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vaporon4a/movie-helper/internal/ai"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 )
 
-type HTTPError struct{ Status int }
+const (
+	defaultRetryDelay = time.Minute
+	inlineRetryLimit  = 10 * time.Second
+	deferredRetryCap  = 5 * time.Minute
+)
+
+// HTTPError deliberately exposes only safe response metadata. Upstream bodies,
+// request URLs and credentials must never be attached to this error.
+type HTTPError struct {
+	Status      int
+	After       time.Duration
+	LimitKind   string
+	RetrySource string
+	Deferred    bool
+}
 
 func (e *HTTPError) Error() string { return fmt.Sprintf("Groq status %d", e.Status) }
 
@@ -28,19 +44,16 @@ type Client struct {
 	Now                 func() time.Time
 	Reviews             ai.ReviewCache
 	Log                 *slog.Logger
+	RetryDelay          time.Duration
+	InlineRetryLimit    time.Duration
+	MaxRetryAfter       time.Duration
+	Wait                func(context.Context, time.Duration) error
 }
 
 func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Part) (ai.Selection, error) {
 	var result ai.Selection
 	if err := ctx.Err(); err != nil {
 		return result, err
-	}
-	allowed, err := c.Budget.AllowAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
-	if err != nil {
-		return result, errors.New("groq budget unavailable")
-	}
-	if !allowed {
-		return result, ai.ErrDailyLimit
 	}
 	content := make([]any, 0, len(parts))
 	for _, p := range parts {
@@ -65,23 +78,54 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	if err != nil {
 		return result, errors.New("cannot encode Groq request")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(data))
-	if err != nil {
-		return result, errors.New("invalid Groq endpoint")
-	}
-	req.Header.Set("Authorization", "Bearer "+c.Key)
-	req.Header.Set("Content-Type", "application/json")
 	// Never follow a redirect with API credentials, even with a custom client.
 	client := *c.HTTP
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	r, err := client.Do(req)
-	if err != nil {
-		return result, errors.New("groq connection failed")
+	var r *http.Response
+	for attempt := 1; attempt <= 2; attempt++ {
+		allowed, budgetErr := c.Budget.AllowAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
+		if budgetErr != nil {
+			return result, errors.New("groq budget unavailable")
+		}
+		if !allowed {
+			return result, ai.ErrDailyLimit
+		}
+		req, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(data))
+		if requestErr != nil {
+			return result, errors.New("invalid Groq endpoint")
+		}
+		req.Header.Set("Authorization", "Bearer "+c.Key)
+		req.Header.Set("Content-Type", "application/json")
+		r, err = client.Do(req)
+		if err != nil {
+			return result, errors.New("groq connection failed")
+		}
+		if r.StatusCode == http.StatusOK {
+			break
+		}
+		status := r.StatusCode
+		_ = r.Body.Close()
+		if status != http.StatusTooManyRequests {
+			return result, &HTTPError{Status: status}
+		}
+		after, source := c.retryAfter(r.Header.Get("Retry-After"))
+		httpErr := &HTTPError{Status: status, After: after, LimitKind: rateLimitKind(r.Header), RetrySource: source}
+		if attempt == 2 {
+			httpErr.Deferred = true
+			c.logRateLimit(attempt, httpErr, false)
+			return result, httpErr
+		}
+		if after > c.inlineLimit() || !c.waitFits(ctx, after) {
+			httpErr.Deferred = true
+			c.logRateLimit(attempt, httpErr, false)
+			return result, httpErr
+		}
+		c.logRateLimit(attempt, httpErr, true)
+		if err = c.wait(ctx, after); err != nil {
+			return result, err
+		}
 	}
 	defer r.Body.Close()
-	if r.StatusCode != 200 {
-		return result, &HTTPError{Status: r.StatusCode}
-	}
 	var response struct {
 		Choices []struct {
 			Finish  string `json:"finish_reason"`
@@ -101,6 +145,80 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 		return result, &ai.ValidationError{Reason: "groq_invalid_selection_json"}
 	}
 	return result, nil
+}
+
+func (c *Client) retryAfter(value string) (time.Duration, string) {
+	delay := c.RetryDelay
+	if delay <= 0 {
+		delay = defaultRetryDelay
+	}
+	source := "default"
+	if seconds, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && seconds >= 0 {
+		delay, source = time.Duration(seconds)*time.Second, "header_seconds"
+	} else if at, err := http.ParseTime(value); err == nil {
+		delay, source = at.Sub(c.Now()), "header_date"
+	}
+	if delay < 0 {
+		delay = 0
+	}
+	maximum := c.MaxRetryAfter
+	if maximum <= 0 {
+		maximum = deferredRetryCap
+	}
+	if delay > maximum {
+		delay, source = maximum, source+"_capped"
+	}
+	return delay, source
+}
+
+func (c *Client) inlineLimit() time.Duration {
+	if c.InlineRetryLimit > 0 {
+		return c.InlineRetryLimit
+	}
+	return inlineRetryLimit
+}
+
+func (c *Client) waitFits(ctx context.Context, delay time.Duration) bool {
+	deadline, ok := ctx.Deadline()
+	return !ok || c.Now().Add(delay).Before(deadline)
+}
+
+func (c *Client) wait(ctx context.Context, delay time.Duration) error {
+	if c.Wait != nil {
+		return c.Wait(ctx, delay)
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (c *Client) logRateLimit(attempt int, problem *HTTPError, retry bool) {
+	if c.Log == nil {
+		return
+	}
+	c.Log.Warn("Groq rate limit reached", "provider", "groq", "status", problem.Status, "attempt", attempt,
+		"retry", retry, "retry_after_ms", problem.After.Milliseconds(), "retry_source", problem.RetrySource,
+		"limit_kind", problem.LimitKind)
+}
+
+func rateLimitKind(header http.Header) string {
+	tokens := strings.TrimSpace(header.Get("x-ratelimit-remaining-tokens"))
+	requests := strings.TrimSpace(header.Get("x-ratelimit-remaining-requests"))
+	if tokens == "0" && requests == "0" {
+		return "tokens_and_requests"
+	}
+	if tokens == "0" {
+		return "tokens"
+	}
+	if requests == "0" {
+		return "requests"
+	}
+	return "unknown"
 }
 
 func (c *Client) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Item, error) {

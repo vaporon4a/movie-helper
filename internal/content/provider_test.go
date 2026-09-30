@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/vaporon4a/movie-helper/internal/ai"
 	"github.com/vaporon4a/movie-helper/internal/daily"
@@ -26,7 +27,7 @@ func TestNormalizePreviewError(t *testing.T) {
 	}{
 		{"validation", &ai.ValidationError{Reason: "bad response"}, "invalid_ai_selection", 0},
 		{"daily limit", ai.ErrDailyLimit, "local_daily_limit", 0},
-		{"groq quota", &groq.HTTPError{Status: 429}, "groq_quota", 429},
+		{"groq quota", &groq.HTTPError{Status: 429, After: 4 * time.Minute, LimitKind: "tokens"}, "groq_quota", 429},
 		{"gemini model", &gemini.HTTPError{Status: 404}, "gemini_model_unavailable", 404},
 		{"wrapped unavailable", fmt.Errorf("request: %w", &gemini.HTTPError{Status: 503}), "gemini_unavailable", 503},
 	}
@@ -35,6 +36,9 @@ func TestNormalizePreviewError(t *testing.T) {
 			got, ok := errors.AsType[*daily.PreviewError](normalizePreviewError(test.err))
 			if !ok || got.Code != test.wantCode || got.Status != test.wantStatus {
 				t.Fatalf("got %#v, want code %q status %d", got, test.wantCode, test.wantStatus)
+			}
+			if test.name == "groq quota" && (got.After != 4*time.Minute || got.LimitKind != "tokens") {
+				t.Fatalf("rate metadata lost: %#v", got)
 			}
 		})
 	}

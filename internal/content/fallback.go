@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/vaporon4a/movie-helper/internal/ai"
-	"github.com/vaporon4a/movie-helper/internal/groq"
 	"log/slog"
 	"time"
 
+	"github.com/vaporon4a/movie-helper/internal/ai"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
+	"github.com/vaporon4a/movie-helper/internal/groq"
 )
 
 // Fallback gives each provider a bounded time slot. A valid rejection is final;
@@ -49,6 +49,9 @@ func (f *Fallback) selectItem(ctx context.Context, call func(context.Context, Ed
 		last = err
 		if f.Log != nil {
 			f.Log.Warn("AI provider attempt failed", "provider", []string{"gemini", "groq"}[n], "reason", failureReason(err))
+		}
+		if n == 0 && deferredProviderRetry(err) {
+			return nil, err
 		}
 	}
 	return nil, last
@@ -89,8 +92,21 @@ func (f *Fallback) SelectMemes(ctx context.Context, items []daily.Item, limit in
 		if f.Log != nil {
 			f.Log.Warn("AI provider attempt failed", "provider", []string{"gemini", "groq"}[n], "reason", failureReason(err))
 		}
+		if n == 0 && deferredProviderRetry(err) {
+			return nil, err
+		}
 	}
 	return nil, last
+}
+
+func deferredProviderRetry(err error) bool {
+	if problem, ok := errors.AsType[*gemini.HTTPError](err); ok {
+		return problem.Deferred
+	}
+	if problem, ok := errors.AsType[*groq.HTTPError](err); ok {
+		return problem.Deferred
+	}
+	return false
 }
 func (f *Fallback) Fact(ctx context.Context, articles []gemini.Article) (*daily.Item, error) {
 	return f.selectItem(ctx, func(ctx context.Context, e Editor) (*daily.Item, error) { return e.Fact(ctx, articles) })

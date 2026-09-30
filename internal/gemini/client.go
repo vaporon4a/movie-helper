@@ -23,8 +23,20 @@ type Budget = ai.Budget
 
 var ErrDailyLimit = ai.ErrDailyLimit
 
-// HTTPError deliberately excludes response bodies, credentials and request URLs.
-type HTTPError struct{ Status int }
+const (
+	defaultRetryDelay = 2 * time.Second
+	inlineRetryLimit  = 10 * time.Second
+	deferredRetryCap  = 5 * time.Minute
+)
+
+// HTTPError deliberately exposes only safe response metadata. Upstream bodies,
+// request URLs and credentials must never be attached to this error.
+type HTTPError struct {
+	Status      int
+	After       time.Duration
+	RetrySource string
+	Deferred    bool
+}
 
 func (e *HTTPError) Error() string { return fmt.Sprintf("Gemini status %d", e.Status) }
 
@@ -37,6 +49,7 @@ type Client struct {
 	Reviews             ai.ReviewCache
 	Log                 *slog.Logger
 	RetryDelay          time.Duration
+	InlineRetryLimit    time.Duration
 	MaxRetryAfter       time.Duration
 	Wait                func(context.Context, time.Duration) error
 }
@@ -76,14 +89,22 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 			break
 		}
 		status := r.StatusCode
-		delay := c.retryAfter(r.Header.Get("Retry-After"))
 		_ = r.Body.Close()
-		if attempt == 2 || !temporaryStatus(status) {
+		if !temporaryStatus(status) {
 			return result, &HTTPError{Status: status}
 		}
-		if c.Log != nil {
-			c.Log.Warn("Gemini request will retry", "provider", "gemini", "status", status, "attempt", attempt, "delay_ms", delay.Milliseconds())
+		delay, source := c.retryAfter(r.Header.Get("Retry-After"))
+		httpErr := &HTTPError{Status: status, After: delay, RetrySource: source}
+		if attempt == 2 {
+			c.logRetry(attempt, httpErr, false)
+			return result, httpErr
 		}
+		if delay > c.inlineLimit() || !c.waitFits(ctx, delay) {
+			httpErr.Deferred = true
+			c.logRetry(attempt, httpErr, false)
+			return result, httpErr
+		}
+		c.logRetry(attempt, httpErr, true)
 		if err = c.wait(ctx, delay); err != nil {
 			return result, err
 		}
@@ -119,28 +140,53 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 }
 
 func temporaryStatus(status int) bool {
-	return status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
+	return status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status == http.StatusInternalServerError ||
+		status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
 }
 
-func (c *Client) retryAfter(value string) time.Duration {
+func (c *Client) retryAfter(value string) (time.Duration, string) {
 	base := c.RetryDelay
 	if base <= 0 {
-		base = 2 * time.Second
+		base = defaultRetryDelay
 	}
 	maximum := c.MaxRetryAfter
 	if maximum <= 0 {
-		maximum = 10 * time.Second
+		maximum = deferredRetryCap
 	}
 	delay := base
+	source := "default"
 	if seconds, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && seconds >= 0 {
-		delay = time.Duration(seconds) * time.Second
+		delay, source = time.Duration(seconds)*time.Second, "header_seconds"
 	} else if at, err := http.ParseTime(value); err == nil {
-		delay = at.Sub(c.Now())
+		delay, source = at.Sub(c.Now()), "header_date"
 	}
 	if delay < 0 {
 		delay = 0
 	}
-	return min(delay, maximum)
+	if delay > maximum {
+		delay, source = maximum, source+"_capped"
+	}
+	return delay, source
+}
+
+func (c *Client) inlineLimit() time.Duration {
+	if c.InlineRetryLimit > 0 {
+		return c.InlineRetryLimit
+	}
+	return inlineRetryLimit
+}
+
+func (c *Client) waitFits(ctx context.Context, delay time.Duration) bool {
+	deadline, ok := ctx.Deadline()
+	return !ok || c.Now().Add(delay).Before(deadline)
+}
+
+func (c *Client) logRetry(attempt int, problem *HTTPError, retry bool) {
+	if c.Log == nil {
+		return
+	}
+	c.Log.Warn("Gemini temporary failure", "provider", "gemini", "status", problem.Status, "attempt", attempt,
+		"retry", retry, "retry_after_ms", problem.After.Milliseconds(), "retry_source", problem.RetrySource)
 }
 
 func (c *Client) wait(ctx context.Context, delay time.Duration) error {

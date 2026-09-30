@@ -122,3 +122,13 @@ func TestFallbackHonorsRejectionAndParentCancellation(t *testing.T) {
 		t.Fatal("last error lost")
 	}
 }
+
+func TestFallbackDefersLongPrimaryRetryBeforeSecondary(t *testing.T) {
+	secondary := &fakeEditor{}
+	problem := &gemini.HTTPError{Status: 503, After: 4 * time.Minute, Deferred: true}
+	f := &Fallback{Primary: &fakeEditor{err: problem}, Secondary: secondary}
+	_, err := f.Fact(context.Background(), nil)
+	if !errors.Is(err, problem) || secondary.calls != 0 {
+		t.Fatalf("err=%v secondary_calls=%d", err, secondary.calls)
+	}
+}

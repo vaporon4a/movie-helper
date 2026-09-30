@@ -12,6 +12,7 @@ import (
 type flakyProvider struct {
 	calls, failures int
 	empty           bool
+	failure         error
 }
 
 func (p *flakyProvider) Candidates(_ context.Context, kind string, _ int64) ([]daily.Item, error) {
@@ -20,9 +21,35 @@ func (p *flakyProvider) Candidates(_ context.Context, kind string, _ int64) ([]d
 		if p.empty {
 			return nil, nil
 		}
+		if p.failure != nil {
+			return nil, p.failure
+		}
 		return nil, errors.New("upstream 503")
 	}
 	return []daily.Item{{Kind: kind, Text: "Материал", Image: "https://i.redd.it/test.jpg", Source: "https://example.org/source", Key: "retry:" + kind}}, nil
+}
+
+func TestPreparationUsesProviderRetryAfterWithoutBlockingScheduler(t *testing.T) {
+	for _, tc := range []struct {
+		after, want time.Duration
+	}{
+		{4 * time.Minute, 4 * time.Minute},
+		{9 * time.Minute, 5 * time.Minute},
+	} {
+		s, send, n := fixture(t)
+		p := &flakyProvider{failures: 1, failure: &daily.PreviewError{Code: "groq_quota", Status: 429, After: tc.after}}
+		s.Provider = p
+		*n = n.Add(time.Hour)
+		tick(t, s)
+		rows, err := storeOf(s).Preparing(context.Background())
+		if err != nil || len(rows) != 1 || rows[0].NextAttempt != n.Add(tc.want).Unix() || rows[0].FetchAttempts != 1 || send.calls != 0 {
+			t.Fatalf("after=%s rows=%#v err=%v calls=%d", tc.after, rows, err, send.calls)
+		}
+		issues, err := storeOf(s).Issues(context.Background(), -1)
+		if err != nil || len(issues) != 1 || issues[0].Error != "groq_quota" {
+			t.Fatalf("issues=%#v err=%v", issues, err)
+		}
+	}
 }
 
 func TestPreparationRetriesBothKindsAndSurvivesRestart(t *testing.T) {

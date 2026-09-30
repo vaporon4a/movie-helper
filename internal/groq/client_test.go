@@ -148,3 +148,78 @@ func TestFactValidationAndUpstreamFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateRetriesShortRateLimitAndCountsBothRequests(t *testing.T) {
+	b := &budget{allowed: true}
+	calls := 0
+	waited := time.Duration(0)
+	c := client(func(*http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			r := response(http.StatusTooManyRequests, "private upstream body")
+			r.Header.Set("Retry-After", "3")
+			r.Header.Set("x-ratelimit-remaining-tokens", "0")
+			return r, nil
+		}
+		return response(http.StatusOK, answer(`{"index":-1,"text":"","evidence":""}`, "stop")), nil
+	}, b)
+	c.Wait = func(_ context.Context, delay time.Duration) error {
+		waited = delay
+		return nil
+	}
+	result, err := c.Generate(context.Background(), "test", nil)
+	if err != nil || result.Index == nil || *result.Index != -1 || calls != 2 || b.calls != 2 || waited != 3*time.Second {
+		t.Fatalf("result=%#v err=%v calls=%d budget=%d waited=%s", result, err, calls, b.calls, waited)
+	}
+}
+
+func TestGenerateDefersLongRateLimitAndCapsAdvice(t *testing.T) {
+	for _, tc := range []struct {
+		header string
+		want   time.Duration
+	}{
+		{"240", 4 * time.Minute},
+		{"900", 5 * time.Minute},
+		{"", time.Minute},
+	} {
+		b := &budget{allowed: true}
+		calls := 0
+		c := client(func(*http.Request) (*http.Response, error) {
+			calls++
+			r := response(http.StatusTooManyRequests, "private upstream body")
+			r.Header.Set("Retry-After", tc.header)
+			r.Header.Set("x-ratelimit-remaining-requests", "0")
+			return r, nil
+		}, b)
+		c.Wait = func(context.Context, time.Duration) error {
+			t.Fatal("long retry blocked the caller")
+			return nil
+		}
+		_, err := c.Generate(context.Background(), "test", nil)
+		var problem *HTTPError
+		if !errors.As(err, &problem) || !problem.Deferred || problem.After != tc.want || problem.LimitKind != "requests" || calls != 1 || b.calls != 1 {
+			t.Fatalf("header=%q err=%#v calls=%d budget=%d", tc.header, problem, calls, b.calls)
+		}
+	}
+}
+
+func TestGenerateStopsShortRetryWhenContextIsCancelled(t *testing.T) {
+	b := &budget{allowed: true}
+	calls := 0
+	c := client(func(*http.Request) (*http.Response, error) {
+		calls++
+		r := response(http.StatusTooManyRequests, "temporary")
+		r.Header.Set("Retry-After", "1")
+		return r, nil
+	}, b)
+	ctx, cancel := context.WithCancel(context.Background())
+	c.Wait = func(ctx context.Context, _ time.Duration) error {
+		cancel()
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	_, err := c.Generate(ctx, "test", nil)
+	if !errors.Is(err, context.Canceled) || calls != 1 || b.calls != 1 {
+		t.Fatalf("err=%v calls=%d budget=%d", err, calls, b.calls)
+	}
+}

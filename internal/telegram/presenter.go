@@ -209,7 +209,7 @@ func previewError(err error) (string, string) {
 	case "groq_model_unavailable":
 		return "Выбранная модель Groq недоступна. Проверьте GROQ_MODEL.", "groq_model_unavailable"
 	case "groq_quota":
-		return "Groq вернул ограничение квоты (429). Подождите минуту и проверьте лимиты в Groq Console.", "groq_quota"
+		return "Groq временно ограничил запросы (429). Повторите предпросмотр " + retryAfterText(problem.After) + "; публикация по расписанию повторится автоматически.", "groq_quota"
 	case "groq_unavailable":
 		return "Groq временно недоступен (503). Попробуйте позже; попытка учтена в дневном лимите бота.", "groq_unavailable"
 	case "gemini_model_unavailable":
@@ -217,13 +217,25 @@ func previewError(err error) (string, string) {
 	case "gemini_access_denied":
 		return "Gemini отклонил доступ. Проверьте API-ключ и разрешения проекта Google AI Studio.", "gemini_access_denied"
 	case "gemini_quota":
-		return "Gemini вернул ограничение квоты Google (429). Проверьте квоты проекта в Google AI Studio; внутренний лимит бота — отдельный.", "gemini_quota"
+		return "Gemini временно ограничил запросы (429). Повторите предпросмотр " + retryAfterText(problem.After) + "; публикация по расписанию повторится автоматически.", "gemini_quota"
 	case "gemini_unavailable":
-		return "Gemini временно недоступен (503). Попробуйте позже; этот запрос учтён в дневном лимите бота.", "gemini_unavailable"
+		return "Gemini временно недоступен (503). Повторите предпросмотр " + retryAfterText(problem.After) + "; публикация по расписанию повторится автоматически.", "gemini_unavailable"
 	case "groq_http":
 		return "Запрос к Groq завершился ошибкой. Код HTTP: " + strconv.Itoa(problem.Status) + ".", "groq_http_" + strconv.Itoa(problem.Status)
 	case "gemini_http":
 		return "Запрос к Gemini завершился ошибкой. Код HTTP: " + strconv.Itoa(problem.Status) + ".", "gemini_http_" + strconv.Itoa(problem.Status)
 	}
 	return "Не удалось получить или обработать материал для предпросмотра. Попробуйте позже.", "source_or_generation_failed"
+}
+
+func retryAfterText(delay time.Duration) string {
+	if delay <= 0 {
+		return "через несколько минут"
+	}
+	if delay < time.Minute {
+		seconds := max(1, int((delay+time.Second-1)/time.Second))
+		return "примерно через " + strconv.Itoa(seconds) + " сек."
+	}
+	minutes := max(1, int((delay+time.Minute-1)/time.Minute))
+	return "примерно через " + strconv.Itoa(minutes) + " мин."
 }

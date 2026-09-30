@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -77,7 +78,14 @@ func (h *Handler) preview(ctx context.Context, chatID int64, kind string) error 
 	cancel()
 	if err != nil {
 		message, reason := previewError(err)
-		h.Log.Warn("preview source unavailable", "chat_id", chatID, "kind", kind, "reason", reason)
+		retryAfter := time.Duration(0)
+		limitKind := ""
+		if problem, ok := errors.AsType[*daily.PreviewError](err); ok {
+			retryAfter = problem.After
+			limitKind = problem.LimitKind
+		}
+		h.Log.Warn("preview source unavailable", "chat_id", chatID, "kind", kind, "reason", reason,
+			"retry_after_ms", retryAfter.Milliseconds(), "limit_kind", limitKind)
 		h.reply(ctx, chatID, message)
 		return errResponseSent
 	}

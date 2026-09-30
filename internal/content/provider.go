@@ -87,10 +87,10 @@ func normalizePreviewError(err error) error {
 		return &daily.PreviewError{Code: "local_daily_limit"}
 	}
 	if status, ok := errors.AsType[*groq.HTTPError](err); ok {
-		return &daily.PreviewError{Code: previewStatusCode("groq", status.Status), Status: status.Status}
+		return &daily.PreviewError{Code: previewStatusCode("groq", status.Status), Status: status.Status, After: status.After, LimitKind: status.LimitKind}
 	}
 	if status, ok := errors.AsType[*gemini.HTTPError](err); ok {
-		return &daily.PreviewError{Code: previewStatusCode("gemini", status.Status), Status: status.Status}
+		return &daily.PreviewError{Code: previewStatusCode("gemini", status.Status), Status: status.Status, After: status.After}
 	}
 	return err
 }

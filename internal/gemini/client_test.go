@@ -167,3 +167,32 @@ func TestGenerateCapsRetryAfterAndHonorsCancellation(t *testing.T) {
 		t.Fatalf("err=%v waited=%s budget=%d", err, waited, b.calls)
 	}
 }
+
+func TestGenerateDefersLongServerRetryWithoutCallingFallbackEarly(t *testing.T) {
+	for _, tc := range []struct {
+		header string
+		want   time.Duration
+		source string
+	}{
+		{"240", 4 * time.Minute, "header_seconds"},
+		{"900", 5 * time.Minute, "header_seconds_capped"},
+	} {
+		b := &budget{allowed: true}
+		calls := 0
+		c := testClient(func(*http.Request) (*http.Response, error) {
+			calls++
+			r := response(http.StatusServiceUnavailable, "temporary")
+			r.Header.Set("Retry-After", tc.header)
+			return r, nil
+		}, b)
+		c.Wait = func(context.Context, time.Duration) error {
+			t.Fatal("long retry blocked the caller")
+			return nil
+		}
+		_, err := c.Generate(context.Background(), "test", nil)
+		var problem *HTTPError
+		if !errors.As(err, &problem) || !problem.Deferred || problem.After != tc.want || problem.RetrySource != tc.source || calls != 1 || b.calls != 1 {
+			t.Fatalf("header=%s err=%#v calls=%d budget=%d", tc.header, problem, calls, b.calls)
+		}
+	}
+}

@@ -824,7 +824,7 @@ func TestPreviewErrorsExplainModelAccessAndQuotas(t *testing.T) {
 		{&daily.PreviewError{Code: "local_daily_limit"}, "local_daily_limit", "00:00 UTC"},
 		{&daily.PreviewError{Code: "gemini_model_unavailable", Status: 404}, "gemini_model_unavailable", "GEMINI_MODEL"},
 		{&daily.PreviewError{Code: "gemini_access_denied", Status: 403}, "gemini_access_denied", "API-ключ"},
-		{&daily.PreviewError{Code: "gemini_quota", Status: 429}, "gemini_quota", "квоты Google"},
+		{&daily.PreviewError{Code: "gemini_quota", Status: 429}, "gemini_quota", "автоматически"},
 		{&daily.PreviewError{Code: "gemini_unavailable", Status: 503}, "gemini_unavailable", "503"},
 		{errors.New("private upstream body"), "source_or_generation_failed", "Не удалось"},
 	} {
@@ -832,6 +832,10 @@ func TestPreviewErrorsExplainModelAccessAndQuotas(t *testing.T) {
 		if reason != tc.reason || !strings.Contains(message, tc.want) || strings.Contains(message, "private") {
 			t.Fatal(message, reason)
 		}
+	}
+	message, reason := previewError(&daily.PreviewError{Code: "groq_quota", Status: 429, After: 90 * time.Second})
+	if reason != "groq_quota" || !strings.Contains(message, "через 2 мин.") {
+		t.Fatal(message, reason)
 	}
 }
 

@@ -51,8 +51,10 @@ type SendError struct {
 }
 
 type PreviewError struct {
-	Code   string
-	Status int
+	Code      string
+	Status    int
+	After     time.Duration
+	LimitKind string
 }
 
 func (e *PreviewError) Error() string { return "preview: " + e.Code }

@@ -248,15 +248,17 @@ func preparationDelay(attempt int) time.Duration {
 func (s *Scheduler) prepare(ctx context.Context, d daily.Delivery) (err error) {
 	finished := false
 	reason := "preparation_failed"
+	retryAfter := time.Duration(0)
 	defer func() {
 		if finished {
 			return
 		}
-		if deferErr := s.deferPreparation(ctx, d, reason); deferErr != nil {
+		if deferErr := s.deferPreparation(ctx, d, reason, retryAfter); deferErr != nil {
 			err = deferErr
 		}
 	}()
-	candidates, approved, failure, err := s.preparationCandidates(ctx, d)
+	candidates, approved, failure, providerRetryAfter, err := s.preparationCandidates(ctx, d)
+	retryAfter = providerRetryAfter
 	if failure != "" {
 		reason = failure
 	}
@@ -275,8 +277,12 @@ func (s *Scheduler) prepare(ctx context.Context, d daily.Delivery) (err error) {
 	return nil
 }
 
-func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Delivery, reason string) error {
+func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Delivery, reason string, retryAfter time.Duration) error {
 	delay := preparationDelay(delivery.FetchAttempts + 1)
+	if retryAfter > 0 {
+		delay = min(retryAfter, 5*time.Minute)
+		delay = max(delay, time.Second)
+	}
 	next := s.Now().Add(delay)
 	if delay == 0 || next.Unix() >= delivery.Deadline {
 		next = time.Time{}
@@ -286,11 +292,11 @@ func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Deliver
 	if err := s.Store.DeferPreparation(persist, delivery.ID, next, reason); err != nil {
 		return err
 	}
-	s.Log.Info("content preparation deferred", "delivery_id", delivery.ID, "attempt", delivery.FetchAttempts+1, "retry", !next.IsZero(), "next_attempt", next, "reason", reason)
+	s.Log.Info("content preparation deferred", "delivery_id", delivery.ID, "attempt", delivery.FetchAttempts+1, "retry", !next.IsZero(), "next_attempt", next, "reason", reason, "provider_retry_after_ms", retryAfter.Milliseconds())
 	return nil
 }
 
-func (s *Scheduler) preparationCandidates(ctx context.Context, delivery daily.Delivery) ([]daily.Item, bool, string, error) {
+func (s *Scheduler) preparationCandidates(ctx context.Context, delivery daily.Delivery) ([]daily.Item, bool, string, time.Duration, error) {
 	approved, err := s.Store.HasApproved(ctx, delivery.ChatID, delivery.Kind)
 	if err != nil || approved || s.Provider == nil {
 		reason := ""
@@ -299,30 +305,38 @@ func (s *Scheduler) preparationCandidates(ctx context.Context, delivery daily.De
 		} else if s.Provider == nil && !approved {
 			reason = "provider_disabled"
 		}
-		return nil, approved, reason, err
+		return nil, approved, reason, 0, err
 	}
 	fetchCtx, cancel := context.WithTimeout(ctx, daily.FetchTimeout)
 	candidates, err := s.Provider.Candidates(fetchCtx, delivery.Kind, delivery.ChatID)
 	cancel()
 	if err != nil {
 		reason := preparationErrorCode(err)
-		s.Log.Warn("content source unavailable", "chat_id", delivery.ChatID, "kind", delivery.Kind, "reason", reason)
-		return nil, false, reason, nil
+		retryAfter := preparationRetryAfter(err)
+		s.Log.Warn("content source unavailable", "chat_id", delivery.ChatID, "kind", delivery.Kind, "reason", reason, "retry_after_ms", retryAfter.Milliseconds())
+		return nil, false, reason, retryAfter, nil
 	}
 	var unseen []daily.Item
 	for _, candidate := range candidates {
 		seen, seenErr := s.Store.Seen(ctx, delivery.ChatID, delivery.Kind, candidate.Key)
 		if seenErr != nil {
-			return nil, false, "storage_history_failed", seenErr
+			return nil, false, "storage_history_failed", 0, seenErr
 		}
 		if !seen {
 			unseen = append(unseen, candidate)
 		}
 	}
 	if len(unseen) == 0 {
-		return nil, false, "no_approved_candidate", nil
+		return nil, false, "no_approved_candidate", 0, nil
 	}
-	return unseen, false, "", nil
+	return unseen, false, "", 0, nil
+}
+
+func preparationRetryAfter(err error) time.Duration {
+	if problem, ok := errors.AsType[*daily.PreviewError](err); ok {
+		return problem.After
+	}
+	return 0
 }
 
 func preparationErrorCode(err error) string {
