@@ -21,3 +21,9 @@ func (b ProviderBudget) AllowAPI(ctx context.Context, date string, limit int) (b
 	n, err := r.RowsAffected()
 	return n == 1, err
 }
+
+func (b ProviderBudget) RemainingAPI(ctx context.Context, date string, limit int) (int, error) {
+	var used int
+	err := b.Store.db.QueryRowContext(ctx, `SELECT COALESCE((SELECT requests FROM provider_api_usage WHERE provider=? AND utc_date=?),0)`, b.Provider, date).Scan(&used)
+	return max(0, limit-used), err
+}

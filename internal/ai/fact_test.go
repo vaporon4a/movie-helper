@@ -115,12 +115,13 @@ func TestFactQualityGateBoundaries(t *testing.T) {
 		words, sentences int
 		want             string
 	}{
-		{"below_minimum", 44, 3, "fact_word_count"},
-		{"minimum", 45, 3, ""},
-		{"maximum", 120, 5, ""},
-		{"above_maximum", 121, 5, "fact_word_count"},
-		{"too_few_sentences", 45, 2, "fact_sentence_count"},
-		{"too_many_sentences", 45, 6, "fact_sentence_count"},
+		{"below_minimum", 29, 2, "fact_word_count"},
+		{"minimum", 30, 2, ""},
+		{"maximum", 110, 5, ""},
+		{"above_maximum", 111, 5, "fact_word_count"},
+		{"too_few_sentences", 30, 1, "fact_sentence_count"},
+		{"too_many_sentences", 30, 6, "fact_sentence_count"},
+		{"sentences_too_long", 99, 3, "fact_sentence_too_long"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := validateFactText(factTextFixture(tc.words, tc.sentences)); got != tc.want {

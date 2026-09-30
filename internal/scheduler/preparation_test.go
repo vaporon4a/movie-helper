@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vaporon4a/movie-helper/internal/aiwork"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 )
 
@@ -162,5 +163,25 @@ func TestPreparationWindowAndLateResult(t *testing.T) {
 	tick(t, s)
 	if send.calls != 0 {
 		t.Fatal("result published past deadline")
+	}
+}
+
+func TestBackgroundModeNeverCallsProviderWhenStockIsEmpty(t *testing.T) {
+	s, send, now := fixture(t)
+	provider := &flakyProvider{}
+	s.Provider = provider
+	s.BackgroundOnly = true
+	*now = now.Add(time.Hour)
+	tick(t, s)
+	if provider.calls != 0 || send.calls != 0 {
+		t.Fatal("foreground provider used in background mode", provider.calls, send.calls)
+	}
+	work, claimed, err := storeOf(s).ClaimAIWork(context.Background(), *now, time.Minute)
+	if err != nil || !claimed || work.Kind != aiwork.MemeRefill || work.ScopeID != -1 {
+		t.Fatal(work, claimed, err)
+	}
+	issues, err := storeOf(s).Issues(context.Background(), -1)
+	if err != nil || len(issues) != 1 || issues[0].Error != "background_refill_pending" {
+		t.Fatal(issues, err)
 	}
 }

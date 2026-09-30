@@ -10,6 +10,14 @@ type ValidationError struct{ Reason string }
 
 func (e *ValidationError) Error() string { return "AI validation: " + e.Reason }
 
+// RejectionError is a valid fail-closed model decision. It contains only a
+// stable stage/reason code and never includes source or provider response text.
+type RejectionError struct {
+	Stage, Reason string
+}
+
+func (e *RejectionError) Error() string { return "AI rejected candidate: " + e.Stage + ":" + e.Reason }
+
 // Model responses use a closed object keyed by candidate number. An unbounded
 // reviews array allowed a strict-schema model to repeat one review many times.
 func (s *Selection) UnmarshalJSON(data []byte) error {

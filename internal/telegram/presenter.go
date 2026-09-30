@@ -44,6 +44,7 @@ const helpAdmin = `Модерация и служебные команды.
 /queue — очередь (следующая страница: /queue последний_ID)
 /review ID — показать материал и кнопки одобрения
 /approve ID или /reject ID — одобрить или убрать материал
+/refill fact|meme|titles — запустить фоновое пополнение
 /resolve ID sent — подтвердить неопределённую доставку
 /resolve ID requeue — вернуть её материал на следующий день
 /movie_resolve ID sent|retry|cancel — разрешить сбой или вернуть пропущенный киноопрос
@@ -62,7 +63,7 @@ const helpAdmin = `Модерация и служебные команды.
 /help — расписание и основные команды
 
 Настройка, предпросмотр, очередь и одобрение доступны администраторам.
-Предпросмотр использует дневные лимиты AI, не меняет расписание и не добавляет материал в очередь.
+Предпросмотр показывает готовый материал из запаса и не меняет расписание.
 По умолчанию AI отбирает и одобряет мемы из Reddit и факты из Wikipedia для публикации по расписанию. Ручная очередь выключена.
 /moderation on — включить очередь: новые материалы AI ждут /approve; публикуется только одобренное администратором.
 /moderation off — автоматический отбор AI; предложения участников сохраняются, но не публикуются.
@@ -85,13 +86,16 @@ func moderationText(enabled bool) string {
 	return "Автоматический режим: AI отбирает и одобряет материалы. Ручная очередь выключена."
 }
 
-func settingsText(schedules []daily.Schedule, issues []daily.Delivery, now time.Time) string {
+func settingsText(schedules []daily.Schedule, issues []daily.Delivery, now time.Time, stockSets ...[]daily.Stock) string {
 	lines := []string{"Расписание (по времени чата):"}
 	if len(schedules) > 0 {
 		lines = append(lines, moderationText(schedules[0].Moderation))
 	}
 	for _, schedule := range schedules {
 		lines = append(lines, scheduleText(schedule))
+	}
+	if len(stockSets) > 0 {
+		lines = append(lines, stockStatusLines(stockSets[0], scheduleZone(schedules), now)...)
 	}
 	for _, delivery := range issues {
 		lines = append(lines, deliveryText(delivery, schedules, now))
@@ -104,6 +108,34 @@ func settingsText(schedules []daily.Schedule, issues []daily.Delivery, now time.
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func scheduleZone(schedules []daily.Schedule) *time.Location {
+	if len(schedules) > 0 {
+		if location, err := time.LoadLocation(schedules[0].Zone); err == nil {
+			return location
+		}
+	}
+	return time.UTC
+}
+
+func stockStatusLines(stocks []daily.Stock, zone *time.Location, now time.Time) []string {
+	lines := make([]string, 0, len(stocks))
+	for _, stock := range stocks {
+		label := map[string]string{daily.Fact: "фактов", daily.Meme: "мемов"}[stock.Kind]
+		if label == "" {
+			label = stock.Kind
+		}
+		line := fmt.Sprintf("Запас %s: %d/%d", label, stock.Count, stock.Target)
+		if stock.NextAttempt > now.Unix() {
+			line += "; следующая попытка " + time.Unix(stock.NextAttempt, 0).In(zone).Format("15:04 MST")
+		}
+		if stock.LastError != "" {
+			line += "; причина: " + preparationErrorText(stock.LastError)
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func scheduleText(schedule daily.Schedule) string {
@@ -146,6 +178,9 @@ func deliveryText(delivery daily.Delivery, schedules []daily.Schedule, now time.
 }
 
 func preparationErrorText(code string) string {
+	if strings.HasPrefix(code, "rejected:") || strings.HasPrefix(code, "validation_rejected:") {
+		return "AI не одобрил проверенный материал"
+	}
 	switch code {
 	case "no_approved_candidate":
 		return "AI не одобрил ни одного кандидата"
@@ -169,6 +204,12 @@ func preparationErrorText(code string) string {
 		return "закончилось окно повторных попыток"
 	case "source_unavailable":
 		return "источник временно недоступен"
+	case "background_refill_pending", "stock_below_target":
+		return "идёт фоновая подготовка"
+	case "duplicate_candidates":
+		return "источник вернул уже известные материалы"
+	case "title_generation_failed":
+		return "AI не подготовил название идеи"
 	case "":
 		return "подходящий материал не найден"
 	default:
@@ -186,7 +227,7 @@ func queueText(items []daily.Item) string {
 		lines = append(lines, fmt.Sprintf("#%d %s [%s] %s", item.ID, item.Kind, item.State, string(title)))
 	}
 	if len(items) == 0 {
-		lines = append(lines, "Очередь пуста. AI подбирает материалы во время включённого расписания. Можно предложить /suggest_fact или /suggest_meme.")
+		lines = append(lines, "Очередь пуста. AI готовит запас материалов в фоне. Можно предложить /suggest_fact или /suggest_meme.")
 	}
 	if len(items) == 10 {
 		lines = append(lines, fmt.Sprintf("Дальше: /queue %d", items[9].ID))

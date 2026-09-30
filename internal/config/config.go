@@ -1,6 +1,7 @@
 package config
 
 import (
+	_ "embed"
 	"errors"
 	"log/slog"
 	"os"
@@ -8,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 )
+
+//go:embed fact_titles.txt
+var defaultFactTitles string
 
 type Config struct {
 	GeminiKey, GeminiModel string
@@ -19,6 +23,7 @@ type Config struct {
 	Token, DBPath          string
 	Chats                  map[int64]bool
 	Subreddits             []string
+	AIResultMode           string
 	Level                  slog.Level
 }
 
@@ -57,6 +62,13 @@ func Parse(get func(string) string) (Config, error) {
 	}
 	if len(c.Subreddits) > 5 {
 		return c, errors.New("MEME_SUBREDDITS allows at most 5 sources")
+	}
+	c.AIResultMode = strings.TrimSpace(get("AI_RESULT_MODE"))
+	if c.AIResultMode == "" {
+		c.AIResultMode = "warmup"
+	}
+	if c.AIResultMode != "warmup" && c.AIResultMode != "background" {
+		return c, errors.New("AI_RESULT_MODE must be warmup or background")
 	}
 	if level := get("LOG_LEVEL"); level != "" {
 		if err := c.Level.UnmarshalText([]byte(level)); err != nil {
@@ -103,7 +115,7 @@ func Parse(get func(string) string) (Config, error) {
 
 	titles := get("FACT_WIKI_TITLES")
 	if titles == "" {
-		titles = "Alien (film)|Jurassic Park (film)|The Matrix|Back to the Future|Jaws (film)|Blade Runner|The Terminator|Titanic (1997 film)|The Truman Show|The Grand Budapest Hotel|Mad Max: Fury Road|Who Framed Roger Rabbit|The Thing (1982 film)|Raiders of the Lost Ark|The Princess Bride (film)|Groundhog Day (film)|Ghostbusters|The Fifth Element|Interstellar (film)|Inception"
+		titles = strings.ReplaceAll(strings.TrimSpace(defaultFactTitles), "\n", "|")
 	}
 	seen := make(map[string]bool)
 	for title := range strings.SplitSeq(titles, "|") {

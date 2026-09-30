@@ -10,20 +10,18 @@ import (
 )
 
 const scheduleCatchup = 6 * time.Hour
-const titlePreparationTimeout = 90 * time.Second
 
 type Coordinator struct {
 	store   CoordinatorRepository
 	sender  Transport
-	titles  TitleGenerator
 	allowed map[int64]bool
 	log     *slog.Logger
 	now     func() time.Time
 	token   func() (string, error)
 }
 
-func NewCoordinator(store CoordinatorRepository, sender Transport, titles TitleGenerator, allowed map[int64]bool, log *slog.Logger, now func() time.Time, token func() (string, error)) (*Coordinator, error) {
-	if store == nil || sender == nil || titles == nil || token == nil {
+func NewCoordinator(store CoordinatorRepository, sender Transport, allowed map[int64]bool, log *slog.Logger, now func() time.Time, token func() (string, error)) (*Coordinator, error) {
+	if store == nil || sender == nil || token == nil {
 		return nil, errors.New("feature vote coordinator dependencies are required")
 	}
 	if log == nil {
@@ -32,7 +30,7 @@ func NewCoordinator(store CoordinatorRepository, sender Transport, titles TitleG
 	if now == nil {
 		now = time.Now
 	}
-	return &Coordinator{store: store, sender: sender, titles: titles, allowed: allowed, log: log, now: now, token: token}, nil
+	return &Coordinator{store: store, sender: sender, allowed: allowed, log: log, now: now, token: token}, nil
 }
 
 func (c *Coordinator) Run(ctx context.Context) {
@@ -112,9 +110,7 @@ func (c *Coordinator) openPlanned(ctx context.Context, now time.Time) error {
 }
 
 func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time) error {
-	prepareCtx, cancel := context.WithTimeout(ctx, titlePreparationTimeout)
-	defer cancel()
-	options, err := c.prepareOptions(prepareCtx, round)
+	options, err := c.prepareOptions(ctx, round)
 	if err != nil {
 		return err
 	}
@@ -151,10 +147,7 @@ func (c *Coordinator) prepareOptions(ctx context.Context, round Round) ([]Option
 	for position, idea := range ideas {
 		title := strings.TrimSpace(idea.Title)
 		if title == "" {
-			title = c.titles.Title(ctx, idea.Text)
-			if saveErr := c.store.SaveFeatureTitle(ctx, idea.ID, title); saveErr != nil {
-				return nil, saveErr
-			}
+			title = FallbackTitle(idea.Text)
 		}
 		key := strings.ToLower(title)
 		if used[key] {

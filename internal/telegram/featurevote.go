@@ -272,7 +272,7 @@ func featureIdeasText(heading string, ideas []featurevote.Idea) string {
 }
 
 func featureSettingsText(view featurevote.SettingsView) string {
-	lines := []string{"💡 Голосования за функции", fmt.Sprintf("Активных идей: %d", view.Active)}
+	lines := []string{"💡 Голосования за функции", fmt.Sprintf("Активных идей: %d · названия готовятся: %d", view.Active, view.Untitled)}
 	if !view.Configured {
 		lines = append(lines, "Расписание выключено")
 	} else {

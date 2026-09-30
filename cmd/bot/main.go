@@ -16,6 +16,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/ai"
+	"github.com/vaporon4a/movie-helper/internal/aiwork"
 	"github.com/vaporon4a/movie-helper/internal/config"
 	"github.com/vaporon4a/movie-helper/internal/content"
 	"github.com/vaporon4a/movie-helper/internal/daily"
@@ -94,8 +95,9 @@ func run() error {
 	}
 	redirect := func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
 	provider, primaryAI, secondaryAI := buildContentProvider(cfg, store, log, redirect)
+	titles := ai.FeatureTitleGenerator{Primary: primaryAI, Secondary: secondaryAI, PrimaryTimeout: 30 * time.Second, SecondaryTimeout: 20 * time.Second, Log: log}
 
-	dailyService, err := daily.NewService(store, provider, log)
+	dailyService, err := daily.NewService(store, provider, log, cfg.AIResultMode == "background")
 	if err != nil {
 		return err
 	}
@@ -107,15 +109,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	s.BackgroundOnly = cfg.AIResultMode == "background"
 	var workers sync.WaitGroup
 	workers.Go(func() { s.Run(ctx) })
-	if err = startFeatureVoting(ctx, store, b, handler, cfg.Chats, log, primaryAI, secondaryAI, &workers); err != nil {
+	if err = startAIWork(ctx, store, provider, titles, log, &workers); err != nil {
+		return err
+	}
+	if err = startFeatureVoting(ctx, store, b, handler, cfg.Chats, log, &workers); err != nil {
 		return err
 	}
 	if err = startMovieClub(ctx, cfg, store, b, handler, log, redirect, &workers); err != nil {
 		return err
 	}
-	log.Info("bot started", "allowed_chats", len(cfg.Chats), "gemini_model", cfg.GeminiModel, "gemini_enabled", cfg.GeminiKey != "", "groq_model", cfg.GroqModel, "groq_enabled", cfg.GroqKey != "", "tmdb_enabled", cfg.TMDBToken != "")
+	log.Info("bot started", "allowed_chats", len(cfg.Chats), "ai_result_mode", cfg.AIResultMode, "gemini_model", cfg.GeminiModel, "gemini_enabled", cfg.GeminiKey != "", "groq_model", cfg.GroqModel, "groq_enabled", cfg.GroqKey != "", "tmdb_enabled", cfg.TMDBToken != "")
 	b.Start(ctx)
 	cancel()
 	workers.Wait()
@@ -148,15 +154,27 @@ func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Log
 	return provider, primary, secondary
 }
 
-func startFeatureVoting(ctx context.Context, store *storage.Store, api telegram.API, handler *telegram.Handler, allowed map[int64]bool, log *slog.Logger, primary, secondary ai.Generator, workers *sync.WaitGroup) error {
+func startAIWork(ctx context.Context, store *storage.Store, provider *content.Provider, titles ai.FeatureTitleGenerator, log *slog.Logger, workers *sync.WaitGroup) error {
+	contentRefiller := &content.Refiller{Store: store, Provider: provider, Log: log}
+	titleRefiller := featurevote.TitleRefiller{Store: store, Generator: titles}
+	coordinator, err := aiwork.NewCoordinator(store, map[string]aiwork.Executor{
+		aiwork.FactRefill: contentRefiller, aiwork.MemeRefill: contentRefiller, aiwork.FeatureTitle: titleRefiller,
+	}, log, time.Now)
+	if err != nil {
+		return err
+	}
+	workers.Go(func() { coordinator.Run(ctx) })
+	return nil
+}
+
+func startFeatureVoting(ctx context.Context, store *storage.Store, api telegram.API, handler *telegram.Handler, allowed map[int64]bool, log *slog.Logger, workers *sync.WaitGroup) error {
 	service, err := featurevote.NewService(store, log, time.Now, featurevote.RandomToken)
 	if err != nil {
 		return err
 	}
 	handler.Features = service
 	sender := telegram.FeatureSender{API: api, Username: handler.Username}
-	titles := ai.FeatureTitleGenerator{Primary: primary, Secondary: secondary, PrimaryTimeout: 30 * time.Second, SecondaryTimeout: 20 * time.Second, Log: log}
-	coordinator, err := featurevote.NewCoordinator(store, sender, titles, allowed, log, time.Now, featurevote.RandomToken)
+	coordinator, err := featurevote.NewCoordinator(store, sender, allowed, log, time.Now, featurevote.RandomToken)
 	if err != nil {
 		return err
 	}

@@ -23,6 +23,16 @@ func (h *Handler) handleDailyCommand(ctx context.Context, update *models.Update,
 		return true, h.preview(ctx, chatID, args)
 	case "/settings":
 		return true, h.settings(ctx, chatID, now)
+	case "/refill":
+		if !daily.ValidKind(args) && args != "titles" {
+			h.reply(ctx, chatID, "Формат: /refill fact, /refill meme или /refill titles.")
+			return true, errResponseSent
+		}
+		if err := h.Daily.RequestRefill(ctx, chatID, args, now); err != nil {
+			return true, err
+		}
+		h.reply(ctx, chatID, "Фоновая подготовка поставлена в очередь. Состояние: /settings.")
+		return true, errResponseSent
 	case "/moderation":
 		if args != "on" && args != "off" {
 			h.reply(ctx, chatID, "Формат: /moderation on — ручное одобрение; /moderation off — автоматический отбор AI.")
@@ -90,10 +100,7 @@ func (h *Handler) preview(ctx context.Context, chatID int64, kind string) error 
 		return errResponseSent
 	}
 	if len(items) == 0 {
-		message := "Подходящего факта среди проверенных материалов не нашлось. Попробуйте позже."
-		if kind == daily.Meme {
-			message = "Подходящего мема среди проверенных кандидатов не нашлось. Попробуйте ещё раз через минуту: отклонённые варианты повторно не проверяются."
-		}
+		message := "Готового материала пока нет. Запустил фоновую подготовку — состояние появится в /settings."
 		h.reply(ctx, chatID, message)
 		return errResponseSent
 	}
@@ -120,7 +127,11 @@ func (h *Handler) settings(ctx context.Context, chatID int64, now time.Time) err
 	if err != nil {
 		return err
 	}
-	h.reply(ctx, chatID, settingsText(schedules, issues, now))
+	stocks, err := h.Daily.Stocks(ctx, chatID, now)
+	if err != nil {
+		return err
+	}
+	h.reply(ctx, chatID, settingsText(schedules, issues, now, stocks))
 	return errResponseSent
 }
 

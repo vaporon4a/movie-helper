@@ -27,20 +27,28 @@ type Provider interface {
 	Candidates(context.Context, string, int64) ([]Item, error)
 }
 
-type Service struct {
-	repository Repository
-	provider   Provider
-	log        *slog.Logger
+type BackgroundRepository interface {
+	PreviewAIItem(context.Context, int64, string, time.Time) (Item, bool, error)
+	RequestAIRefill(context.Context, int64, string, time.Time) error
+	AIStocks(context.Context, int64, time.Time) ([]Stock, error)
 }
 
-func NewService(repository Repository, provider Provider, log *slog.Logger) (*Service, error) {
+type Service struct {
+	repository     Repository
+	provider       Provider
+	log            *slog.Logger
+	backgroundOnly bool
+}
+
+func NewService(repository Repository, provider Provider, log *slog.Logger, backgroundOnly ...bool) (*Service, error) {
 	if repository == nil {
 		return nil, errors.New("daily service repository is required")
 	}
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{repository: repository, provider: provider, log: log}, nil
+	only := len(backgroundOnly) > 0 && backgroundOnly[0]
+	return &Service{repository: repository, provider: provider, log: log, backgroundOnly: only}, nil
 }
 
 func (s *Service) EnsureChat(ctx context.Context, chatID int64) error {
@@ -91,6 +99,23 @@ func (s *Service) Resolve(ctx context.Context, operationID, chatID, deliveryID i
 	return s.repository.Resolve(ctx, operationID, chatID, deliveryID, sent)
 }
 func (s *Service) Candidates(ctx context.Context, kind string, chatID int64) ([]Item, error) {
+	if background, ok := s.repository.(BackgroundRepository); ok {
+		item, found, err := background.PreviewAIItem(ctx, chatID, kind, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			s.log.Info("daily preview loaded from stock", "chat_id", chatID, "kind", kind, "item_id", item.ID)
+			return []Item{item}, nil
+		}
+		if s.backgroundOnly {
+			if err = background.RequestAIRefill(ctx, chatID, kind, time.Now()); err != nil {
+				return nil, err
+			}
+			s.log.Info("daily preview requested background refill", "chat_id", chatID, "kind", kind)
+			return nil, nil
+		}
+	}
 	if s.provider == nil {
 		return nil, ErrProviderDisabled
 	}
@@ -99,6 +124,25 @@ func (s *Service) Candidates(ctx context.Context, kind string, chatID int64) ([]
 		s.log.Info("daily preview prepared", "chat_id", chatID, "kind", kind, "candidates", len(items))
 	}
 	return items, err
+}
+
+func (s *Service) Stocks(ctx context.Context, chatID int64, now time.Time) ([]Stock, error) {
+	background, ok := s.repository.(BackgroundRepository)
+	if !ok {
+		return nil, errors.New("background stock is unavailable")
+	}
+	return background.AIStocks(ctx, chatID, now)
+}
+
+func (s *Service) RequestRefill(ctx context.Context, chatID int64, kind string, now time.Time) error {
+	if !ValidKind(kind) && kind != "titles" {
+		return errors.New("invalid refill kind")
+	}
+	background, ok := s.repository.(BackgroundRepository)
+	if !ok {
+		return errors.New("background refill is unavailable")
+	}
+	return background.RequestAIRefill(ctx, chatID, kind, now)
 }
 
 var ErrProviderDisabled = errors.New("daily content provider is disabled")

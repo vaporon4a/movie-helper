@@ -50,9 +50,13 @@ def runtime_settings(data, previous=None):
         if not parts or any(not re.fullmatch(r'-[1-9][0-9]*', v) or int(v) < -(2**63) for v in parts):
             raise DeployError('Invalid ALLOWED_CHAT_IDS')
         chats = ','.join(parts)
+    ai_result_mode = data.get('ai_result_mode', 'warmup')
+    if ai_result_mode not in ('warmup', 'background'):
+        raise DeployError('Invalid AI_RESULT_MODE')
     settings = {'BOT_TOKEN': token, 'GEMINI_API_KEY': data.get('gemini_api_key', ''),
                 'GROQ_API_KEY': data.get('groq_api_key', ''),
-                'TMDB_API_TOKEN': data.get('tmdb_api_token', ''), 'ALLOWED_CHAT_IDS': chats}
+                'TMDB_API_TOKEN': data.get('tmdb_api_token', ''), 'ALLOWED_CHAT_IDS': chats,
+                'AI_RESULT_MODE': ai_result_mode}
     # raw env_file preserves dollar signs and quotes. Reject line injection.
     for value in settings.values():
         if not isinstance(value, str) or any(c in value for c in '\r\n\x00'):

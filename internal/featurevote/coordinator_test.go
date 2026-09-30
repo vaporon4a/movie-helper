@@ -12,12 +12,6 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/storage"
 )
 
-type titleStub struct{}
-
-func (titleStub) Title(context.Context, string) string {
-	return "Короткое название новой функции"
-}
-
 type featureSenderStub struct {
 	opens, closes, results int
 }
@@ -77,7 +71,7 @@ func TestCoordinatorOpensAllActiveIdeasAndPublishesWinner(t *testing.T) {
 		t.Fatal(err)
 	}
 	sender := &featureSenderStub{}
-	coordinator, err := featurevote.NewCoordinator(store, sender, titleStub{}, map[int64]bool{-1: true}, slog.New(slog.NewTextHandler(io.Discard, nil)), func() time.Time { return now }, func() (string, error) { return "runoff-token", nil })
+	coordinator, err := featurevote.NewCoordinator(store, sender, map[int64]bool{-1: true}, slog.New(slog.NewTextHandler(io.Discard, nil)), func() time.Time { return now }, func() (string, error) { return "runoff-token", nil })
 	if err != nil {
 		t.Fatal(err)
 	}

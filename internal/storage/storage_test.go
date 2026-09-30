@@ -169,13 +169,15 @@ func TestAttachKeepsAutomaticReserve(t *testing.T) {
 		fact(-1, "auto:second"),
 		fact(-1, "auto:third"),
 	}
+	for index := range candidates {
+		candidates[index].GenerationPolicy = "fact-v4"
+	}
 	candidates[0].SourceEvidence = "The source evidence is preserved."
 	candidates[0].AIProvider = "gemini"
-	candidates[0].GenerationPolicy = "fact-v2"
 	must(t, s.Attach(ctx, id, candidates, testNow))
 	pending, err := s.Pending(ctx)
 	must(t, err)
-	if len(pending) != 1 || pending[0].Item.Key != "auto:first" || pending[0].Item.SourceEvidence != candidates[0].SourceEvidence || pending[0].Item.AIProvider != "gemini" || pending[0].Item.GenerationPolicy != "fact-v2" {
+	if len(pending) != 1 || pending[0].Item.Key != "auto:first" || pending[0].Item.SourceEvidence != candidates[0].SourceEvidence || pending[0].Item.AIProvider != "gemini" || pending[0].Item.GenerationPolicy != "fact-v4" {
 		t.Fatal(pending)
 	}
 	queued, err := s.Queue(ctx, -1, 0)
@@ -183,7 +185,7 @@ func TestAttachKeepsAutomaticReserve(t *testing.T) {
 	if len(queued) != 2 || queued[0].Key != "auto:second" || queued[1].Key != "auto:third" {
 		t.Fatal(queued)
 	}
-	approved, err := s.HasApproved(ctx, -1, daily.Fact)
+	approved, err := s.HasApproved(ctx, -1, daily.Fact, testNow)
 	must(t, err)
 	if !approved {
 		t.Fatal("automatic reserve was not retained")
@@ -324,13 +326,13 @@ func TestModerationMigrationPreservesExistingData(t *testing.T) {
 	if moderation || ai || text != "Old fact" {
 		t.Fatal(moderation, ai, text)
 	}
-	approved, err := s.HasApproved(ctx, -1, daily.Fact)
+	approved, err := s.HasApproved(ctx, -1, daily.Fact, testNow)
 	must(t, err)
 	if approved {
 		t.Fatal("legacy human item treated as Gemini approved")
 	}
 	must(t, s.SetModeration(ctx, 100, -1, true, testNow))
-	approved, err = s.HasApproved(ctx, -1, daily.Fact)
+	approved, err = s.HasApproved(ctx, -1, daily.Fact, testNow)
 	must(t, err)
 	if !approved {
 		t.Fatal("existing human approval lost")

@@ -25,6 +25,7 @@ def main():
         'gemini_api_key': os.environ.get('GEMINI_API_KEY', ''),
         'groq_api_key': os.environ.get('GROQ_API_KEY', ''),
         'tmdb_api_token': os.environ.get('TMDB_API_TOKEN', ''),
+        'ai_result_mode': os.environ.get('AI_RESULT_MODE', 'warmup'),
         'allowed_chat_ids': os.environ.get('ALLOWED_CHAT_IDS', ''),
         'registry_user': os.environ['GITHUB_ACTOR'],
         'registry_token': os.environ['REGISTRY_TOKEN'],

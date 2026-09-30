@@ -15,14 +15,14 @@ func (s titleGeneratorStub) Generate(context.Context, string, []Part) (Selection
 	return s.result, s.err
 }
 
-func TestFeatureTitleGeneratorValidatesAndFallsBack(t *testing.T) {
+func TestFeatureTitleGeneratorValidatesResult(t *testing.T) {
 	zero := 0
 	valid := FeatureTitleGenerator{Primary: titleGeneratorStub{result: Selection{Index: &zero, Text: "Добавить общий список просмотренных фильмов"}}}
-	if got := valid.Title(context.Background(), "Хотим список"); got != "Добавить общий список просмотренных фильмов" {
-		t.Fatalf("title=%q", got)
+	if got, ok := valid.TryTitle(context.Background(), "Хотим список"); !ok || got != "Добавить общий список просмотренных фильмов" {
+		t.Fatalf("title=%q ok=%v", got, ok)
 	}
 	invalid := FeatureTitleGenerator{Primary: titleGeneratorStub{result: Selection{Index: &zero, Text: "Список"}}, Secondary: titleGeneratorStub{err: errors.New("offline")}}
-	if got := invalid.Title(context.Background(), "Добавить голосовые напоминания о начале киновечера. Остальной текст"); got != "Добавить голосовые напоминания о начале киновечера" {
-		t.Fatalf("fallback=%q", got)
+	if got, ok := invalid.TryTitle(context.Background(), "Добавить голосовые напоминания о начале киновечера. Остальной текст"); ok || got != "" {
+		t.Fatalf("title=%q ok=%v", got, ok)
 	}
 }

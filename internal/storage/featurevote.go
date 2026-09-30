@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
+	"github.com/vaporon4a/movie-helper/internal/aiwork"
 	"github.com/vaporon4a/movie-helper/internal/featurevote"
 )
 
@@ -45,7 +47,7 @@ func (s *Store) AddFeature(ctx context.Context, op, chat, author int64, text, ha
 			return err
 		}
 		idea = featurevote.Idea{ID: idea.ID, ChatID: chat, AuthorID: author, Text: text, Hash: hash, State: featurevote.IdeaActive, CreatedAt: now.Unix(), UpdatedAt: now.Unix()}
-		return nil
+		return enqueueAIWorkTx(ctx, tx, aiwork.FeatureTitle, idea.ID, fmt.Sprintf("feature_title:%d", idea.ID), aiwork.PriorityNormal, now)
 	})
 	return idea, err
 }
@@ -181,7 +183,7 @@ func (s *Store) FeatureSettings(ctx context.Context, chat int64) (featurevote.Se
 	if len(schedules) > 0 {
 		view.Schedule, view.Configured = schedules[0], true
 	}
-	if err = s.db.QueryRowContext(ctx, "SELECT count(*) FROM feature_requests WHERE chat_id=? AND state='active'", chat).Scan(&view.Active); err != nil {
+	if err = s.db.QueryRowContext(ctx, `SELECT count(*),count(*) FILTER (WHERE title='') FROM feature_requests WHERE chat_id=? AND state='active'`, chat).Scan(&view.Active, &view.Untitled); err != nil {
 		return view, err
 	}
 	rows, err := s.db.QueryContext(ctx, "SELECT "+featureRoundColumns+" FROM feature_rounds WHERE chat_id=? ORDER BY id DESC LIMIT 5", chat)

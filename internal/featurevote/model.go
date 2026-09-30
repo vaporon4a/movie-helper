@@ -104,10 +104,10 @@ type View struct {
 }
 
 type SettingsView struct {
-	Schedule   Schedule
-	Active     int
-	Latest     []Round
-	Configured bool
+	Schedule         Schedule
+	Active, Untitled int
+	Latest           []Round
+	Configured       bool
 }
 
 type DeliveryError struct {
@@ -117,10 +117,6 @@ type DeliveryError struct {
 }
 
 func (e *DeliveryError) Error() string { return "feature vote delivery: " + string(e.Kind) }
-
-type TitleGenerator interface {
-	Title(context.Context, string) string
-}
 
 type Transport interface {
 	OpenRound(context.Context, Round, string) (OpenResult, error)

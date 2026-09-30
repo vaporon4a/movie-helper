@@ -13,8 +13,9 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/groq"
 )
 
-// Fallback gives each provider a bounded time slot. A valid rejection is final;
-// only failures fall through, and no unselected material can be returned.
+// Fallback gives each provider a bounded time slot. Meme rejection is final.
+// A fact rejection may try the second provider because both independently
+// select and edit source evidence; no unselected material can be returned.
 type Fallback struct {
 	Primary, Secondary               Editor
 	PrimaryTimeout, SecondaryTimeout time.Duration
@@ -23,6 +24,7 @@ type Fallback struct {
 
 func (f *Fallback) selectItem(ctx context.Context, call func(context.Context, Editor) (*daily.Item, error)) (*daily.Item, error) {
 	var last error
+	allRejected := true
 	for n, e := range []Editor{f.Primary, f.Secondary} {
 		if e == nil {
 			continue
@@ -46,6 +48,9 @@ func (f *Fallback) selectItem(ctx context.Context, call func(context.Context, Ed
 		if err == nil {
 			return item, nil
 		}
+		if _, rejected := errors.AsType[*ai.RejectionError](err); !rejected {
+			allRejected = false
+		}
 		last = err
 		if f.Log != nil {
 			f.Log.Warn("AI provider attempt failed", "provider", []string{"gemini", "groq"}[n], "reason", failureReason(err))
@@ -53,6 +58,9 @@ func (f *Fallback) selectItem(ctx context.Context, call func(context.Context, Ed
 		if n == 0 && deferredProviderRetry(err) {
 			return nil, err
 		}
+	}
+	if allRejected && last != nil {
+		return nil, nil
 	}
 	return nil, last
 }
@@ -116,6 +124,9 @@ func (f *Fallback) Fact(ctx context.Context, articles []gemini.Article) (*daily.
 func failureReason(err error) string {
 	if validation, ok := errors.AsType[*ai.ValidationError](err); ok {
 		return "invalid_selection:" + validation.Reason
+	}
+	if rejected, ok := errors.AsType[*ai.RejectionError](err); ok {
+		return "rejected:" + rejected.Stage + ":" + rejected.Reason
 	}
 	if g, ok := errors.AsType[*gemini.HTTPError](err); ok {
 		return fmt.Sprintf("http_%d", g.Status)

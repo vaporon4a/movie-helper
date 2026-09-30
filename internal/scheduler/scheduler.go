@@ -20,22 +20,25 @@ type Repository interface {
 	Reserve(context.Context, daily.Schedule, string, int64, int64) (int64, error)
 	Preparing(context.Context) ([]daily.Delivery, error)
 	ClaimPreparation(context.Context, int64, time.Time) (bool, error)
+	ClaimBackgroundPreparation(context.Context, int64, time.Time) (bool, error)
 	DeferPreparation(context.Context, int64, time.Time, string) error
-	HasApproved(context.Context, int64, string) (bool, error)
+	HasApproved(context.Context, int64, string, time.Time) (bool, error)
 	Seen(context.Context, int64, string, string) (bool, error)
 	Attach(context.Context, int64, []daily.Item, time.Time) error
 	Pending(context.Context) ([]daily.Delivery, error)
 	Claim(context.Context, int64, time.Time) (bool, error)
 	Finish(context.Context, int64, string, int, int64) error
 	Suspend(context.Context, int64) error
+	RequestAIRefill(context.Context, int64, string, time.Time) error
 }
 type Scheduler struct {
-	Store    Repository
-	Sender   Sender
-	Provider Provider
-	Allowed  map[int64]bool
-	Log      *slog.Logger
-	Now      func() time.Time
+	Store          Repository
+	Sender         Sender
+	Provider       Provider
+	Allowed        map[int64]bool
+	Log            *slog.Logger
+	Now            func() time.Time
+	BackgroundOnly bool
 }
 
 func New(store Repository, sender Sender, provider Provider, allowed map[int64]bool, log *slog.Logger, now func() time.Time) (*Scheduler, error) {
@@ -139,13 +142,19 @@ func (s *Scheduler) prepareDue(ctx context.Context) error {
 
 func (s *Scheduler) prepareIfDue(ctx context.Context, delivery daily.Delivery) error {
 	now := s.Now()
-	if !s.Allowed[delivery.ChatID] || now.Unix() >= delivery.Deadline || delivery.FetchAttempts >= daily.MaxPreparationAttempts {
+	if !s.Allowed[delivery.ChatID] || now.Unix() >= delivery.Deadline || (!s.BackgroundOnly && delivery.FetchAttempts >= daily.MaxPreparationAttempts) {
 		return s.Store.DeferPreparation(ctx, delivery.ID, time.Time{}, "preparation_window_exhausted")
 	}
 	if now.Unix() < delivery.NextAttempt {
 		return nil
 	}
-	claimed, err := s.Store.ClaimPreparation(ctx, delivery.ID, now)
+	var claimed bool
+	var err error
+	if s.BackgroundOnly {
+		claimed, err = s.Store.ClaimBackgroundPreparation(ctx, delivery.ID, now)
+	} else {
+		claimed, err = s.Store.ClaimPreparation(ctx, delivery.ID, now)
+	}
 	if err != nil || !claimed {
 		return err
 	}
@@ -279,6 +288,9 @@ func (s *Scheduler) prepare(ctx context.Context, d daily.Delivery) (err error) {
 
 func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Delivery, reason string, retryAfter time.Duration) error {
 	delay := preparationDelay(delivery.FetchAttempts + 1)
+	if s.BackgroundOnly && reason == "background_refill_pending" {
+		delay = 5 * time.Minute
+	}
 	if retryAfter > 0 {
 		delay = min(retryAfter, 5*time.Minute)
 		delay = max(delay, time.Second)
@@ -297,15 +309,22 @@ func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Deliver
 }
 
 func (s *Scheduler) preparationCandidates(ctx context.Context, delivery daily.Delivery) ([]daily.Item, bool, string, time.Duration, error) {
-	approved, err := s.Store.HasApproved(ctx, delivery.ChatID, delivery.Kind)
-	if err != nil || approved || s.Provider == nil {
+	approved, err := s.Store.HasApproved(ctx, delivery.ChatID, delivery.Kind, s.Now())
+	if err != nil || approved {
 		reason := ""
 		if err != nil {
 			reason = "storage_check_failed"
-		} else if s.Provider == nil && !approved {
-			reason = "provider_disabled"
 		}
 		return nil, approved, reason, 0, err
+	}
+	if s.BackgroundOnly {
+		if err = s.Store.RequestAIRefill(ctx, delivery.ChatID, delivery.Kind, s.Now()); err != nil {
+			return nil, false, "background_refill_failed", 0, err
+		}
+		return nil, false, "background_refill_pending", 0, nil
+	}
+	if s.Provider == nil {
+		return nil, false, "provider_disabled", 0, nil
 	}
 	fetchCtx, cancel := context.WithTimeout(ctx, daily.FetchTimeout)
 	candidates, err := s.Provider.Candidates(fetchCtx, delivery.Kind, delivery.ChatID)

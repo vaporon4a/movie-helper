@@ -90,6 +90,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 		if !allowed {
 			return result, ai.ErrDailyLimit
 		}
+		c.logBudget(ctx)
 		req, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(data))
 		if requestErr != nil {
 			return result, errors.New("invalid Groq endpoint")
@@ -145,6 +146,17 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 		return result, &ai.ValidationError{Reason: "groq_invalid_selection_json"}
 	}
 	return result, nil
+}
+
+func (c *Client) logBudget(ctx context.Context) {
+	reader, ok := c.Budget.(ai.BudgetReader)
+	if !ok || c.Log == nil {
+		return
+	}
+	remaining, err := reader.RemainingAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
+	if err == nil {
+		c.Log.Debug("AI provider budget", "provider", "groq", "remaining", remaining)
+	}
 }
 
 func (c *Client) retryAfter(value string) (time.Duration, string) {

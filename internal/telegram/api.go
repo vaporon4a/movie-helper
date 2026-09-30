@@ -43,6 +43,8 @@ type DailyRepository interface {
 type DailyApplication interface {
 	DailyRepository
 	Candidates(context.Context, string, int64) ([]daily.Item, error)
+	Stocks(context.Context, int64, time.Time) ([]daily.Stock, error)
+	RequestRefill(context.Context, int64, string, time.Time) error
 }
 
 type MovieClub interface {

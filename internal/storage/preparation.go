@@ -25,9 +25,21 @@ func (s *Store) Preparing(ctx context.Context) ([]daily.Delivery, error) {
 }
 
 func (s *Store) ClaimPreparation(ctx context.Context, id int64, now time.Time) (bool, error) {
+	return s.claimPreparation(ctx, id, now, true)
+}
+
+func (s *Store) ClaimBackgroundPreparation(ctx context.Context, id int64, now time.Time) (bool, error) {
+	return s.claimPreparation(ctx, id, now, false)
+}
+
+func (s *Store) claimPreparation(ctx context.Context, id int64, now time.Time, bounded bool) (bool, error) {
+	limit := int64(1 << 30)
+	if bounded {
+		limit = daily.MaxPreparationAttempts
+	}
 	r, err := s.db.ExecContext(ctx, `UPDATE deliveries SET fetch_claimed=1,fetch_attempts=fetch_attempts+1
  WHERE id=? AND state='preparing' AND fetch_claimed=0 AND fetch_attempts<? AND next_attempt<=? AND deadline>?
- AND EXISTS(SELECT 1 FROM schedules s JOIN chats c USING(chat_id) WHERE s.chat_id=deliveries.chat_id AND s.kind=deliveries.kind AND s.enabled=1 AND c.active=1 AND s.effective<deliveries.slot_at)`, id, daily.MaxPreparationAttempts, now.Unix(), now.Unix())
+ AND EXISTS(SELECT 1 FROM schedules s JOIN chats c USING(chat_id) WHERE s.chat_id=deliveries.chat_id AND s.kind=deliveries.kind AND s.enabled=1 AND c.active=1 AND s.effective<deliveries.slot_at)`, id, limit, now.Unix(), now.Unix())
 	if err != nil {
 		return false, err
 	}

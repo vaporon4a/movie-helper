@@ -370,7 +370,11 @@ func (s *Store) Attach(ctx context.Context, id int64, candidates []daily.Item, n
 			return err
 		}
 		var item int64
-		err := tx.QueryRowContext(ctx, "SELECT id FROM items WHERE chat_id=? AND kind=? AND state='approved' AND ((? AND approved_by IS NOT NULL) OR (NOT ? AND ai_approved=1)) ORDER BY id LIMIT 1", chat, kind, moderation, moderation).Scan(&item)
+		err := tx.QueryRowContext(ctx, `SELECT id FROM items WHERE chat_id=? AND kind=? AND state='approved'
+ AND ((? AND approved_by IS NOT NULL) OR (NOT ? AND ai_approved=1))
+ AND (kind!='meme' OR ai_approved=0 OR created_at>=?)
+ AND (kind!='fact' OR ai_approved=0 OR generation_policy='fact-v4')
+ ORDER BY id LIMIT 1`, chat, kind, moderation, moderation, now.Add(-memeStockTTL).Unix()).Scan(&item)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
@@ -418,11 +422,13 @@ func (s *Store) Attach(ctx context.Context, id int64, candidates []daily.Item, n
 		return err
 	})
 }
-func (s *Store) HasApproved(ctx context.Context, chat int64, kind string) (bool, error) {
+func (s *Store) HasApproved(ctx context.Context, chat int64, kind string, now time.Time) (bool, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM items i JOIN chats c USING(chat_id)
  WHERE i.chat_id=? AND i.kind=? AND i.state='approved'
- AND ((c.moderation=1 AND i.approved_by IS NOT NULL) OR (c.moderation=0 AND i.ai_approved=1))`, chat, kind).Scan(&n)
+ AND ((c.moderation=1 AND i.approved_by IS NOT NULL) OR (c.moderation=0 AND i.ai_approved=1))
+ AND (i.kind!='meme' OR i.ai_approved=0 OR i.created_at>=?)
+ AND (i.kind!='fact' OR i.ai_approved=0 OR i.generation_policy='fact-v4')`, chat, kind, now.Add(-memeStockTTL).Unix()).Scan(&n)
 	return n > 0, err
 }
 func (s *Store) Pending(ctx context.Context) ([]daily.Delivery, error) {
@@ -453,7 +459,9 @@ func (s *Store) Pending(ctx context.Context) ([]daily.Delivery, error) {
 }
 func (s *Store) Claim(ctx context.Context, id int64, now time.Time) (bool, error) {
 	r, err := s.db.ExecContext(ctx, `UPDATE deliveries SET state='sending' WHERE id=? AND state IN ('ready','retry') AND next_attempt<=? AND deadline>?
- AND EXISTS (SELECT 1 FROM schedules s JOIN chats c USING(chat_id) WHERE s.chat_id=deliveries.chat_id AND s.kind=deliveries.kind AND s.enabled=1 AND c.active=1 AND s.effective < deliveries.slot_at)`, id, now.Unix(), now.Unix())
+ AND EXISTS (SELECT 1 FROM schedules s JOIN chats c USING(chat_id) WHERE s.chat_id=deliveries.chat_id AND s.kind=deliveries.kind AND s.enabled=1 AND c.active=1 AND s.effective < deliveries.slot_at)
+ AND EXISTS (SELECT 1 FROM items i WHERE i.id=deliveries.item_id
+   AND (i.kind!='meme' OR i.ai_approved=0 OR i.created_at>=?))`, id, now.Unix(), now.Unix(), now.Add(-memeStockTTL).Unix())
 	if err != nil {
 		return false, err
 	}
@@ -539,4 +547,10 @@ func (s *Store) AllowAPI(ctx context.Context, date string, limit int) (bool, err
 	}
 	n, err := r.RowsAffected()
 	return n == 1, err
+}
+
+func (s *Store) RemainingAPI(ctx context.Context, date string, limit int) (int, error) {
+	var used int
+	err := s.db.QueryRowContext(ctx, "SELECT COALESCE((SELECT requests FROM api_usage WHERE utc_date=?),0)", date).Scan(&used)
+	return max(0, limit-used), err
 }

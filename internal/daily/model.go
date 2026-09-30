@@ -44,6 +44,12 @@ type Delivery struct {
 	Item                              Item
 }
 
+type Stock struct {
+	Kind, LastError string
+	Count, Target   int
+	NextAttempt     int64
+}
+
 // SendError deliberately carries no Telegram response body or token-bearing URL.
 type SendError struct {
 	Kind  string // retry (explicit rejection), forbidden, permanent, unknown
