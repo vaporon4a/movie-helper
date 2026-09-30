@@ -57,7 +57,7 @@ func TestFactProvenanceAndBudget(t *testing.T) {
 		if req["systemInstruction"] == nil || req["generationConfig"] == nil {
 			t.Error("missing constraints")
 		}
-		return response(200, answer(`{"index":0,"text":"Для создания городских сцен команда фильма построила несколько подробных миниатюр зданий. Эти модели позволили снять масштабные планы без строительства полноразмерных декораций.","evidence":"The production used miniature models"}`)), nil
+		return response(200, answer(`{"index":0,"text":"Для создания городских сцен команда фильма построила несколько подробных миниатюр зданий. Художники воспроизвели в уменьшенном виде основные элементы декораций, которые должны были появиться в широких планах. Затем операторы снимали готовые модели целиком с выбранных ракурсов. Такой подход позволил показать масштабное пространство без строительства полноразмерного города.","evidence":"The production used miniature models"}`)), nil
 	}, b)
 	a := Article{Title: "Film", Text: "The production used miniature models to build the city.", URL: "https://en.wikipedia.org/w/index.php?oldid=123", Key: "wiki:Film", Attribution: "Wikipedia CC BY-SA 4.0"}
 	got, err := c.Fact(context.Background(), []Article{a})

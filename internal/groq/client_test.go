@@ -80,7 +80,7 @@ func TestVisionPayloadSelectionAndBudget(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		if req.Model != cModel || req.Max != 512 || req.Reasoning != "none" || req.Format.Type != "json_schema" || !req.Format.Schema.Strict || req.Format.Schema.Schema.Additional || len(req.Format.Schema.Schema.Required) != 4 || len(req.Messages) != 2 {
+		if req.Model != cModel || req.Max != 768 || req.Reasoning != "none" || req.Format.Type != "json_schema" || !req.Format.Schema.Strict || req.Format.Schema.Schema.Additional || len(req.Format.Schema.Schema.Required) != 4 || len(req.Messages) != 2 {
 			t.Fatal("invalid generation options")
 		}
 		var parts []struct {
@@ -124,7 +124,7 @@ func TestFactValidationAndUpstreamFailures(t *testing.T) {
 		body, finish string
 		valid        bool
 	}{
-		{`{"index":0,"text":"Для создания городских сцен команда фильма построила несколько подробных миниатюр зданий. Эти модели позволили снять масштабные планы без строительства полноразмерных декораций.","evidence":"The production used miniature models"}`, "stop", true},
+		{`{"index":0,"text":"Для создания городских сцен команда фильма построила несколько подробных миниатюр зданий. Художники воспроизвели в уменьшенном виде основные элементы декораций, которые должны были появиться в широких планах. Затем операторы снимали готовые модели целиком с выбранных ракурсов. Такой подход позволил показать масштабное пространство без строительства полноразмерного города.","evidence":"The production used miniature models"}`, "stop", true},
 		{`{"index":0,"text":"Факт","evidence":"Invented evidence that is absent"}`, "stop", false},
 		{`{"text":"Факт"}`, "stop", false},
 		{`{"index":0,"text":"Факт","evidence":"The production used miniature models"}`, "length", false},

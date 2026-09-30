@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const validFactText = "Для съёмок сцены команда построила вращающийся коридор и закрепила его на больших кольцах. Два мощных электромотора приводили всю конструкцию в движение."
+const validFactText = "Для съёмок сцены команда построила вращающийся коридор и закрепила его на восьми больших кольцах. Два мощных электромотора приводили всю конструкцию в движение, пока камера оставалась неподвижной относительно декорации. Благодаря этой установке актёры могли двигаться по стенам и потолку прямо во время съёмки, а сложный эффект получался практически без компьютерной графики."
 
 func TestFactAcceptsLongerExactQuoteWithoutRetry(t *testing.T) {
 	quote := "The corridor was suspended along eight large concentric rings that were spaced equidistantly outside its walls and powered by two massive electric motors."
@@ -24,7 +24,7 @@ func TestFactAcceptsLongerExactQuoteWithoutRetry(t *testing.T) {
 
 func TestFactRepairsLongQuoteOnceAndPreservesValidation(t *testing.T) {
 	quote := "The corridor was suspended along eight large concentric rings that were spaced equidistantly outside its walls and powered by two massive electric motors."
-	quote += " " + quote + " " + quote // 69 words: exceeds the evidence ceiling.
+	quote += " " + quote + " " + quote + " " + quote // 92 words: exceeds the evidence ceiling.
 	short := "powered by two massive electric motors"
 	article := Article{Text: quote, URL: "https://en.wikipedia.org/w/index.php?oldid=123", Key: "wikipedia:Inception", Attribution: "Wikipedia"}
 	index := 0
@@ -99,12 +99,51 @@ func TestFactQualityGateRejectsUnreadableRussian(t *testing.T) {
 		text, reason string
 	}{
 		{"Слишком коротко. Совсем сухо.", "fact_word_count"},
-		{"Первое предложение содержит достаточно слов для проверки качества итогового текста и его длины. Второе предложение содержит слово службыكافحة и поэтому должно быть отклонено локально.", "fact_unexpected_script"},
-		{"Первое предложение содержит достаточно слов для проверки качества итогового текста и его длины. Второе предложение содержит слoво со смешанными алфавитами и должно быть отклонено.", "fact_mixed_script"},
-		{"Это один длинный текст без корректного завершения и без второго предложения хотя слов здесь вполне достаточно для прохождения проверки минимальной длины текста", "fact_sentence_count"},
+		{"Первое предложение содержит достаточно слов для проверки качества итогового текста и его длины. Второе предложение подробно продолжает описание материала и содержит слово службыكافحة, которое должно быть отклонено локально. Третье предложение добавляет нейтральный контекст, чтобы общий объём примера соответствовал новому минимальному пределу проверки опубликованного факта.", "fact_unexpected_script"},
+		{"Первое предложение содержит достаточно слов для проверки качества итогового текста и его длины. Второе предложение подробно продолжает описание материала и содержит слoво со смешанными алфавитами, которое должно быть отклонено. Третье предложение добавляет нейтральный контекст, чтобы общий объём примера соответствовал новому минимальному пределу проверки опубликованного факта.", "fact_mixed_script"},
+		{"Это один длинный текст без корректного завершения и без второго предложения хотя слов здесь вполне достаточно для прохождения проверки минимальной длины итогового материала поэтому проверка должна увидеть отсутствие нужной структуры несмотря на общий объём содержание и используемый русский алфавит в этом искусственном тестовом примере качества", "fact_sentence_count"},
 	} {
 		if got := validateFactText(tc.text); got != tc.reason {
 			t.Fatalf("text=%q reason=%s want=%s", tc.text, got, tc.reason)
 		}
+	}
+}
+
+func TestFactQualityGateBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		words, sentences int
+		want             string
+	}{
+		{"below_minimum", 44, 3, "fact_word_count"},
+		{"minimum", 45, 3, ""},
+		{"maximum", 120, 5, ""},
+		{"above_maximum", 121, 5, "fact_word_count"},
+		{"too_few_sentences", 45, 2, "fact_sentence_count"},
+		{"too_many_sentences", 45, 6, "fact_sentence_count"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validateFactText(factTextFixture(tc.words, tc.sentences)); got != tc.want {
+				t.Fatalf("reason=%q want=%q", got, tc.want)
+			}
+		})
+	}
+}
+
+func factTextFixture(words, sentences int) string {
+	parts := make([]string, sentences)
+	remaining := words
+	for i := range parts {
+		count := remaining / (sentences - i)
+		parts[i] = strings.TrimSpace(strings.Repeat("слово ", count)) + "."
+		remaining -= count
+	}
+	return strings.Join(parts, " ")
+}
+
+func TestFactQualityGateRejectsCompressedFact(t *testing.T) {
+	text := "Стивен Спилберг признал персонажей сценария Питера Бенчли в картине «Челюсти» непопулярными и предложил молодому сценаристу Джону Байраму переработать текст. Однако Байрам отказался от предложения режиссёра."
+	if got := validateFactText(text); got != "fact_word_count" {
+		t.Fatalf("compressed fact reason=%q want=fact_word_count", got)
 	}
 }

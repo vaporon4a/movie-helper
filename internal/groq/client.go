@@ -52,7 +52,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 		}
 	}
 	body := map[string]any{
-		"model": c.Model, "reasoning_effort": "none", "max_completion_tokens": 512,
+		"model": c.Model, "reasoning_effort": "none", "max_completion_tokens": 768,
 		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{
 			"name": "content_selection", "strict": true, "schema": ai.SelectionSchema(parts),
 		}},
