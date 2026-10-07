@@ -107,7 +107,10 @@ func (h *Handler) handleMessage(ctx context.Context, update *models.Update) {
 		return
 	}
 
-	handled, err := h.handleMovieCommand(ctx, update, command, args)
+	handled, err := h.handleClubCommand(ctx, update, command, args)
+	if !handled {
+		handled, err = h.handleMovieCommand(ctx, update, command, args)
+	}
 	if !handled {
 		handled, err = h.handleFeatureCommand(ctx, update, command, args)
 	}
@@ -193,7 +196,7 @@ func (h *Handler) handleReference(ctx context.Context, chatID int64, command str
 
 func requiresAdmin(command string) bool {
 	switch command {
-	case "/suggest_meme", "/suggest_fact", "/settings", "/idea", "/feature", "/my_ideas", "/idea_cancel":
+	case "/club_settings", "/suggest_meme", "/suggest_fact", "/settings", "/idea", "/feature", "/my_ideas", "/idea_cancel":
 		return false
 	default:
 		return true

@@ -16,6 +16,8 @@ import (
 // rejections are shared across chats; chat publication history stays separate.
 const MemeReviewVersion = "meme-v3"
 
+const schemaTypeKey = "type"
+
 const memeImageScope = "image:" + MemeReviewVersion
 
 type Review struct {
@@ -47,118 +49,155 @@ func (c *Editor) SelectMemes(ctx context.Context, items []daily.Item, limit int)
 	if limit <= 0 {
 		return nil, errors.New("invalid approved meme limit")
 	}
+	session := c.memeSession()
 	maxBatches := c.MaxBatches
 	if maxBatches <= 0 {
 		maxBatches = 2
 	}
-	now := c.Now
-	if now == nil {
-		now = time.Now
-	}
-	log := c.Log
-	if log == nil {
-		log = slog.Default()
-	}
-	next := 0
 	approved := make([]daily.Item, 0, limit)
+	next := 0
 	for batch := 0; batch < maxBatches && next < len(items); batch++ {
-		var choices []daily.Item
-		parts := []Part{{Text: "Оцени пронумерованные мемы, отметь все подходящие и выбери лучший."}}
-		for next < len(items) && len(choices) < c.MaxImages {
-			if err := ctx.Err(); err != nil {
-				if len(approved) > 0 {
-					return approved, nil
-				}
-				return nil, err
-			}
-			i := items[next]
-			next++
-			if c.Reviews != nil {
-				unusable, err := c.Reviews.MemeRejected(ctx, memeImageScope, i.Key, now())
-				if err != nil {
-					return nil, errors.New("meme image cache unavailable")
-				}
-				if unusable {
-					log.Info("meme image skipped", "scope", c.Scope, "source", i.Key, "reason", "technical_cache")
-					continue
-				}
-				rejected, err := c.Reviews.MemeRejected(ctx, c.Scope, i.Key, now())
-				if err != nil {
-					return nil, errors.New("meme review cache unavailable")
-				}
-				if rejected {
-					continue
-				}
-			}
-			analysisURL := i.AnalysisImage
-			if analysisURL == "" {
-				analysisURL = i.Image
-			}
-			media, err := c.image(ctx, analysisURL)
-			if err != nil && i.AnalysisImage != "" && analysisURL != i.Image && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-				log.Info("meme preview unavailable", "scope", c.Scope, "source", i.Key, "reason", imageFailureCode(err))
-				media, err = c.image(ctx, i.Image)
-			}
-			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					if len(approved) > 0 {
-						return approved, nil
-					}
-					return nil, err
-				}
-				failure, _ := errors.AsType[*imageFailure](err)
-				reason := imageFailureCode(err)
-				log.Info("meme image skipped", "scope", c.Scope, "source", i.Key, "reason", reason)
-				if failure != nil && failure.cacheable && c.Reviews != nil {
-					if cacheErr := c.Reviews.RejectMeme(ctx, memeImageScope, i.Key, now()); cacheErr != nil {
-						return nil, errors.New("cannot save meme image rejection")
-					}
-				}
-				continue
-			}
-			parts = append(parts, Part{Text: fmt.Sprintf("Кандидат %d, заголовок: %s", len(choices), i.Text)}, Part{Inline: media})
-			choices = append(choices, i)
+		choices, parts, position, err := session.collect(ctx, items, next)
+		next = position
+		if err != nil {
+			return partialMemes(approved, err)
 		}
 		if len(choices) == 0 {
 			return approved, ctx.Err()
 		}
-		result, err := c.Generator.Generate(ctx, memeInstruction, parts)
-		if err != nil {
-			if len(approved) > 0 {
-				log.Warn("meme reserve refill failed", "scope", c.Scope, "reason", "generator_failed")
-				return approved, nil
-			}
-			return nil, err
+		selected, stop, err := session.selectBatch(ctx, choices, parts, batch+1, approved)
+		if err != nil || stop {
+			return selected, err
 		}
-		if err := validateReviews(result, len(choices)); err != nil {
-			return nil, err
-		}
-		for _, review := range result.Reviews {
-			i := choices[*review.Index]
-			log.Info("meme reviewed", "scope", c.Scope, "source", i.Key, "batch", batch+1, "reason", review.Reason, "detail", review.Detail)
-			if review.Reason != "accepted" && c.Reviews != nil {
-				if err := c.Reviews.RejectMeme(ctx, c.Scope, i.Key, now()); err != nil {
-					return nil, errors.New("cannot save meme rejection")
-				}
-			}
-		}
-		if *result.Index >= 0 {
-			approved = append(approved, choices[*result.Index])
-		}
-		for _, review := range result.Reviews {
-			if review.Reason == "accepted" && *review.Index != *result.Index {
-				approved = append(approved, choices[*review.Index])
-			}
-		}
+		approved = selected
 		if len(approved) >= limit {
 			return approved[:limit], nil
 		}
 	}
 	return approved, nil
 }
+func partialMemes(approved []daily.Item, err error) ([]daily.Item, error) {
+	if len(approved) > 0 && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return approved, nil
+	}
+	return nil, err
+}
 
-func imageFailureCode(err error) string {
-	if failure, ok := errors.AsType[*imageFailure](err); ok {
+type memeReviewSession struct {
+	editor *Editor
+	now    func() time.Time
+	log    *slog.Logger
+}
+
+func (c *Editor) memeSession() memeReviewSession {
+	now, log := c.Now, c.Log
+	if now == nil {
+		now = time.Now
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	return memeReviewSession{editor: c, now: now, log: log}
+}
+func (m memeReviewSession) collect(ctx context.Context, items []daily.Item, next int) ([]daily.Item, []Part, int, error) {
+	choices := make([]daily.Item, 0, m.editor.MaxImages)
+	parts := []Part{{Text: "Оцени пронумерованные мемы, отметь все подходящие и выбери лучший."}}
+	for next < len(items) && len(choices) < m.editor.MaxImages {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, next, err
+		}
+		item := items[next]
+		next++
+		media, err := m.candidate(ctx, item)
+		if err != nil {
+			return nil, nil, next, err
+		}
+		if media == nil {
+			continue
+		}
+		parts = append(parts, Part{Text: fmt.Sprintf("Кандидат %d, заголовок: %s", len(choices), item.Text)}, Part{Inline: media})
+		choices = append(choices, item)
+	}
+	return choices, parts, next, nil
+}
+func (m memeReviewSession) cached(ctx context.Context, item daily.Item) (bool, error) {
+	if m.editor.Reviews == nil {
+		return false, nil
+	}
+	unusable, err := m.editor.Reviews.MemeRejected(ctx, memeImageScope, item.Key, m.now())
+	if err != nil {
+		return false, errors.New("meme image cache unavailable")
+	}
+	if unusable {
+		m.log.Info("meme image skipped", "scope", m.editor.Scope, "source", item.Key, "reason", "technical_cache")
+		return true, nil
+	}
+	rejected, err := m.editor.Reviews.MemeRejected(ctx, m.editor.Scope, item.Key, m.now())
+	if err != nil {
+		return false, errors.New("meme review cache unavailable")
+	}
+	return rejected, nil
+}
+func (m memeReviewSession) candidate(ctx context.Context, item daily.Item) (*Inline, error) {
+	skipped, err := m.cached(ctx, item)
+	if err != nil || skipped {
+		return nil, err
+	}
+	media, err := m.loadImage(ctx, item)
+	if err == nil {
+		return media, nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return nil, err
+	}
+	m.log.Info("meme image skipped", "scope", m.editor.Scope, "source", item.Key, "reason", imageFailureErrorCode(err))
+	failure, _ := errors.AsType[*imageFailureError](err)
+	if failure != nil && failure.cacheable && m.editor.Reviews != nil {
+		if cacheErr := m.editor.Reviews.RejectMeme(ctx, memeImageScope, item.Key, m.now()); cacheErr != nil {
+			return nil, errors.New("cannot save meme image rejection")
+		}
+	}
+	return nil, nil
+}
+func (m memeReviewSession) loadImage(ctx context.Context, item daily.Item) (*Inline, error) {
+	analysisURL := item.AnalysisImage
+	if analysisURL == "" {
+		analysisURL = item.Image
+	}
+	media, err := m.editor.image(ctx, analysisURL)
+	if err != nil && item.AnalysisImage != "" && analysisURL != item.Image && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		m.log.Info("meme preview unavailable", "scope", m.editor.Scope, "source", item.Key, "reason", imageFailureErrorCode(err))
+		return m.editor.image(ctx, item.Image)
+	}
+	return media, err
+}
+func (m memeReviewSession) saveReviews(ctx context.Context, result Selection, choices []daily.Item, batch int) error {
+	for _, review := range result.Reviews {
+		item := choices[*review.Index]
+		m.log.Info("meme reviewed", "scope", m.editor.Scope, "source", item.Key, "batch", batch, "reason", review.Reason, "detail", review.Detail)
+		if review.Reason != "accepted" && m.editor.Reviews != nil {
+			if err := m.editor.Reviews.RejectMeme(ctx, m.editor.Scope, item.Key, m.now()); err != nil {
+				return errors.New("cannot save meme rejection")
+			}
+		}
+	}
+	return nil
+}
+func acceptedMemes(result Selection, choices []daily.Item) []daily.Item {
+	accepted := make([]daily.Item, 0, len(choices))
+	if *result.Index >= 0 {
+		accepted = append(accepted, choices[*result.Index])
+	}
+	for _, review := range result.Reviews {
+		if review.Reason == "accepted" && *review.Index != *result.Index {
+			accepted = append(accepted, choices[*review.Index])
+		}
+	}
+	return accepted
+}
+
+func imageFailureErrorCode(err error) string {
+	if failure, ok := errors.AsType[*imageFailureError](err); ok {
 		return failure.code
 	}
 	return "image_processing_failed"
@@ -192,7 +231,7 @@ func validateReviews(s Selection, count int) error {
 // Facts retain their existing schema. Vision additionally requires a complete,
 // validated per-image decision, so a bare index cannot silently approve a meme.
 func SelectionSchema(parts []Part) map[string]any {
-	properties := map[string]any{"index": map[string]any{"type": "integer"}, "text": map[string]any{"type": "string"}, "evidence": map[string]any{"type": "string"}}
+	properties := map[string]any{"index": map[string]any{schemaTypeKey: "integer"}, "text": map[string]any{schemaTypeKey: "string"}, "evidence": map[string]any{schemaTypeKey: "string"}}
 	required := []string{"index", "text", "evidence"}
 	count := 0
 	for _, p := range parts {
@@ -209,16 +248,35 @@ func SelectionSchema(parts []Part) map[string]any {
 			keys = append(keys, key)
 			indexes = append(indexes, n)
 			reviews[key] = map[string]any{
-				"type": "object", "additionalProperties": false,
+				schemaTypeKey: "object", "additionalProperties": false,
 				"properties": map[string]any{
-					"reason": map[string]any{"type": "string", "enum": []string{"accepted", "unreadable_text", "context_required", "not_meme", "unsuitable", "low_humor"}},
-					"detail": map[string]any{"type": "string"},
+					"reason": map[string]any{schemaTypeKey: "string", "enum": []string{"accepted", "unreadable_text", "context_required", "not_meme", "unsuitable", "low_humor"}},
+					"detail": map[string]any{schemaTypeKey: "string"},
 				}, "required": []string{"reason", "detail"},
 			}
 		}
-		properties["index"] = map[string]any{"type": "integer", "enum": indexes}
-		properties["reviews"] = map[string]any{"type": "object", "additionalProperties": false, "properties": reviews, "required": keys}
+		properties["index"] = map[string]any{schemaTypeKey: "integer", "enum": indexes}
+		properties["reviews"] = map[string]any{schemaTypeKey: "object", "additionalProperties": false, "properties": reviews, "required": keys}
 		required = append(required, "reviews")
 	}
-	return map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": required}
+	return map[string]any{schemaTypeKey: "object", "additionalProperties": false, "properties": properties, "required": required}
+}
+
+func (m memeReviewSession) selectBatch(ctx context.Context, choices []daily.Item, parts []Part, batch int, approved []daily.Item) ([]daily.Item, bool, error) {
+	result, err := m.editor.Generator.Generate(ctx, memeInstruction, parts)
+	if err != nil {
+		m.log.Warn("meme reserve refill failed", "scope", m.editor.Scope, "reason", "generator_failed")
+		if len(approved) > 0 {
+			return approved, true, nil
+		}
+		return nil, true, err
+	}
+	if err = validateReviews(result, len(choices)); err != nil {
+		return nil, true, err
+	}
+	if err = m.saveReviews(ctx, result, choices, batch); err != nil {
+		return nil, true, err
+	}
+	approved = append(approved, acceptedMemes(result, choices)...)
+	return approved, false, nil
 }

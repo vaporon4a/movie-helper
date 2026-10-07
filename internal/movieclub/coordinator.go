@@ -16,12 +16,14 @@ const (
 )
 
 type Coordinator struct {
-	store     CoordinatorRepository
-	telegram  Transport
-	scenarios ScenarioSet
-	allowed   map[int64]bool
-	log       *slog.Logger
-	now       func() time.Time
+	coordinatorScheduleRepository CoordinatorScheduleRepository
+	coordinatorRoundRepository    CoordinatorRoundRepository
+	selectionRepository           SelectionRepository
+	telegram                      Transport
+	scenarios                     ScenarioSet
+	allowed                       map[int64]bool
+	log                           *slog.Logger
+	now                           func() time.Time
 }
 
 func NewCoordinator(store CoordinatorRepository, telegram Transport, scenarios ScenarioSet, allowed map[int64]bool, log *slog.Logger, now func() time.Time) (*Coordinator, error) {
@@ -34,7 +36,7 @@ func NewCoordinator(store CoordinatorRepository, telegram Transport, scenarios S
 	if now == nil {
 		now = time.Now
 	}
-	return &Coordinator{store: store, telegram: telegram, scenarios: scenarios, allowed: allowed, log: log, now: now}, nil
+	return &Coordinator{coordinatorScheduleRepository: store, coordinatorRoundRepository: store, selectionRepository: store, telegram: telegram, scenarios: scenarios, allowed: allowed, log: log, now: now}, nil
 }
 
 func (c *Coordinator) Run(ctx context.Context) {
@@ -70,7 +72,7 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 }
 
 func (c *Coordinator) reserveSchedules(ctx context.Context, now time.Time) error {
-	schedules, err := c.store.MovieSchedules(ctx, 0)
+	schedules, err := c.coordinatorScheduleRepository.MovieSchedules(ctx, 0)
 	if err != nil {
 		return err
 	}
@@ -90,7 +92,7 @@ func (c *Coordinator) reserveSchedule(ctx context.Context, schedule Schedule, no
 	if c.scenarios[schedule.Feature] == nil {
 		return ErrUnknownFeature
 	}
-	roundID, err := c.store.ReserveMovieRound(ctx, schedule.Feature, schedule.ChatID, slot.Unix(), slot.Add(defaultPollDuration).Unix(), nil)
+	roundID, err := c.coordinatorScheduleRepository.ReserveMovieRound(ctx, schedule.Feature, schedule.ChatID, slot.Unix(), slot.Add(defaultPollDuration).Unix(), nil)
 	if errors.Is(err, ErrActiveRound) {
 		c.log.Info("movieclub scheduled round skipped", "chat_id", schedule.ChatID, "feature", schedule.Feature, "slot_at", slot.Unix(), "reason", "active_same_feature")
 		return nil
@@ -120,7 +122,7 @@ func (c *Coordinator) scheduleSlot(schedule Schedule, now time.Time) (time.Time,
 }
 
 func (c *Coordinator) openPlanned(ctx context.Context, now time.Time) error {
-	rounds, err := c.store.MovieRounds(ctx, StatePlanned)
+	rounds, err := c.coordinatorRoundRepository.MovieRounds(ctx, StatePlanned)
 	if err != nil {
 		return err
 	}
@@ -140,7 +142,7 @@ func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time)
 	if err != nil || !ready {
 		return err
 	}
-	claimed, err := c.store.ClaimMovieRound(ctx, round.ID, StatePlanned, StatePollCreating, now)
+	claimed, err := c.coordinatorRoundRepository.ClaimMovieRound(ctx, round.ID, StatePlanned, StatePollCreating, now)
 	if err != nil || !claimed {
 		return err
 	}
@@ -153,7 +155,7 @@ func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time)
 	if sendErr != nil {
 		return c.handleFailure(ctx, round, StatePollCreating, sendErr, now)
 	}
-	if err = c.store.OpenMovieRound(ctx, round.ID, pollID, messageID, now, closes); err != nil {
+	if err = c.coordinatorRoundRepository.OpenMovieRound(ctx, round.ID, pollID, messageID, now, closes); err != nil {
 		return err
 	}
 	c.log.Info("movieclub poll opened", "round_id", round.ID, "chat_id", round.ChatID, "options", len(options))
@@ -161,7 +163,7 @@ func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time)
 }
 
 func (c *Coordinator) prepareRoundOptions(ctx context.Context, round Round, now time.Time) ([]Option, bool, error) {
-	options, err := c.store.MovieOptions(ctx, round.ID)
+	options, err := c.coordinatorRoundRepository.MovieOptions(ctx, round.ID)
 	if err != nil || len(options) > 0 {
 		return options, err == nil, err
 	}
@@ -173,16 +175,16 @@ func (c *Coordinator) prepareRoundOptions(ctx context.Context, round Round, now 
 	defer cancel()
 	options, err = scenario.Options(prepareCtx, round.ChatID, uint64(round.ChatID)^uint64(round.SlotAt), time.Unix(round.SlotAt, 0))
 	if err != nil {
-		return nil, false, c.store.DeferMovieRound(ctx, round.ID, StatePlanned, StatePlanned, now.Add(time.Hour), catalogReason(err))
+		return nil, false, c.coordinatorRoundRepository.DeferMovieRound(ctx, round.ID, StatePlanned, StatePlanned, now.Add(time.Hour), catalogReason(err))
 	}
-	if err = c.store.SaveMovieOptions(ctx, round.ID, options); errors.Is(err, ErrConflict) {
+	if err = c.coordinatorRoundRepository.SaveMovieOptions(ctx, round.ID, options); errors.Is(err, ErrConflict) {
 		return nil, false, nil
 	}
 	return options, err == nil, err
 }
 
 func (c *Coordinator) closeDue(ctx context.Context, now time.Time) error {
-	rounds, err := c.store.MovieRounds(ctx, StateOpen)
+	rounds, err := c.coordinatorRoundRepository.MovieRounds(ctx, StateOpen)
 	if err != nil {
 		return err
 	}
@@ -198,7 +200,7 @@ func (c *Coordinator) closeRound(ctx context.Context, round Round, now time.Time
 	if round.ClosesAt > now.Unix() || round.NextAttempt > now.Unix() {
 		return nil
 	}
-	claimed, err := c.store.ClaimMovieRound(ctx, round.ID, StateOpen, StateClosing, now)
+	claimed, err := c.coordinatorRoundRepository.ClaimMovieRound(ctx, round.ID, StateOpen, StateClosing, now)
 	if err != nil || !claimed {
 		return err
 	}
@@ -206,7 +208,7 @@ func (c *Coordinator) closeRound(ctx context.Context, round Round, now time.Time
 	if sendErr != nil {
 		return c.handleFailure(ctx, round, StateClosing, sendErr, now)
 	}
-	if err = c.store.SaveMoviePoll(ctx, round.ID, votes); err != nil {
+	if err = c.coordinatorRoundRepository.SaveMoviePoll(ctx, round.ID, votes); err != nil {
 		if errors.Is(err, ErrConflict) {
 			return nil
 		}
@@ -217,7 +219,7 @@ func (c *Coordinator) closeRound(ctx context.Context, round Round, now time.Time
 }
 
 func (c *Coordinator) prepareSelections(ctx context.Context, now time.Time) error {
-	rounds, err := c.store.MovieRounds(ctx, StateSelecting)
+	rounds, err := c.coordinatorRoundRepository.MovieRounds(ctx, StateSelecting)
 	if err != nil {
 		return err
 	}
@@ -237,25 +239,25 @@ func (c *Coordinator) prepareSelection(ctx context.Context, round Round, now tim
 	if scenario == nil {
 		return ErrUnknownFeature
 	}
-	options, err := c.store.MovieOptions(ctx, round.ID)
+	options, err := c.coordinatorRoundRepository.MovieOptions(ctx, round.ID)
 	if err != nil {
 		return err
 	}
 	winners := scenario.Winners(options, uint64(round.ID))
 	if len(winners) == 0 {
-		return c.store.SaveMovieSelection(ctx, round.ID, "", Selection{})
+		return c.selectionRepository.SaveMovieSelection(ctx, round.ID, "", Selection{})
 	}
 	selectionCtx, cancel := context.WithTimeout(ctx, selectionTimeout)
 	defer cancel()
 	selection, err := scenario.Recommendations(selectionCtx, round, winners, now)
 	if err != nil {
-		return c.store.DeferMovieRound(ctx, round.ID, StateSelecting, StateSelecting, now.Add(time.Hour), catalogReason(err))
+		return c.coordinatorRoundRepository.DeferMovieRound(ctx, round.ID, StateSelecting, StateSelecting, now.Add(time.Hour), catalogReason(err))
 	}
 	winnerNames := make([]string, len(winners))
 	for i, winner := range winners {
 		winnerNames[i] = winner.Label
 	}
-	if err = c.store.SaveMovieSelection(ctx, round.ID, strings.Join(winnerNames, " + "), selection); err != nil {
+	if err = c.selectionRepository.SaveMovieSelection(ctx, round.ID, strings.Join(winnerNames, " + "), selection); err != nil {
 		return err
 	}
 	counts := recommendationCounts(selection.Movies)
@@ -274,7 +276,7 @@ func recommendationCounts(movies []Recommendation) map[string]int {
 }
 
 func (c *Coordinator) publishReady(ctx context.Context, now time.Time) error {
-	rounds, err := c.store.MovieRounds(ctx, StateReady)
+	rounds, err := c.coordinatorRoundRepository.MovieRounds(ctx, StateReady)
 	if err != nil {
 		return err
 	}
@@ -290,11 +292,11 @@ func (c *Coordinator) publishRound(ctx context.Context, round Round, now time.Ti
 	if round.NextAttempt > now.Unix() {
 		return nil
 	}
-	claimed, err := c.store.ClaimMovieRound(ctx, round.ID, StateReady, StatePublishing, now)
+	claimed, err := c.coordinatorRoundRepository.ClaimMovieRound(ctx, round.ID, StateReady, StatePublishing, now)
 	if err != nil || !claimed {
 		return err
 	}
-	page1, err := c.store.MovieRecommendations(ctx, round.ID, 1)
+	page1, err := c.selectionRepository.MovieRecommendations(ctx, round.ID, 1)
 	if err != nil {
 		return err
 	}
@@ -306,7 +308,7 @@ func (c *Coordinator) publishRound(ctx context.Context, round Round, now time.Ti
 		if _, sendErr := c.telegram.SendSummary(ctx, round.ChatID, summary, round.ID, more); sendErr != nil {
 			return c.handleFailure(ctx, round, StatePublishing, sendErr, now)
 		}
-		if err = c.store.SetMoviePublishStage(ctx, round.ID, 1, StatePublishing); err != nil {
+		if err = c.selectionRepository.SetMoviePublishStage(ctx, round.ID, 1, StatePublishing); err != nil {
 			return err
 		}
 	}
@@ -316,7 +318,7 @@ func (c *Coordinator) publishRound(ctx context.Context, round Round, now time.Ti
 			return c.handleFailure(ctx, round, StatePublishing, sendErr, now)
 		}
 	}
-	if err = c.store.SetMoviePublishStage(ctx, round.ID, 2, StatePublished); err != nil {
+	if err = c.selectionRepository.SetMoviePublishStage(ctx, round.ID, 2, StatePublished); err != nil {
 		return err
 	}
 	c.log.Info("movieclub selection published", "round_id", round.ID, "chat_id", round.ChatID, "movies", len(page1))
@@ -327,7 +329,7 @@ func (c *Coordinator) selectionSummary(ctx context.Context, round Round, page1 [
 	total := len(page1)
 	more := false
 	if round.Page2State == "ready" {
-		page2, err := c.store.MovieRecommendations(ctx, round.ID, 2)
+		page2, err := c.selectionRepository.MovieRecommendations(ctx, round.ID, 2)
 		if err != nil {
 			return Summary{}, false, err
 		}
@@ -350,9 +352,11 @@ func (c *Coordinator) handleFailure(ctx context.Context, round Round, from State
 			target, code, next = retryTarget(from), "telegram_rate_limit", now.Add(max(typed.After, time.Second))
 		case DeliveryForbidden:
 			target, code = StateFailed, "telegram_forbidden"
-			if disableErr := c.store.DisableMovieSchedules(ctx, round.ChatID); disableErr != nil {
+			if disableErr := c.coordinatorScheduleRepository.DisableMovieSchedules(ctx, round.ChatID); disableErr != nil {
 				return disableErr
 			}
+		case DeliveryUnknown:
+			target, code = StateUnknown, "telegram_unknown"
 		case DeliveryPermanent:
 			target, code = StateFailed, "telegram_rejected"
 		}
@@ -362,7 +366,7 @@ func (c *Coordinator) handleFailure(ctx context.Context, round Round, from State
 		detail = typed.Reason
 	}
 	c.log.Warn("movieclub operation failed", "round_id", round.ID, "chat_id", round.ChatID, "from", from, "target", target, "reason", code, "detail", detail)
-	return c.store.DeferMovieRound(context.WithoutCancel(ctx), round.ID, from, target, next, code)
+	return c.coordinatorRoundRepository.DeferMovieRound(context.WithoutCancel(ctx), round.ID, from, target, next, code)
 }
 
 func retryTarget(from State) State {
@@ -373,6 +377,8 @@ func retryTarget(from State) State {
 		return StateOpen
 	case StatePublishing:
 		return StateReady
+	case StatePlanned, StateOpen, StateSelecting, StateReady, StatePublished, StateCancelled, StateFailed, StateUnknown:
+		return from
 	default:
 		return from
 	}

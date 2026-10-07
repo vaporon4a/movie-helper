@@ -23,6 +23,10 @@ const help = `🎬 Мем дня и интересный факт о кино �
 /reference_poll 10m — выбрать известный фильм-ориентир
 /movie_schedule genre|reference wed 19:00 — еженедельный киноопрос
 /movie_pause genre|reference [wed] — выключить киноопросы
+/club_schedule fri 2 19:00 — напоминания между встречами
+/club_settings — ближайшие напоминания
+/club_pause — выключить напоминания
+/club_preview — попробовать текст напоминания
 /movie_settings — расписание и состояние киноопросов
 /movie_personalization off|shadow|on — режим рекомендаций
 /movie_taste — профиль вкусов чата
@@ -47,6 +51,7 @@ const helpAdmin = `Модерация и служебные команды.
 /refill fact|meme|titles — запустить фоновое пополнение
 /resolve ID sent — подтвердить неопределённую доставку
 /resolve ID requeue — вернуть её материал на следующий день
+/club_resolve ID sent|retry|cancel — разрешить неизвестную доставку напоминания
 /movie_resolve ID sent|retry|cancel — разрешить сбой или вернуть пропущенный киноопрос
 /movie_personalization off|shadow|on — управлять адаптивными рекомендациями
 /movie_taste — показать агрегированный профиль чата

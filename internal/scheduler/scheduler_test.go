@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"path/filepath"
 	"sync"
@@ -51,8 +50,13 @@ type provider struct {
 	hook  func()
 }
 
-func storeOf(s *Scheduler) *storage.Store {
-	return s.Store.(*storage.Store)
+func storeOf(t *testing.T, s *Scheduler) *storage.Store {
+	t.Helper()
+	store, ok := s.deliveries.(*storage.Store)
+	if !ok {
+		t.Fatalf("unexpected storage fixture: %T", s.deliveries)
+	}
+	return store
 }
 
 func (p *provider) Candidates(_ context.Context, kind string, _ int64) ([]daily.Item, error) {
@@ -69,16 +73,16 @@ func (p *provider) Candidates(_ context.Context, kind string, _ int64) ([]daily.
 func TestModerationWaitsForApproval(t *testing.T) {
 	s, send, n := fixture(t)
 	ctx := context.Background()
-	if err := storeOf(s).SetModeration(ctx, 10, -1, true, *n); err != nil {
+	if err := storeOf(t, s).SetModeration(ctx, 10, -1, true, *n); err != nil {
 		t.Fatal(err)
 	}
 	*n = n.Add(time.Hour)
 	tick(t, s)
-	q, err := storeOf(s).Queue(ctx, -1, 0)
+	q, err := storeOf(t, s).Queue(ctx, -1, 0)
 	if err != nil || len(q) != 1 || q[0].State != "pending" || send.calls != 0 {
 		t.Fatal(q, err, send.calls)
 	}
-	if err = storeOf(s).Moderate(ctx, 11, -1, q[0].ID, 42, true, *n); err != nil {
+	if err = storeOf(t, s).Moderate(ctx, 11, -1, q[0].ID, 42, true, *n); err != nil {
 		t.Fatal(err)
 	}
 	tick(t, s)
@@ -87,7 +91,7 @@ func TestModerationWaitsForApproval(t *testing.T) {
 	}
 	*n = n.Add(24 * time.Hour)
 	tick(t, s)
-	if send.calls != 1 || s.Provider.(*provider).calls != 1 {
+	if send.calls != 1 || providerOf(t, s).calls != 1 {
 		t.Fatal("approved queue was not used")
 	}
 }
@@ -95,25 +99,25 @@ func TestModerationWaitsForApproval(t *testing.T) {
 func TestAutomaticModeIgnoresHumanQueue(t *testing.T) {
 	s, send, n := fixture(t)
 	ctx := context.Background()
-	id, err := storeOf(s).Add(ctx, 10, daily.Item{ChatID: -1, AuthorID: 42, Kind: daily.Meme, Image: "file-id", Key: "manual"}, *n)
+	id, err := storeOf(t, s).Add(ctx, 10, daily.Item{ChatID: -1, AuthorID: 42, Kind: daily.Meme, Image: "file-id", Key: "manual"}, *n)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = storeOf(s).Moderate(ctx, 11, -1, id, 42, true, *n); err != nil {
+	if err = storeOf(t, s).Moderate(ctx, 11, -1, id, 42, true, *n); err != nil {
 		t.Fatal(err)
 	}
 	*n = n.Add(time.Hour)
 	tick(t, s)
-	item, err := storeOf(s).Item(ctx, -1, id)
-	if err != nil || item.State != "approved" || send.calls != 1 || s.Provider.(*provider).calls != 1 {
+	item, err := storeOf(t, s).Item(ctx, -1, id)
+	if err != nil || item.State != "approved" || send.calls != 1 || providerOf(t, s).calls != 1 {
 		t.Fatal(item, err, send.calls)
 	}
 }
 
 func TestModeChangeDuringFetchCancelsSlot(t *testing.T) {
 	s, send, n := fixture(t)
-	s.Provider.(*provider).hook = func() {
-		if err := storeOf(s).SetModeration(context.Background(), 10, -1, true, *n); err != nil {
+	providerOf(t, s).hook = func() {
+		if err := storeOf(t, s).SetModeration(context.Background(), 10, -1, true, *n); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -131,10 +135,10 @@ func TestModeChangeCancelsRetryAndRequiresHumanApproval(t *testing.T) {
 	*n = n.Add(time.Hour)
 	send.err = &daily.SendError{Kind: "retry", After: 30 * time.Second}
 	tick(t, s)
-	if err := storeOf(s).SetModeration(ctx, 10, -1, true, *n); err != nil {
+	if err := storeOf(t, s).SetModeration(ctx, 10, -1, true, *n); err != nil {
 		t.Fatal(err)
 	}
-	q, err := storeOf(s).Queue(ctx, -1, 0)
+	q, err := storeOf(t, s).Queue(ctx, -1, 0)
 	if err != nil || len(q) != 1 || q[0].State != "pending" {
 		t.Fatal(q, err)
 	}
@@ -145,7 +149,7 @@ func TestModeChangeCancelsRetryAndRequiresHumanApproval(t *testing.T) {
 	if send.calls != 1 {
 		t.Fatal("AI approval bypassed human moderation")
 	}
-	if err = storeOf(s).SetModeration(ctx, 11, -1, false, *n); err != nil {
+	if err = storeOf(t, s).SetModeration(ctx, 11, -1, false, *n); err != nil {
 		t.Fatal(err)
 	}
 	send.err = nil
@@ -170,7 +174,7 @@ func fixture(t *testing.T) (*Scheduler, *sender, *time.Time) {
 		}
 	}
 	send := &sender{}
-	s := &Scheduler{Store: st, Sender: send, Provider: &provider{}, Allowed: map[int64]bool{-1: true}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return n }}
+	s := &Scheduler{schedules: st, preparation: st, stock: st, deliveries: st, Sender: send, Provider: &provider{}, Allowed: map[int64]bool{-1: true}, Log: slog.New(slog.DiscardHandler), Now: func() time.Time { return n }}
 	return s, send, &n
 }
 func tick(t *testing.T, s *Scheduler) {
@@ -187,7 +191,7 @@ func TestSendOnceAndNoRepeatNextDay(t *testing.T) {
 	if send.calls != 1 {
 		t.Fatal(send.calls)
 	}
-	if e := storeOf(s).Recover(context.Background()); e != nil {
+	if e := storeOf(t, s).Recover(context.Background()); e != nil {
 		t.Fatal(e)
 	}
 	tick(t, s)
@@ -255,14 +259,14 @@ func TestUnknownNeverRetried(t *testing.T) {
 	*n = n.Add(time.Hour)
 	send.err = &daily.SendError{Kind: "unknown"}
 	tick(t, s)
-	if e := storeOf(s).Recover(context.Background()); e != nil {
+	if e := storeOf(t, s).Recover(context.Background()); e != nil {
 		t.Fatal(e)
 	}
 	tick(t, s)
 	if send.calls != 1 {
 		t.Fatal(send.calls)
 	}
-	issues, e := storeOf(s).Issues(context.Background(), -1)
+	issues, e := storeOf(t, s).Issues(context.Background(), -1)
 	if e != nil || len(issues) != 1 || issues[0].State != "unknown" {
 		t.Fatal(issues, e)
 	}
@@ -275,7 +279,7 @@ func TestMissedWindowAndActivation(t *testing.T) {
 		t.Fatal("old slot caught up")
 	}
 	*n = n.Add(-6 * time.Hour)
-	if e := storeOf(s).SetSchedule(context.Background(), 3, -1, "meme", "09:00", true, *n); e != nil {
+	if e := storeOf(t, s).SetSchedule(context.Background(), 3, -1, "meme", "09:00", true, *n); e != nil {
 		t.Fatal(e)
 	}
 	tick(t, s)
@@ -294,7 +298,7 @@ func TestForbiddenSuspendsAndPermanentDoesNot(t *testing.T) {
 			if send.calls != 1 {
 				t.Fatal(send.calls)
 			}
-			sc, e := storeOf(s).Schedules(context.Background(), -1)
+			sc, e := storeOf(t, s).Schedules(context.Background(), -1)
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -309,10 +313,10 @@ func TestForbiddenSuspendsAndPermanentDoesNot(t *testing.T) {
 func TestEmptyFactQueueAndDisallowedChat(t *testing.T) {
 	s, send, n := fixture(t)
 	ctx := context.Background()
-	if e := storeOf(s).SetSchedule(ctx, 3, -1, "meme", "09:00", false, *n); e != nil {
+	if e := storeOf(t, s).SetSchedule(ctx, 3, -1, "meme", "09:00", false, *n); e != nil {
 		t.Fatal(e)
 	}
-	if e := storeOf(s).SetSchedule(ctx, 4, -1, "fact", "09:00", true, *n); e != nil {
+	if e := storeOf(t, s).SetSchedule(ctx, 4, -1, "fact", "09:00", true, *n); e != nil {
 		t.Fatal(e)
 	}
 	*n = n.Add(time.Hour)
@@ -327,4 +331,13 @@ func TestEmptyFactQueueAndDisallowedChat(t *testing.T) {
 	if send.calls != 0 {
 		t.Fatal("disallowed chat sent")
 	}
+}
+
+func providerOf(t *testing.T, s *Scheduler) *provider {
+	t.Helper()
+	p, ok := s.Provider.(*provider)
+	if !ok {
+		t.Fatalf("unexpected provider fixture: %T", s.Provider)
+	}
+	return p
 }

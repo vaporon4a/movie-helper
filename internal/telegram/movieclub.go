@@ -140,7 +140,11 @@ func (s MovieSender) SendMovies(ctx context.Context, chat int64, movies []moviec
 	case 0:
 		return nil, nil
 	case 1:
-		return s.sendMoviePhoto(ctx, chat, media[0].(*models.InputMediaPhoto))
+		photo, ok := media[0].(*models.InputMediaPhoto)
+		if !ok {
+			return nil, &movieclub.DeliveryError{Kind: movieclub.DeliveryPermanent, Reason: "invalid_media"}
+		}
+		return s.sendMoviePhoto(ctx, chat, photo)
 	default:
 		return s.sendMovieAlbum(ctx, chat, media)
 	}

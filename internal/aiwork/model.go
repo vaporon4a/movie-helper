@@ -4,16 +4,18 @@ package aiwork
 import "time"
 
 const (
-	FactRefill   = "fact_refill"
-	MemeRefill   = "meme_refill"
-	FeatureTitle = "feature_title"
+	ClubReminderRefill = "club_reminder_refill"
+	FactRefill         = "fact_refill"
+	MemeRefill         = "meme_refill"
+	FeatureTitle       = "feature_title"
 )
 
 const (
-	PriorityNormal   = 50
-	PriorityUpcoming = 70
-	PriorityLowStock = 80
-	PriorityUrgent   = 100
+	PriorityBackground = 20
+	PriorityNormal     = 50
+	PriorityUpcoming   = 70
+	PriorityLowStock   = 80
+	PriorityUrgent     = 100
 )
 
 type Work struct {

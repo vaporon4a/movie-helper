@@ -7,15 +7,28 @@ import (
 	"time"
 )
 
+// Repository is used only to assemble narrower consumer ports.
 type Repository interface {
+	ChatRepository
+	ScheduleRepository
+	QueueRepository
+}
+
+type ChatRepository interface {
 	EnsureChat(context.Context, int64) error
 	Suspend(context.Context, int64) error
+	SetZone(context.Context, int64, int64, string, time.Time) error
+	Resume(context.Context, int64, int64) error
+}
+
+type ScheduleRepository interface {
 	Schedules(context.Context, int64) ([]Schedule, error)
 	Issues(context.Context, int64) ([]Delivery, error)
 	SetModeration(context.Context, int64, int64, bool, time.Time) error
-	SetZone(context.Context, int64, int64, string, time.Time) error
 	SetSchedule(context.Context, int64, int64, string, string, bool, time.Time) error
-	Resume(context.Context, int64, int64) error
+}
+
+type QueueRepository interface {
 	Add(context.Context, int64, Item, time.Time) (int64, error)
 	Queue(context.Context, int64, int64) ([]Item, error)
 	Item(context.Context, int64, int64) (Item, error)
@@ -34,10 +47,12 @@ type BackgroundRepository interface {
 }
 
 type Service struct {
-	repository     Repository
-	provider       Provider
-	log            *slog.Logger
-	backgroundOnly bool
+	chatRepository     ChatRepository
+	scheduleRepository ScheduleRepository
+	queueRepository    QueueRepository
+	provider           Provider
+	log                *slog.Logger
+	backgroundOnly     bool
 }
 
 func NewService(repository Repository, provider Provider, log *slog.Logger, backgroundOnly ...bool) (*Service, error) {
@@ -48,58 +63,58 @@ func NewService(repository Repository, provider Provider, log *slog.Logger, back
 		log = slog.Default()
 	}
 	only := len(backgroundOnly) > 0 && backgroundOnly[0]
-	return &Service{repository: repository, provider: provider, log: log, backgroundOnly: only}, nil
+	return &Service{chatRepository: repository, scheduleRepository: repository, queueRepository: repository, provider: provider, log: log, backgroundOnly: only}, nil
 }
 
 func (s *Service) EnsureChat(ctx context.Context, chatID int64) error {
-	return s.repository.EnsureChat(ctx, chatID)
+	return s.chatRepository.EnsureChat(ctx, chatID)
 }
 func (s *Service) Suspend(ctx context.Context, chatID int64) error {
-	return s.repository.Suspend(ctx, chatID)
+	return s.chatRepository.Suspend(ctx, chatID)
 }
 func (s *Service) Schedules(ctx context.Context, chatID int64) ([]Schedule, error) {
-	return s.repository.Schedules(ctx, chatID)
+	return s.scheduleRepository.Schedules(ctx, chatID)
 }
 func (s *Service) Issues(ctx context.Context, chatID int64) ([]Delivery, error) {
-	return s.repository.Issues(ctx, chatID)
+	return s.scheduleRepository.Issues(ctx, chatID)
 }
 func (s *Service) SetModeration(ctx context.Context, operationID, chatID int64, enabled bool, now time.Time) error {
-	err := s.repository.SetModeration(ctx, operationID, chatID, enabled, now)
+	err := s.scheduleRepository.SetModeration(ctx, operationID, chatID, enabled, now)
 	if err == nil {
 		s.log.Info("daily moderation changed", "chat_id", chatID, "enabled", enabled)
 	}
 	return err
 }
 func (s *Service) SetZone(ctx context.Context, operationID, chatID int64, zone string, now time.Time) error {
-	return s.repository.SetZone(ctx, operationID, chatID, zone, now)
+	return s.chatRepository.SetZone(ctx, operationID, chatID, zone, now)
 }
 func (s *Service) SetSchedule(ctx context.Context, operationID, chatID int64, kind, clock string, enabled bool, now time.Time) error {
-	err := s.repository.SetSchedule(ctx, operationID, chatID, kind, clock, enabled, now)
+	err := s.scheduleRepository.SetSchedule(ctx, operationID, chatID, kind, clock, enabled, now)
 	if err == nil {
 		s.log.Info("daily schedule changed", "chat_id", chatID, "kind", kind, "enabled", enabled)
 	}
 	return err
 }
 func (s *Service) Resume(ctx context.Context, operationID, chatID int64) error {
-	return s.repository.Resume(ctx, operationID, chatID)
+	return s.chatRepository.Resume(ctx, operationID, chatID)
 }
 func (s *Service) Add(ctx context.Context, operationID int64, item Item, now time.Time) (int64, error) {
-	return s.repository.Add(ctx, operationID, item, now)
+	return s.queueRepository.Add(ctx, operationID, item, now)
 }
 func (s *Service) Queue(ctx context.Context, chatID, after int64) ([]Item, error) {
-	return s.repository.Queue(ctx, chatID, after)
+	return s.queueRepository.Queue(ctx, chatID, after)
 }
 func (s *Service) Item(ctx context.Context, chatID, itemID int64) (Item, error) {
-	return s.repository.Item(ctx, chatID, itemID)
+	return s.queueRepository.Item(ctx, chatID, itemID)
 }
 func (s *Service) Moderate(ctx context.Context, operationID, chatID, itemID, userID int64, approve bool, now time.Time) error {
-	return s.repository.Moderate(ctx, operationID, chatID, itemID, userID, approve, now)
+	return s.queueRepository.Moderate(ctx, operationID, chatID, itemID, userID, approve, now)
 }
 func (s *Service) Resolve(ctx context.Context, operationID, chatID, deliveryID int64, sent bool) error {
-	return s.repository.Resolve(ctx, operationID, chatID, deliveryID, sent)
+	return s.queueRepository.Resolve(ctx, operationID, chatID, deliveryID, sent)
 }
 func (s *Service) Candidates(ctx context.Context, kind string, chatID int64) ([]Item, error) {
-	if background, ok := s.repository.(BackgroundRepository); ok {
+	if background, ok := s.queueRepository.(BackgroundRepository); ok {
 		item, found, err := background.PreviewAIItem(ctx, chatID, kind, time.Now())
 		if err != nil {
 			return nil, err
@@ -127,7 +142,7 @@ func (s *Service) Candidates(ctx context.Context, kind string, chatID int64) ([]
 }
 
 func (s *Service) Stocks(ctx context.Context, chatID int64, now time.Time) ([]Stock, error) {
-	background, ok := s.repository.(BackgroundRepository)
+	background, ok := s.queueRepository.(BackgroundRepository)
 	if !ok {
 		return nil, errors.New("background stock is unavailable")
 	}
@@ -138,7 +153,7 @@ func (s *Service) RequestRefill(ctx context.Context, chatID int64, kind string, 
 	if !ValidKind(kind) && kind != "titles" {
 		return errors.New("invalid refill kind")
 	}
-	background, ok := s.repository.(BackgroundRepository)
+	background, ok := s.queueRepository.(BackgroundRepository)
 	if !ok {
 		return errors.New("background refill is unavailable")
 	}

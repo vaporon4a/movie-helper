@@ -30,11 +30,14 @@ jobs:
           test -z "$(gofmt -l cmd internal)"
           go vet ./...
           go test -race ./...
+          PYTHONPATH=deploy python3 -c "from announcements import catalog; catalog('announcements')"
           python3 -m unittest discover -s deploy -p "test_*.py"
       - name: Lint
         run: |
           GOBIN="$RUNNER_TEMP/bin" GOTOOLCHAIN=go1.27.1 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+          "$RUNNER_TEMP/bin/golangci-lint" config verify
           "$RUNNER_TEMP/bin/golangci-lint" run ./...
+          python3 scripts/check_lint_guards.py --linter "$RUNNER_TEMP/bin/golangci-lint"
       - name: Validate Compose
         env:
           BOT_TOKEN: '123:ci-placeholder'
@@ -96,3 +99,13 @@ jobs:
           ALLOWED_CHAT_IDS: ${{ inputs.allowed_chat_ids || vars.ALLOWED_CHAT_IDS }}
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 deploy/send.py
+
+      - name: Publish deployed feature announcements
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          ANNOUNCEMENT_PUBLISH: 'true'
+        run: python3 deploy/announce.py

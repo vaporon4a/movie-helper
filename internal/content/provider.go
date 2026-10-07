@@ -41,22 +41,9 @@ func (p *Provider) Candidates(ctx context.Context, kind string, chat int64) (ite
 		if err != nil {
 			return nil, err
 		}
-		var unseen []daily.Item
-		for _, i := range items {
-			seen, err := p.History.Seen(ctx, chat, kind, i.Key)
-			if err != nil {
-				return nil, err
-			}
-			if !seen {
-				unseen = append(unseen, i)
-			}
-		}
-		selected, err := p.Editor.SelectMemes(ctx, unseen, 3)
-		if err != nil {
-			return nil, err
-		}
-		return selected, nil
+		return p.selectUnseenMemes(ctx, items, chat)
 	}
+
 	var articles []gemini.Article
 	if p.Facts != nil {
 		var err error
@@ -108,4 +95,18 @@ func previewStatusCode(provider string, status int) string {
 		suffix = "unavailable"
 	}
 	return provider + "_" + suffix
+}
+
+func (p *Provider) selectUnseenMemes(ctx context.Context, items []daily.Item, chat int64) ([]daily.Item, error) {
+	unseen := make([]daily.Item, 0, len(items))
+	for _, item := range items {
+		seen, err := p.History.Seen(ctx, chat, daily.Meme, item.Key)
+		if err != nil {
+			return nil, err
+		}
+		if !seen {
+			unseen = append(unseen, item)
+		}
+	}
+	return p.Editor.SelectMemes(ctx, unseen, 3)
 }

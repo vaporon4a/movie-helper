@@ -2,7 +2,6 @@ package aiwork
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -49,7 +48,7 @@ func TestCoordinatorCompletesAndDefersDurableWork(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &repoStub{work: Work{ID: 1, Kind: FactRefill, ScopeID: -1, Attempts: 1}}
-			coordinator, err := NewCoordinator(repo, map[string]Executor{FactRefill: executorStub{outcome: tc.outcome}}, slog.New(slog.NewTextHandler(io.Discard, nil)), func() time.Time { return now })
+			coordinator, err := NewCoordinator(repo, map[string]Executor{FactRefill: executorStub{outcome: tc.outcome}}, slog.New(slog.DiscardHandler), func() time.Time { return now })
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -63,5 +62,29 @@ func TestCoordinatorCompletesAndDefersDurableWork(t *testing.T) {
 				t.Fatal(repo.next)
 			}
 		})
+	}
+}
+
+type executorFunc func(context.Context, Work, time.Time) (Outcome, error)
+
+func (f executorFunc) Execute(ctx context.Context, w Work, now time.Time) (Outcome, error) {
+	return f(ctx, w, now)
+}
+func TestRetryAfterStartsWhenExternalCallFinishes(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	repo := &repoStub{work: Work{ID: 1, Kind: FactRefill, Attempts: 1}}
+	executor := executorFunc(func(context.Context, Work, time.Time) (Outcome, error) {
+		now = now.Add(40 * time.Second)
+		return Outcome{After: time.Minute, Reason: "provider_rate_limit"}, nil
+	})
+	c, err := NewCoordinator(repo, map[string]Executor{FactRefill: executor}, nil, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = c.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !repo.next.Equal(now.Add(time.Minute)) {
+		t.Fatalf("retry=%s expected=%s", repo.next, now.Add(time.Minute))
 	}
 }

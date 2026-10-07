@@ -22,16 +22,16 @@ import (
 
 const maxSourceImageBytes = 8 << 20
 
-type imageFailure struct {
+type imageFailureError struct {
 	code      string
 	cacheable bool
 }
 
-func (e *imageFailure) Error() string { return e.code }
+func (e *imageFailureError) Error() string { return e.code }
 
 func (c *Editor) image(ctx context.Context, raw string) (*Inline, error) {
 	if !validAnalysisURL(raw) {
-		return nil, &imageFailure{code: "unsupported_image_url", cacheable: true}
+		return nil, &imageFailureError{code: "unsupported_image_url", cacheable: true}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
@@ -44,24 +44,24 @@ func (c *Editor) image(ctx context.Context, raw string) (*Inline, error) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, &imageFailure{code: "image_unavailable"}
+		return nil, &imageFailureError{code: "image_unavailable"}
 	}
 	defer r.Body.Close()
 	if r.StatusCode != 200 {
 		cacheable := r.StatusCode >= 400 && r.StatusCode < 500 && r.StatusCode != http.StatusRequestTimeout && r.StatusCode != http.StatusTooManyRequests
-		return nil, &imageFailure{code: "image_status_" + strconv.Itoa(r.StatusCode), cacheable: cacheable}
+		return nil, &imageFailureError{code: "image_status_" + strconv.Itoa(r.StatusCode), cacheable: cacheable}
 	}
 	data, err := io.ReadAll(io.LimitReader(r.Body, maxSourceImageBytes+1))
 	if err != nil {
-		return nil, &imageFailure{code: "image_read_failed"}
+		return nil, &imageFailureError{code: "image_read_failed"}
 	}
 	if len(data) > maxSourceImageBytes {
-		return nil, &imageFailure{code: "image_too_large", cacheable: true}
+		return nil, &imageFailureError{code: "image_too_large", cacheable: true}
 	}
 	originalBytes := len(data)
 	data, mime, width, height, err := analysisImage(data)
 	if err != nil {
-		return nil, &imageFailure{code: err.Error(), cacheable: true}
+		return nil, &imageFailureError{code: err.Error(), cacheable: true}
 	}
 	log := c.Log
 	if log == nil {

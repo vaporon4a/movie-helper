@@ -2,7 +2,6 @@ package daily_test
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"path/filepath"
 	"testing"
@@ -31,7 +30,7 @@ func TestBackgroundPreviewNeverCallsForegroundProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := &foregroundProviderSpy{}
-	service, err := daily.NewService(store, provider, slog.New(slog.NewTextHandler(io.Discard, nil)), true)
+	service, err := daily.NewService(store, provider, slog.New(slog.DiscardHandler), true)
 	if err != nil {
 		t.Fatal(err)
 	}

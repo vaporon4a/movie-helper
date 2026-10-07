@@ -116,11 +116,17 @@ def wait_ready(cid, expected):
 
 
 def deploy(data, release):
+    # Backup tooling imports this module without deploying announcements.
+    from announcements import validate_entries
     previous = (BASE / 'current').resolve() if (BASE / 'current').is_symlink() else None
+    entries = validate_entries(data.get('announcements', []))
+    # A previous readiness marker must never validate a failed re-deployment.
+    (release / 'ready.json').unlink(missing_ok=True)
     runtime = runtime_settings(data, previous)
     image = image_reference(data)
     secure_write(release / 'runtime.env', runtime)
     secure_write(release / 'image.env', 'BOT_IMAGE=' + image + '\n')
+    secure_write(release / 'announcements.json', json.dumps(entries, ensure_ascii=False))
     compose(release, 'config', '--quiet')
     # A job-scoped registry token exists only during pull, never in a release or image.
     with tempfile.TemporaryDirectory(prefix='registry-', dir=BASE) as tmp:
@@ -174,6 +180,7 @@ def deploy(data, release):
         except DeployError:
             pass
         raise DeployError('New bot failed readiness; stopped. Previous release and backup retained') from None
+    secure_write(release / 'ready.json', json.dumps({'image': image}))
     print('Deployment ready: ' + image, flush=True)
     print('Chat mode: ' + ('bootstrap (/id only)' if 'ALLOWED_CHAT_IDS=bootstrap\n' in runtime else 'allowlist configured'), flush=True)
 

@@ -36,7 +36,10 @@ type HTTPError struct {
 
 func (e *HTTPError) Error() string { return fmt.Sprintf("Groq status %d", e.Status) }
 
+func (e *HTTPError) RetryAfter() time.Duration { return e.After }
+
 type Client struct {
+	MaxCompletionTokens int
 	HTTP                *http.Client
 	BaseURL, Key, Model string
 	Budget              ai.Budget
@@ -65,7 +68,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 		}
 	}
 	body := map[string]any{
-		"model": c.Model, "reasoning_effort": "none", "max_completion_tokens": 768,
+		"model": c.Model, "reasoning_effort": "none", "max_completion_tokens": c.completionLimit(),
 		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{
 			"name": "content_selection", "strict": true, "schema": ai.SelectionSchema(parts),
 		}},
@@ -78,54 +81,78 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	if err != nil {
 		return result, errors.New("cannot encode Groq request")
 	}
+	r, err := c.request(ctx, data)
+	if err != nil {
+		return result, err
+	}
+	return decodeSelection(r)
+}
+func (c *Client) request(ctx context.Context, data []byte) (*http.Response, error) {
+	for attempt := 1; attempt <= 2; attempt++ {
+		response, err := c.sendRequest(ctx, data)
+		if err != nil {
+			return nil, err
+		}
+		if response.StatusCode == http.StatusOK {
+			return response, nil
+		}
+		if err = c.retryResponse(ctx, response, attempt); err != nil {
+			return nil, err
+		}
+	}
+	return nil, errors.New("provider retries exhausted")
+}
+func (c *Client) sendRequest(ctx context.Context, data []byte) (*http.Response, error) {
 	// Never follow a redirect with API credentials, even with a custom client.
 	client := *c.HTTP
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	var r *http.Response
-	for attempt := 1; attempt <= 2; attempt++ {
-		allowed, budgetErr := c.Budget.AllowAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
-		if budgetErr != nil {
-			return result, errors.New("groq budget unavailable")
-		}
-		if !allowed {
-			return result, ai.ErrDailyLimit
-		}
-		c.logBudget(ctx)
-		req, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(data))
-		if requestErr != nil {
-			return result, errors.New("invalid Groq endpoint")
-		}
-		req.Header.Set("Authorization", "Bearer "+c.Key)
-		req.Header.Set("Content-Type", "application/json")
-		r, err = client.Do(req)
-		if err != nil {
-			return result, errors.New("groq connection failed")
-		}
-		if r.StatusCode == http.StatusOK {
-			break
-		}
-		status := r.StatusCode
-		_ = r.Body.Close()
-		if status != http.StatusTooManyRequests {
-			return result, &HTTPError{Status: status}
-		}
-		after, source := c.retryAfter(r.Header.Get("Retry-After"))
-		httpErr := &HTTPError{Status: status, After: after, LimitKind: rateLimitKind(r.Header), RetrySource: source}
-		if attempt == 2 {
-			httpErr.Deferred = true
-			c.logRateLimit(attempt, httpErr, false)
-			return result, httpErr
-		}
-		if after > c.inlineLimit() || !c.waitFits(ctx, after) {
-			httpErr.Deferred = true
-			c.logRateLimit(attempt, httpErr, false)
-			return result, httpErr
-		}
-		c.logRateLimit(attempt, httpErr, true)
-		if err = c.wait(ctx, after); err != nil {
-			return result, err
-		}
+	allowed, budgetErr := c.Budget.AllowAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
+	if budgetErr != nil {
+		return nil, errors.New("groq budget unavailable")
 	}
+	if !allowed {
+		return nil, ai.ErrDailyLimit
+	}
+	c.logBudget(ctx)
+	req, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(data))
+	if requestErr != nil {
+		return nil, errors.New("invalid Groq endpoint")
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Key)
+	req.Header.Set("Content-Type", "application/json")
+	r, err := client.Do(req)
+	if err != nil {
+		return nil, errors.New("groq connection failed")
+	}
+	return r, nil
+}
+func (c *Client) retryResponse(ctx context.Context, r *http.Response, attempt int) error {
+	status := r.StatusCode
+	_ = r.Body.Close()
+	if status != http.StatusTooManyRequests {
+		return &HTTPError{Status: status}
+	}
+	after, source := c.retryAfter(r.Header.Get("Retry-After"))
+	httpErr := &HTTPError{Status: status, After: after, LimitKind: rateLimitKind(r.Header), RetrySource: source}
+	if attempt == 2 {
+		httpErr.Deferred = true
+		c.logRateLimit(attempt, httpErr, false)
+		return httpErr
+	}
+	if after > c.inlineLimit() || !c.waitFits(ctx, after) {
+		httpErr.Deferred = true
+		c.logRateLimit(attempt, httpErr, false)
+		return httpErr
+	}
+	c.logRateLimit(attempt, httpErr, true)
+	if err := c.wait(ctx, after); err != nil {
+		return err
+	}
+	return nil
+}
+func decodeSelection(r *http.Response) (ai.Selection, error) {
+	var result ai.Selection
+	var err error
 	defer r.Body.Close()
 	var response struct {
 		Choices []struct {
@@ -219,8 +246,8 @@ func (c *Client) logRateLimit(attempt int, problem *HTTPError, retry bool) {
 }
 
 func rateLimitKind(header http.Header) string {
-	tokens := strings.TrimSpace(header.Get("x-ratelimit-remaining-tokens"))
-	requests := strings.TrimSpace(header.Get("x-ratelimit-remaining-requests"))
+	tokens := strings.TrimSpace(header.Get("X-Ratelimit-Remaining-Tokens"))
+	requests := strings.TrimSpace(header.Get("X-Ratelimit-Remaining-Requests"))
 	if tokens == "0" && requests == "0" {
 		return "tokens_and_requests"
 	}
@@ -249,4 +276,11 @@ func (c *Client) SelectMemes(ctx context.Context, items []daily.Item, limit int)
 func (c *Client) Fact(ctx context.Context, articles []ai.Article) (*daily.Item, error) {
 	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.FactGenerationPolicy, Now: c.Now, MaxBatches: 2, MaxImages: 1, Log: c.Log}
 	return e.Fact(ctx, articles)
+}
+
+func (c *Client) completionLimit() int {
+	if c.MaxCompletionTokens > 0 {
+		return c.MaxCompletionTokens
+	}
+	return 768
 }

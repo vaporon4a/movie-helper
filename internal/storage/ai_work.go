@@ -36,7 +36,7 @@ func (s *Store) EnqueueAIWork(ctx context.Context, kind string, scopeID int64, k
 }
 
 func validAIWorkKind(kind string) bool {
-	return kind == aiwork.FactRefill || kind == aiwork.MemeRefill || kind == aiwork.FeatureTitle
+	return kind == aiwork.ClubReminderRefill || kind == aiwork.FactRefill || kind == aiwork.MemeRefill || kind == aiwork.FeatureTitle
 }
 
 func (s *Store) SeedAIWork(ctx context.Context, now time.Time) error {
@@ -48,7 +48,10 @@ func (s *Store) SeedAIWork(ctx context.Context, now time.Time) error {
 		if err := seedContentAIWork(ctx, tx, now); err != nil {
 			return err
 		}
-		return seedFeatureTitleWork(ctx, tx, now)
+		if err := seedFeatureTitleWork(ctx, tx, now); err != nil {
+			return err
+		}
+		return seedClubWork(ctx, tx, now)
 	})
 }
 
@@ -264,7 +267,7 @@ func (s *Store) SaveAIItems(ctx context.Context, chat int64, kind string, candid
 		if err := tx.QueryRowContext(ctx, "SELECT moderation FROM chats WHERE chat_id=? AND active=1", chat).Scan(&moderation); err != nil {
 			return err
 		}
-		state := "approved"
+		state := approvedState
 		if moderation {
 			state = "pending"
 		}

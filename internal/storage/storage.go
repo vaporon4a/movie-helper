@@ -113,7 +113,10 @@ func (s *Store) SetZone(ctx context.Context, op, chat int64, zone string, now ti
 		if err := updateMovieZone(ctx, tx, chat, now); err != nil {
 			return err
 		}
-		return updateFeatureZone(ctx, tx, chat, now)
+		if err := updateFeatureZone(ctx, tx, chat, now); err != nil {
+			return err
+		}
+		return updateClubZone(ctx, tx, chat, now)
 	})
 }
 
@@ -170,6 +173,9 @@ func (s *Store) Suspend(ctx context.Context, chat int64) error {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE schedules SET enabled=0 WHERE chat_id=?", chat); err != nil {
+			return err
+		}
+		if err := suspendClub(ctx, tx, chat, time.Now()); err != nil {
 			return err
 		}
 		if err := disableMovieSchedules(ctx, tx, chat); err != nil {
@@ -232,9 +238,9 @@ func (s *Store) SetModeration(ctx context.Context, op, chat int64, enabled bool,
 		}
 		// AI approval survives mode changes, but cannot substitute for a human
 		// approval while moderation is enabled. Human submissions stay untouched.
-		from, to := "pending", "approved"
+		from, to := "pending", approvedState
 		if enabled {
-			from, to = "approved", "pending"
+			from, to = approvedState, "pending"
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE items SET state=? WHERE chat_id=? AND ai_approved=1 AND approved_by IS NULL AND state=?", to, chat, from); err != nil {
 			return err
@@ -312,7 +318,7 @@ func (s *Store) Moderate(ctx context.Context, op, chat, id, user int64, approve 
 		target := "rejected"
 		from := "state IN ('pending','approved')"
 		if approve {
-			target = "approved"
+			target = approvedState
 			from = "(state='pending' OR (state='approved' AND approved_by IS NULL))"
 		}
 		r, err := tx.ExecContext(ctx, "UPDATE items SET state=?,approved_by=?,approved_at=? WHERE id=? AND chat_id=? AND "+from, target, user, now.Unix(), id, chat)
@@ -379,47 +385,12 @@ func (s *Store) Attach(ctx context.Context, id int64, candidates []daily.Item, n
 			return err
 		}
 		if errors.Is(err, sql.ErrNoRows) && len(candidates) > 0 {
-			state := "approved"
-			if moderation {
-				state = "pending"
-			}
-			for _, candidate := range candidates {
-				i := candidate
-				i.ChatID = chat
-				i.Kind = kind
-				if err = i.Validate(); err != nil {
-					return err
-				}
-				r, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,ai_approved,source_evidence,ai_provider,generation_policy)
-   VALUES(?,?,?,?,?,?,0,?,?,1,?,?,?)`, chat, kind, i.Text, i.Source, i.Image, i.Key, state, now.Unix(), i.SourceEvidence, i.AIProvider, i.GenerationPolicy)
-				if e != nil {
-					return e
-				}
-				n, e := r.RowsAffected()
-				if e != nil {
-					return e
-				}
-				if n > 0 && !moderation && item == 0 {
-					item, e = r.LastInsertId()
-					if e != nil {
-						return e
-					}
-				}
+			item, err = insertAttachmentCandidates(ctx, tx, chat, kind, moderation, candidates, now)
+			if err != nil {
+				return err
 			}
 		}
-		if item == 0 {
-			reason := "no_approved_candidate"
-			if moderation && len(candidates) > 0 {
-				reason = "manual_approval_required"
-			}
-			_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='skipped',preparation_error=?,fetch_claimed=0 WHERE id=?", reason, id)
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, "UPDATE items SET state='reserved' WHERE id=?", item); err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='ready',item_id=?,next_attempt=0,fetch_claimed=0,preparation_error='' WHERE id=?", item, id)
-		return err
+		return finishAttachment(ctx, tx, id, item, moderation, len(candidates))
 	})
 }
 func (s *Store) HasApproved(ctx context.Context, chat int64, kind string, now time.Time) (bool, error) {
@@ -470,7 +441,7 @@ func (s *Store) Claim(ctx context.Context, id int64, now time.Time) (bool, error
 }
 func (s *Store) Finish(ctx context.Context, id int64, state string, message int, next int64) error {
 	switch state {
-	case "sent", "unknown", "failed", "retry", "cancelled":
+	case sentState, "unknown", "failed", "retry", cancelledState:
 	default:
 		return errors.New("invalid delivery state")
 	}
@@ -488,12 +459,12 @@ func (s *Store) Finish(ctx context.Context, id int64, state string, message int,
 		}
 		itemState := "reserved"
 		switch state {
-		case "sent":
-			itemState = "sent"
+		case sentState:
+			itemState = sentState
 		case "failed":
 			itemState = "failed"
 		case "cancelled":
-			itemState = "approved"
+			itemState = approvedState
 		}
 		_, err := tx.ExecContext(ctx, "UPDATE items SET state=? WHERE id=? AND state='reserved'", itemState, item)
 		return err
@@ -522,9 +493,9 @@ func (s *Store) Resolve(ctx context.Context, op, chat, id int64, sent bool) erro
 		if err := tx.QueryRowContext(ctx, "SELECT item_id FROM deliveries WHERE id=? AND chat_id=? AND state='unknown'", id, chat).Scan(&item); err != nil {
 			return daily.ErrConflict
 		}
-		ds, is := "cancelled", "approved"
+		ds, is := "cancelled", approvedState
 		if sent {
-			ds, is = "sent", "sent"
+			ds, is = sentState, sentState
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE deliveries SET state=? WHERE id=?", ds, id); err != nil {
 			return err
@@ -553,4 +524,52 @@ func (s *Store) RemainingAPI(ctx context.Context, date string, limit int) (int, 
 	var used int
 	err := s.db.QueryRowContext(ctx, "SELECT COALESCE((SELECT requests FROM api_usage WHERE utc_date=?),0)", date).Scan(&used)
 	return max(0, limit-used), err
+}
+
+func insertAttachmentCandidates(ctx context.Context, tx *sql.Tx, chat int64, kind string, moderation bool, candidates []daily.Item, now time.Time) (int64, error) {
+	var item int64
+	state := approvedState
+	if moderation {
+		state = "pending"
+	}
+	for _, candidate := range candidates {
+		i := candidate
+		i.ChatID = chat
+		i.Kind = kind
+		if err := i.Validate(); err != nil {
+			return 0, err
+		}
+		r, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,ai_approved,source_evidence,ai_provider,generation_policy)
+   VALUES(?,?,?,?,?,?,0,?,?,1,?,?,?)`, chat, kind, i.Text, i.Source, i.Image, i.Key, state, now.Unix(), i.SourceEvidence, i.AIProvider, i.GenerationPolicy)
+		if e != nil {
+			return 0, e
+		}
+		n, e := r.RowsAffected()
+		if e != nil {
+			return 0, e
+		}
+		if n > 0 && !moderation && item == 0 {
+			item, e = r.LastInsertId()
+			if e != nil {
+				return 0, e
+			}
+		}
+	}
+	return item, nil
+}
+func finishAttachment(ctx context.Context, tx *sql.Tx, id, item int64, moderation bool, candidateCount int) error {
+	var err error
+	if item == 0 {
+		reason := "no_approved_candidate"
+		if moderation && candidateCount > 0 {
+			reason = "manual_approval_required"
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='skipped',preparation_error=?,fetch_claimed=0 WHERE id=?", reason, id)
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE items SET state='reserved' WHERE id=?", item); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='ready',item_id=?,next_attempt=0,fetch_claimed=0,preparation_error='' WHERE id=?", item, id)
+	return err
 }

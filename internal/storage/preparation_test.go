@@ -82,14 +82,14 @@ func TestPreparationMigrationPreservesExistingReadyDelivery(t *testing.T) {
 	_, err = p.DownTo(ctx, 5)
 	must(t, err)
 	setup(t, s, -1)
-	result, err := s.db.Exec(`INSERT INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,approved_by,approved_at,ai_approved)
+	result, err := s.db.ExecContext(t.Context(), `INSERT INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,approved_by,approved_at,ai_approved)
  VALUES(-1,'fact','Факт','https://example.org/interview','','before-upgrade',42,'approved',?,?,?,0)`, testNow.Unix(), 42, testNow.Unix())
 	must(t, err)
 	item, err := result.LastInsertId()
 	must(t, err)
-	_, err = s.db.Exec(`INSERT INTO deliveries(chat_id,kind,local_date,item_id,deadline,state) VALUES(-1,'fact','2026-09-22',?,?,'ready')`, item, testNow.Add(2*time.Hour).Unix())
+	_, err = s.db.ExecContext(t.Context(), `INSERT INTO deliveries(chat_id,kind,local_date,item_id,deadline,state) VALUES(-1,'fact','2026-09-22',?,?,'ready')`, item, testNow.Add(2*time.Hour).Unix())
 	must(t, err)
-	_, err = s.db.Exec(`UPDATE items SET state='reserved' WHERE id=?`, item)
+	_, err = s.db.ExecContext(t.Context(), `UPDATE items SET state='reserved' WHERE id=?`, item)
 	must(t, err)
 	_, err = p.Up(ctx)
 	must(t, err)
@@ -99,7 +99,7 @@ func TestPreparationMigrationPreservesExistingReadyDelivery(t *testing.T) {
 		t.Fatal(rows)
 	}
 	var slot int64
-	must(t, s.db.QueryRow("SELECT slot_at FROM deliveries WHERE id=?", rows[0].ID).Scan(&slot))
+	must(t, s.db.QueryRowContext(t.Context(), "SELECT slot_at FROM deliveries WHERE id=?", rows[0].ID).Scan(&slot))
 	if slot != testNow.Add(time.Hour).Unix() {
 		t.Fatal(slot)
 	}

@@ -110,6 +110,8 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual((self.base / 'current').resolve(), self.release)
         self.assertEqual((self.release / 'runtime.env').stat().st_mode & 0o777, 0o600)
         self.assertEqual((self.release / 'previous.txt').read_text().strip(), str(self.previous))
+        self.assertEqual(json.loads((self.release / 'ready.json').read_text()), {'image': IMAGE})
+        self.assertEqual(json.loads((self.release / 'announcements.json').read_text()), [])
         self.assertTrue(any(c.args[1:4] == ('up', '-d', '--no-build') for c in compose.call_args_list))
 
     def test_failed_new_bot_is_stopped_without_unsafe_old_schema_restart(self):
@@ -120,6 +122,7 @@ class DeploymentTests(unittest.TestCase):
         compose.assert_called_with(self.release, 'stop', 'bot')
         self.assertNotIn(['docker', 'start', 'old-container'], self.calls)
         self.assertTrue((self.release / 'previous.txt').exists())
+        self.assertFalse((self.release / 'ready.json').exists())
 
     def test_backup_runs_docker_cp_from_writable_destination_directory(self):
         destination = self.base / 'backups' / 'snapshot.tar.gz'

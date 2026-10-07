@@ -163,14 +163,8 @@ func (c *Editor) reviewFact(ctx context.Context, title string, draft Selection) 
 	if err != nil {
 		return nil, err
 	}
-	if result.Index == nil {
-		return nil, &ValidationError{Reason: "fact_review_missing_index"}
-	}
-	if *result.Index == -1 {
-		return nil, nil
-	}
-	if result.Evidence != draft.Evidence {
-		return nil, &ValidationError{Reason: "fact_review_source_evidence"}
+	if rejected, checkErr := checkFactReview(result, draft); checkErr != nil || rejected {
+		return nil, checkErr
 	}
 	if reason := validateFactText(result.Text); reason != "" {
 		previous, marshalErr := json.Marshal(result)
@@ -183,14 +177,8 @@ func (c *Editor) reviewFact(ctx context.Context, title string, draft Selection) 
 		if err != nil {
 			return nil, err
 		}
-		if result.Index == nil {
-			return nil, &ValidationError{Reason: "fact_review_missing_index"}
-		}
-		if *result.Index == -1 {
-			return nil, nil
-		}
-		if result.Evidence != draft.Evidence {
-			return nil, &ValidationError{Reason: "fact_review_source_evidence"}
+		if rejected, checkErr := checkFactReview(result, draft); checkErr != nil || rejected {
+			return nil, checkErr
 		}
 		if reason = validateFactText(result.Text); reason != "" {
 			return nil, &ValidationError{Reason: reason}
@@ -201,20 +189,8 @@ func (c *Editor) reviewFact(ctx context.Context, title string, draft Selection) 
 
 func validateFactText(text string) string {
 	trimmed := strings.TrimSpace(text)
-	for _, r := range trimmed {
-		if unicode.IsLetter(r) && !unicode.Is(unicode.Cyrillic, r) && !unicode.Is(unicode.Latin, r) {
-			return "fact_unexpected_script"
-		}
-	}
-	for _, word := range strings.Fields(trimmed) {
-		var cyrillic, latin bool
-		for _, r := range word {
-			cyrillic = cyrillic || unicode.Is(unicode.Cyrillic, r)
-			latin = latin || unicode.Is(unicode.Latin, r)
-		}
-		if cyrillic && latin {
-			return "fact_mixed_script"
-		}
+	if reason := validateFactScript(trimmed); reason != "" {
+		return reason
 	}
 	words := len(strings.Fields(trimmed))
 	if words < factCompactMinWords || words > factMaxWords {
@@ -244,4 +220,39 @@ func factSentenceCount(text string) int {
 		}
 	}
 	return count
+}
+
+func checkFactReview(result, draft Selection) (bool, error) {
+	if result.Index == nil {
+		return false, &ValidationError{Reason: "fact_review_missing_index"}
+	}
+	if *result.Index == -1 {
+		return true, nil
+	}
+	if result.Evidence != draft.Evidence {
+		return false, &ValidationError{Reason: "fact_review_source_evidence"}
+	}
+	return false, nil
+}
+func validateFactScript(trimmed string) string {
+	for _, r := range trimmed {
+		if unicode.IsLetter(r) && !unicode.Is(unicode.Cyrillic, r) && !unicode.Is(unicode.Latin, r) {
+			return "fact_unexpected_script"
+		}
+	}
+	for _, word := range strings.Fields(trimmed) {
+		if mixedFactWord(word) {
+			return "fact_mixed_script"
+		}
+	}
+	return ""
+}
+
+func mixedFactWord(word string) bool {
+	var cyrillic, latin bool
+	for _, r := range word {
+		cyrillic = cyrillic || unicode.Is(unicode.Cyrillic, r)
+		latin = latin || unicode.Is(unicode.Latin, r)
+	}
+	return cyrillic && latin
 }

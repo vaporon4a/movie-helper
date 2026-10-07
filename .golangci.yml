@@ -1,114 +1,219 @@
-version: "2"
-
+# Explicit correctness and architecture guards; no legacy complexity/interface baseline.
+version: '2'
 run:
   timeout: 5m
   tests: true
-
+  relative-path-mode: gomod
 linters:
   enable:
-    - bodyclose
-    - errcheck
-    - gocognit
-    - goconst
-    - gosec
-    - ineffassign
-    - misspell
-    - nakedret
-    - nolintlint
-    - prealloc
-    - rowserrcheck
-    - sqlclosecheck
-    - staticcheck
-    - unused
-
+  - asasalint
+  - bidichk
+  - bodyclose
+  - canonicalheader
+  - containedctx
+  - contextcheck
+  - depguard
+  - durationcheck
+  - errcheck
+  - errchkjson
+  - errname
+  - errorlint
+  - exhaustive
+  - fatcontext
+  - forbidigo
+  - forcetypeassert
+  - gocheckcompilerdirectives
+  - gocognit
+  - goconst
+  - gocritic
+  - gomoddirectives
+  - gosec
+  - govet
+  - iface
+  - ineffassign
+  - interfacebloat
+  - loggercheck
+  - makezero
+  - misspell
+  - nakedret
+  - nilnesserr
+  - noctx
+  - nolintlint
+  - nosprintfhostport
+  - prealloc
+  - predeclared
+  - reassign
+  - recvcheck
+  - rowserrcheck
+  - sloglint
+  - sqlclosecheck
+  - staticcheck
+  - thelper
+  - tparallel
+  - unconvert
+  - unparam
+  - unused
+  - wastedassign
   settings:
     gocognit:
       min-complexity: 15
-
     errcheck:
       check-type-assertions: false
       check-blank: false
       exclude-functions:
-        - (*os.File).Close
-        - (*database/sql.Rows).Close
-        - (io.Closer).Close
-        - (io.ReadCloser).Close
-
+      - (*os.File).Close
+      - (*database/sql.Rows).Close
+      - (io.Closer).Close
+      - (io.ReadCloser).Close
     goconst:
       min-len: 3
       min-occurrences: 5
       ignore-tests: true
       ignore-string-values:
-        - '(?s)^\s*(SELECT|WITH|UPDATE|DELETE|INSERT)\b'
-
+      - (?s)^\s*(SELECT|WITH|UPDATE|DELETE|INSERT)\b
     misspell:
       locale: US
       ignore-rules:
-        - cancelled
-
+      - cancelled
     nakedret:
       max-func-lines: 1
-
     prealloc:
       simple: true
       range-loops: true
       for-loops: false
-
     gosec:
       includes:
-        - G101
-        - G102
-        - G103
-        - G104
-        - G106
-        - G107
-        - G108
-        - G109
-        - G110
-        - G201
-        - G202
-        - G203
-        - G204
-        - G301
-        - G302
-        - G303
-        - G304
-        - G305
-        - G306
-        - G307
-        - G401
-        - G402
-        - G403
-        - G404
-        - G501
-        - G502
-        - G503
-        - G504
-        - G505
-        - G601
-
+      - G101
+      - G102
+      - G103
+      - G104
+      - G106
+      - G107
+      - G108
+      - G109
+      - G110
+      - G201
+      - G202
+      - G203
+      - G204
+      - G301
+      - G302
+      - G303
+      - G304
+      - G305
+      - G306
+      - G307
+      - G401
+      - G402
+      - G403
+      - G404
+      - G501
+      - G502
+      - G503
+      - G504
+      - G505
+      - G601
+    interfacebloat:
+      max: 7
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    govet:
+      enable:
+      - nilness
+      - unusedwrite
+    sloglint:
+      kv-only: true
+    depguard:
+      rules:
+        domain:
+          files:
+          - '**/internal/{aiwork,clubreminder,daily,movieclub,featurevote}/*.go'
+          - '!$test'
+          list-mode: strict
+          allow:
+          - $gostd
+          - github.com/vaporon4a/movie-helper/internal/aiwork$
+          - github.com/vaporon4a/movie-helper/internal/clubreminder$
+          - github.com/vaporon4a/movie-helper/internal/daily$
+          - github.com/vaporon4a/movie-helper/internal/movieclub$
+          - github.com/vaporon4a/movie-helper/internal/featurevote$
+          deny:
+          - pkg: database/sql$
+            desc: Domain logic uses repository ports, not SQL.
+          - pkg: net/http$
+            desc: External HTTP belongs in an adapter.
+        telegram:
+          files:
+          - '**/internal/telegram/*.go'
+          - '!$test'
+          list-mode: original
+          deny:
+          - pkg: github.com/vaporon4a/movie-helper/internal/storage
+            desc: Telegram calls application ports; do not import concrete adapters.
+          - pkg: github.com/vaporon4a/movie-helper/internal/gemini
+            desc: Telegram calls application ports; do not import concrete adapters.
+          - pkg: github.com/vaporon4a/movie-helper/internal/groq
+            desc: Telegram calls application ports; do not import concrete adapters.
+          - pkg: github.com/vaporon4a/movie-helper/internal/tmdb
+            desc: Telegram calls application ports; do not import concrete adapters.
+          - pkg: github.com/vaporon4a/movie-helper/internal/content
+            desc: Telegram calls application ports; do not import concrete adapters.
+          - pkg: github.com/vaporon4a/movie-helper/internal/meme
+            desc: Telegram calls application ports; do not import concrete adapters.
+        storage:
+          files:
+          - '**/internal/storage/*.go'
+          - '!$test'
+          list-mode: original
+          deny:
+          - pkg: github.com/go-telegram/bot
+            desc: Storage cannot call Telegram.
+          - pkg: github.com/vaporon4a/movie-helper/internal/telegram
+            desc: Storage cannot call external adapters.
+          - pkg: github.com/vaporon4a/movie-helper/internal/gemini
+            desc: Storage cannot call external adapters.
+          - pkg: github.com/vaporon4a/movie-helper/internal/groq
+            desc: Storage cannot call external adapters.
+          - pkg: github.com/vaporon4a/movie-helper/internal/tmdb
+            desc: Storage cannot call external adapters.
+          - pkg: github.com/vaporon4a/movie-helper/internal/content
+            desc: Storage cannot call external adapters.
+          - pkg: github.com/vaporon4a/movie-helper/internal/meme
+            desc: Storage cannot call external adapters.
+    forbidigo:
+      analyze-types: true
+      forbid:
+      - pattern: ^time\.Sleep$
+        msg: Use a cancellable timer or durable retry instead of blocking sleep.
+      - pattern: ^context\.Background$
+        msg: Internal operations inherit the caller context.
+      - pattern: ^time\.Now$
+        msg: Reminder policy and storage receive an injected time.
   exclusions:
     generated: strict
     rules:
-      - text: "ST1000"
-        linters:
-          - staticcheck
-      - path: "_test.go"
-        linters:
-          - errcheck
-          - gocognit
-          - goconst
-          - gosec
-      # Existing complex functions are tracked as a baseline. New functions
-      # still have to stay below the backend project's threshold of 15.
-      - text: 'func .*(`run`|Fact|SelectMeme|Parse|selectItem|Candidates|Generate|Attach)'
-        linters:
-          - gocognit
-      # These existing protocol/schema strings are clearer next to their use.
-      - text: 'string `(type|approved|sent)` has'
-        linters:
-          - goconst
-
+    - text: ST1000
+      linters:
+      - staticcheck
+    - path: _test.go
+      linters:
+      - errcheck
+      - gocognit
+      - goconst
+      - gosec
+    - path: _test.go
+      linters:
+      - forbidigo
+    - path-except: ^internal/
+      text: Internal operations inherit
+      linters:
+      - forbidigo
+    - path-except: ^internal/(clubreminder/(clock|model|templates)\.go|storage/club_(reminders|texts)\.go)$
+      text: Reminder policy and storage receive
+      linters:
+      - forbidigo
+  default: none
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

@@ -37,35 +37,13 @@ func (c *Client) Candidates(ctx context.Context) ([]daily.Item, error) {
 	var groups [][]post
 	var lastErr error
 	for _, sub := range c.Subreddits {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/gimme/"+url.PathEscape(sub)+"/50", nil)
+		posts, err := c.posts(ctx, sub)
 		if err != nil {
-			return nil, errors.New("invalid meme endpoint")
-		}
-		req.Header.Set("User-Agent", "movie-helper/0.1 (+https://github.com/vaporon4a/movie-helper)")
-		r, err := c.HTTP.Do(req)
-		if err != nil {
-			lastErr = errors.New("meme provider unavailable")
+			lastErr = err
 			continue
 		}
-		if r.StatusCode != http.StatusOK {
-			_ = r.Body.Close()
-			lastErr = fmt.Errorf("meme provider status %d", r.StatusCode)
-			continue
-		}
-		var body struct {
-			Memes []post `json:"memes"`
-		}
-		err = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body)
-		if closeErr := r.Body.Close(); err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			lastErr = errors.New("invalid meme response")
-			continue
-		}
-		sort.SliceStable(body.Memes, func(i, j int) bool { return body.Memes[i].Ups > body.Memes[j].Ups })
-		if len(body.Memes) > 0 {
-			groups = append(groups, body.Memes)
+		if len(posts) > 0 {
+			groups = append(groups, posts)
 		}
 	}
 	posts := interleave(groups)
@@ -153,4 +131,32 @@ func hasCyrillic(s string) bool {
 		}
 	}
 	return false
+}
+
+func (c *Client) posts(ctx context.Context, sub string) ([]post, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/gimme/"+url.PathEscape(sub)+"/50", nil)
+	if err != nil {
+		return nil, errors.New("invalid meme endpoint")
+	}
+	req.Header.Set("User-Agent", "movie-helper/0.1 (+https://github.com/vaporon4a/movie-helper)")
+	r, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, errors.New("meme provider unavailable")
+	}
+	if r.StatusCode != http.StatusOK {
+		_ = r.Body.Close()
+		return nil, fmt.Errorf("meme provider status %d", r.StatusCode)
+	}
+	var body struct {
+		Memes []post `json:"memes"`
+	}
+	err = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body)
+	if closeErr := r.Body.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, errors.New("invalid meme response")
+	}
+	sort.SliceStable(body.Memes, func(i, j int) bool { return body.Memes[i].Ups > body.Memes[j].Ups })
+	return body.Memes, nil
 }

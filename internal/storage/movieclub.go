@@ -554,7 +554,7 @@ func (s *Store) ClaimMoviePage2(ctx context.Context, chat, id int64) (bool, erro
 }
 
 func (s *Store) FinishMoviePage2(ctx context.Context, chat, id int64, state string) error {
-	if state != "ready" && state != "sent" && state != "unknown" {
+	if state != "ready" && state != sentState && state != "unknown" {
 		return errors.New("invalid page state")
 	}
 	result, err := s.db.ExecContext(ctx, "UPDATE movie_rounds SET page2_state=? WHERE id=? AND chat_id=? AND page2_state='sending'", state, id, chat)
@@ -576,11 +576,13 @@ func (s *Store) ResolveMovieRound(ctx context.Context, op, chat, id int64, actio
 			return err
 		}
 		target := movieclub.StateCancelled
-		if action == movieclub.ResolveSent {
+		switch action {
+		case movieclub.ResolveSent:
 			target = movieclub.StatePublished
-		} else if action == movieclub.ResolveRetry {
+		case movieclub.ResolveRetry:
 			target = movieclub.StateReady
-		} else if action != movieclub.ResolveCancel {
+		case movieclub.ResolveCancel:
+		default:
 			return errors.New("invalid resolution")
 		}
 		result, err := tx.ExecContext(ctx, "UPDATE movie_rounds SET state=?,error_code='' WHERE id=? AND chat_id=? AND state='unknown'", target, id, chat)

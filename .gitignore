@@ -47,3 +47,6 @@ __pycache__/
 /deploy/runtime.env
 /deploy/rclone.conf
 /secrets/
+
+# Pinned local lint toolchain
+.tools/

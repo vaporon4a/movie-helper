@@ -15,24 +15,46 @@ type Sender interface {
 type Provider interface {
 	Candidates(context.Context, string, int64) ([]daily.Item, error)
 }
+
+// Repository is used only to assemble narrower consumer ports.
 type Repository interface {
+	ScheduleRepository
+	PreparationRepository
+	StockRepository
+	DeliveryRepository
+}
+
+type ScheduleRepository interface {
 	Schedules(context.Context, int64) ([]daily.Schedule, error)
 	Reserve(context.Context, daily.Schedule, string, int64, int64) (int64, error)
+}
+
+type PreparationRepository interface {
 	Preparing(context.Context) ([]daily.Delivery, error)
 	ClaimPreparation(context.Context, int64, time.Time) (bool, error)
 	ClaimBackgroundPreparation(context.Context, int64, time.Time) (bool, error)
 	DeferPreparation(context.Context, int64, time.Time, string) error
+	Attach(context.Context, int64, []daily.Item, time.Time) error
+}
+
+type StockRepository interface {
 	HasApproved(context.Context, int64, string, time.Time) (bool, error)
 	Seen(context.Context, int64, string, string) (bool, error)
-	Attach(context.Context, int64, []daily.Item, time.Time) error
+	RequestAIRefill(context.Context, int64, string, time.Time) error
+}
+
+type DeliveryRepository interface {
 	Pending(context.Context) ([]daily.Delivery, error)
 	Claim(context.Context, int64, time.Time) (bool, error)
 	Finish(context.Context, int64, string, int, int64) error
 	Suspend(context.Context, int64) error
-	RequestAIRefill(context.Context, int64, string, time.Time) error
 }
+
 type Scheduler struct {
-	Store          Repository
+	schedules      ScheduleRepository
+	preparation    PreparationRepository
+	stock          StockRepository
+	deliveries     DeliveryRepository
 	Sender         Sender
 	Provider       Provider
 	Allowed        map[int64]bool
@@ -51,7 +73,7 @@ func New(store Repository, sender Sender, provider Provider, allowed map[int64]b
 	if now == nil {
 		now = time.Now
 	}
-	return &Scheduler{Store: store, Sender: sender, Provider: provider, Allowed: allowed, Log: log, Now: now}, nil
+	return &Scheduler{schedules: store, preparation: store, stock: store, deliveries: store, Sender: sender, Provider: provider, Allowed: allowed, Log: log, Now: now}, nil
 }
 
 // Slot walks the local calendar day in absolute minutes. The first occurrence
@@ -104,7 +126,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 }
 
 func (s *Scheduler) reserveDue(ctx context.Context, now time.Time) error {
-	schedules, err := s.Store.Schedules(ctx, 0)
+	schedules, err := s.schedules.Schedules(ctx, 0)
 	if err != nil {
 		return err
 	}
@@ -120,7 +142,7 @@ func (s *Scheduler) reserveDue(ctx context.Context, now time.Time) error {
 		if now.Before(slot) || !now.Before(deadline) || slot.Unix() <= sc.Effective {
 			continue
 		}
-		if _, e = s.Store.Reserve(ctx, sc, slot.Format("2006-01-02"), slot.Unix(), deadline.Unix()); e != nil {
+		if _, e = s.schedules.Reserve(ctx, sc, slot.Format("2006-01-02"), slot.Unix(), deadline.Unix()); e != nil {
 			return e
 		}
 	}
@@ -128,7 +150,7 @@ func (s *Scheduler) reserveDue(ctx context.Context, now time.Time) error {
 }
 
 func (s *Scheduler) prepareDue(ctx context.Context) error {
-	preparing, err := s.Store.Preparing(ctx)
+	preparing, err := s.preparation.Preparing(ctx)
 	if err != nil {
 		return err
 	}
@@ -143,7 +165,7 @@ func (s *Scheduler) prepareDue(ctx context.Context) error {
 func (s *Scheduler) prepareIfDue(ctx context.Context, delivery daily.Delivery) error {
 	now := s.Now()
 	if !s.Allowed[delivery.ChatID] || now.Unix() >= delivery.Deadline || (!s.BackgroundOnly && delivery.FetchAttempts >= daily.MaxPreparationAttempts) {
-		return s.Store.DeferPreparation(ctx, delivery.ID, time.Time{}, "preparation_window_exhausted")
+		return s.preparation.DeferPreparation(ctx, delivery.ID, time.Time{}, "preparation_window_exhausted")
 	}
 	if now.Unix() < delivery.NextAttempt {
 		return nil
@@ -151,9 +173,9 @@ func (s *Scheduler) prepareIfDue(ctx context.Context, delivery daily.Delivery) e
 	var claimed bool
 	var err error
 	if s.BackgroundOnly {
-		claimed, err = s.Store.ClaimBackgroundPreparation(ctx, delivery.ID, now)
+		claimed, err = s.preparation.ClaimBackgroundPreparation(ctx, delivery.ID, now)
 	} else {
-		claimed, err = s.Store.ClaimPreparation(ctx, delivery.ID, now)
+		claimed, err = s.preparation.ClaimPreparation(ctx, delivery.ID, now)
 	}
 	if err != nil || !claimed {
 		return err
@@ -162,7 +184,7 @@ func (s *Scheduler) prepareIfDue(ctx context.Context, delivery daily.Delivery) e
 }
 
 func (s *Scheduler) deliverDue(ctx context.Context) error {
-	pending, err := s.Store.Pending(ctx)
+	pending, err := s.deliveries.Pending(ctx)
 	if err != nil {
 		return err
 	}
@@ -177,7 +199,7 @@ func (s *Scheduler) deliverDue(ctx context.Context) error {
 func (s *Scheduler) deliverIfDue(ctx context.Context, delivery daily.Delivery) error {
 	now := s.Now()
 	if !s.Allowed[delivery.ChatID] || now.Unix() >= delivery.Deadline {
-		err := s.Store.Finish(ctx, delivery.ID, "cancelled", 0, 0)
+		err := s.deliveries.Finish(ctx, delivery.ID, "cancelled", 0, 0)
 		if errors.Is(err, daily.ErrConflict) {
 			return nil
 		}
@@ -186,7 +208,7 @@ func (s *Scheduler) deliverIfDue(ctx context.Context, delivery daily.Delivery) e
 	if now.Unix() < delivery.NextAttempt {
 		return nil
 	}
-	claimed, err := s.Store.Claim(ctx, delivery.ID, now)
+	claimed, err := s.deliveries.Claim(ctx, delivery.ID, now)
 	if err != nil || !claimed {
 		return err
 	}
@@ -202,11 +224,11 @@ func (s *Scheduler) deliver(ctx context.Context, delivery daily.Delivery) error 
 	// Persist even when SIGTERM cancelled the network request.
 	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.Store.Finish(persist, delivery.ID, state, message, next); err != nil {
+	if err := s.deliveries.Finish(persist, delivery.ID, state, message, next); err != nil {
 		return err
 	}
 	if forbidden {
-		return s.Store.Suspend(persist, delivery.ChatID)
+		return s.deliveries.Suspend(persist, delivery.ChatID)
 	}
 	return nil
 }
@@ -277,7 +299,7 @@ func (s *Scheduler) prepare(ctx context.Context, d daily.Delivery) (err error) {
 	if !approved && len(candidates) == 0 {
 		return nil
 	}
-	if e := s.Store.Attach(ctx, d.ID, candidates, s.Now()); e != nil {
+	if e := s.preparation.Attach(ctx, d.ID, candidates, s.Now()); e != nil {
 		s.Log.Warn("slot preparation stopped", "delivery_id", d.ID)
 		reason = "storage_attach_failed"
 		return nil
@@ -301,7 +323,7 @@ func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Deliver
 	}
 	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.Store.DeferPreparation(persist, delivery.ID, next, reason); err != nil {
+	if err := s.preparation.DeferPreparation(persist, delivery.ID, next, reason); err != nil {
 		return err
 	}
 	s.Log.Info("content preparation deferred", "delivery_id", delivery.ID, "attempt", delivery.FetchAttempts+1, "retry", !next.IsZero(), "next_attempt", next, "reason", reason, "provider_retry_after_ms", retryAfter.Milliseconds())
@@ -309,7 +331,7 @@ func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Deliver
 }
 
 func (s *Scheduler) preparationCandidates(ctx context.Context, delivery daily.Delivery) ([]daily.Item, bool, string, time.Duration, error) {
-	approved, err := s.Store.HasApproved(ctx, delivery.ChatID, delivery.Kind, s.Now())
+	approved, err := s.stock.HasApproved(ctx, delivery.ChatID, delivery.Kind, s.Now())
 	if err != nil || approved {
 		reason := ""
 		if err != nil {
@@ -318,7 +340,7 @@ func (s *Scheduler) preparationCandidates(ctx context.Context, delivery daily.De
 		return nil, approved, reason, 0, err
 	}
 	if s.BackgroundOnly {
-		if err = s.Store.RequestAIRefill(ctx, delivery.ChatID, delivery.Kind, s.Now()); err != nil {
+		if err = s.stock.RequestAIRefill(ctx, delivery.ChatID, delivery.Kind, s.Now()); err != nil {
 			return nil, false, "background_refill_failed", 0, err
 		}
 		return nil, false, "background_refill_pending", 0, nil
@@ -337,7 +359,7 @@ func (s *Scheduler) preparationCandidates(ctx context.Context, delivery daily.De
 	}
 	var unseen []daily.Item
 	for _, candidate := range candidates {
-		seen, seenErr := s.Store.Seen(ctx, delivery.ChatID, delivery.Kind, candidate.Key)
+		seen, seenErr := s.stock.Seen(ctx, delivery.ChatID, delivery.Kind, candidate.Key)
 		if seenErr != nil {
 			return nil, false, "storage_history_failed", 0, seenErr
 		}

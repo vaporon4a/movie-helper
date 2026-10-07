@@ -55,20 +55,9 @@ func run() error {
 	if *state == "" {
 		return errors.New("-state is required")
 	}
-	key, model := os.Getenv("GROQ_API_KEY"), os.Getenv("GROQ_MODEL")
-	if model == "" {
-		model = "qwen/qwen3.8-27b"
-	}
-	if *provider == "gemini" {
-		key, model = os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_MODEL")
-		if model == "" {
-			model = "gemini-3.8-flash"
-		}
-	} else if *provider != "groq" {
-		return errors.New("unknown provider")
-	}
-	if key == "" {
-		return errors.New("provider key missing")
+	key, model, err := diagnosticCredentials(*provider)
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(*state, 0700); err != nil {
 		return errors.New("cannot create diagnostic directory")
@@ -85,33 +74,9 @@ func run() error {
 		requestTimeout, selectionTimeout = content.GeminiRequestTimeout, content.GeminiSelectionTimeout
 	}
 	h := &http.Client{Timeout: requestTimeout, Transport: measuredTransport{http.DefaultTransport}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	var items []daily.Item
-	path := filepath.Join(*state, "candidates.json")
-	// #nosec G304 -- path is confined to the explicitly supplied diagnostic directory.
-	data, err := os.ReadFile(path)
-	if err == nil {
-		if json.Unmarshal(data, &items) != nil {
-			return errors.New("invalid candidate fixture")
-		}
-	} else if !os.IsNotExist(err) {
-		return errors.New("cannot read candidate fixture")
-	} else {
-		subs := os.Getenv("MEME_SUBREDDITS")
-		if subs == "" {
-			subs = "RUSSIANMemeSub,Pikabu,expectedrussians"
-		}
-		client := &meme.Client{HTTP: h, BaseURL: "https://meme-api.com", Subreddits: strings.Split(subs, ",")}
-		items, err = client.Candidates(ctx)
-		if err != nil {
-			return err
-		}
-		data, err = json.Marshal(items)
-		if err != nil {
-			return err
-		}
-		if os.WriteFile(path, data, 0600) != nil {
-			return errors.New("cannot save candidate fixture")
-		}
+	items, err := diagnosticCandidates(ctx, h, *state)
+	if err != nil {
+		return err
 	}
 	budget := storage.ProviderBudget{Store: store, Provider: *provider}
 	var ed editor
@@ -139,4 +104,56 @@ func run() error {
 		slog.Info("diagnostic complete", "selected", true, "approved", len(selected))
 	}
 	return nil
+}
+
+func diagnosticCandidates(ctx context.Context, h *http.Client, state string) ([]daily.Item, error) {
+	var items []daily.Item
+	path := filepath.Join(state, "candidates.json")
+	// #nosec G304 -- path is confined to the explicitly supplied diagnostic directory.
+	data, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if json.Unmarshal(data, &items) != nil {
+			return nil, errors.New("invalid candidate fixture")
+		}
+	case !os.IsNotExist(err):
+		return nil, errors.New("cannot read candidate fixture")
+	default:
+		subs := os.Getenv("MEME_SUBREDDITS")
+		if subs == "" {
+			subs = "RUSSIANMemeSub,Pikabu,expectedrussians"
+		}
+		client := &meme.Client{HTTP: h, BaseURL: "https://meme-api.com", Subreddits: strings.Split(subs, ",")}
+		items, err = client.Candidates(ctx)
+		if err != nil {
+			return nil, err
+		}
+		data, err = json.Marshal(items)
+		if err != nil {
+			return nil, err
+		}
+		if os.WriteFile(path, data, 0600) != nil {
+			return nil, errors.New("cannot save candidate fixture")
+		}
+	}
+	return items, nil
+}
+
+func diagnosticCredentials(provider string) (string, string, error) {
+	key, model := os.Getenv("GROQ_API_KEY"), os.Getenv("GROQ_MODEL")
+	if model == "" {
+		model = "qwen/qwen3.8-27b"
+	}
+	if provider == "gemini" {
+		key, model = os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_MODEL")
+		if model == "" {
+			model = "gemini-3.8-flash"
+		}
+	} else if provider != "groq" {
+		return "", "", errors.New("unknown provider")
+	}
+	if key == "" {
+		return "", "", errors.New("provider key missing")
+	}
+	return key, model, nil
 }

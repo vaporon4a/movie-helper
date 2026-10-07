@@ -2,7 +2,6 @@ package featurevote_test
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"path/filepath"
 	"testing"
@@ -30,7 +29,7 @@ func TestIdeaTitleIsPreparedOutsidePollOpening(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	service, err := featurevote.NewService(store, slog.New(slog.NewTextHandler(io.Discard, nil)), func() time.Time { return now }, func() (string, error) { return "token", nil })
+	service, err := featurevote.NewService(store, slog.New(slog.DiscardHandler), func() time.Time { return now }, func() (string, error) { return "token", nil })
 	if err != nil {
 		t.Fatal(err)
 	}

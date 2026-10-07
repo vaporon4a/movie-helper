@@ -10,11 +10,14 @@ import (
 const defaultPollDuration = 24 * time.Hour
 
 type Service struct {
-	store     ServiceRepository
-	telegram  Transport
-	scenarios ScenarioSet
-	log       *slog.Logger
-	now       func() time.Time
+	serviceScheduleRepository ServiceScheduleRepository
+	serviceRoundRepository    ServiceRoundRepository
+	servicePageRepository     ServicePageRepository
+	preferenceRepository      PreferenceRepository
+	telegram                  Transport
+	scenarios                 ScenarioSet
+	log                       *slog.Logger
+	now                       func() time.Time
 }
 
 func NewService(store ServiceRepository, telegram Transport, scenarios ScenarioSet, log *slog.Logger, now func() time.Time) (*Service, error) {
@@ -27,7 +30,7 @@ func NewService(store ServiceRepository, telegram Transport, scenarios ScenarioS
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{store: store, telegram: telegram, scenarios: scenarios, log: log, now: now}, nil
+	return &Service{serviceScheduleRepository: store, serviceRoundRepository: store, servicePageRepository: store, preferenceRepository: store, telegram: telegram, scenarios: scenarios, log: log, now: now}, nil
 }
 
 func (s *Service) Start(ctx context.Context, feature Feature, operationID, chatID int64, duration time.Duration) (int64, error) {
@@ -39,7 +42,7 @@ func (s *Service) Start(ctx context.Context, feature Feature, operationID, chatI
 	if scenario == nil {
 		return 0, ErrUnknownFeature
 	}
-	roundID, err := s.store.StartMovieRound(ctx, feature, operationID, chatID, now, duration, nil)
+	roundID, err := s.serviceRoundRepository.StartMovieRound(ctx, feature, operationID, chatID, now, duration, nil)
 	if err == nil {
 		s.log.Info("movieclub round planned", "round_id", roundID, "chat_id", chatID, "feature", feature, "manual", true)
 	}
@@ -50,26 +53,26 @@ func (s *Service) SetSchedule(ctx context.Context, feature Feature, operationID,
 	if s.scenarios[feature] == nil {
 		return ErrUnknownFeature
 	}
-	return s.store.SetMovieSchedule(ctx, feature, operationID, chatID, weekday, clock, enabled, s.now())
+	return s.serviceScheduleRepository.SetMovieSchedule(ctx, feature, operationID, chatID, weekday, clock, enabled, s.now())
 }
 
 func (s *Service) PauseSchedules(ctx context.Context, feature Feature, operationID, chatID int64) error {
 	if s.scenarios[feature] == nil {
 		return ErrUnknownFeature
 	}
-	return s.store.PauseMovieSchedules(ctx, feature, operationID, chatID, s.now())
+	return s.serviceScheduleRepository.PauseMovieSchedules(ctx, feature, operationID, chatID, s.now())
 }
 
 func (s *Service) Settings(ctx context.Context, chatID int64) (SettingsView, error) {
-	schedules, err := s.store.MovieSchedules(ctx, chatID)
+	schedules, err := s.serviceScheduleRepository.MovieSchedules(ctx, chatID)
 	if err != nil {
 		return SettingsView{}, err
 	}
-	rounds, err := s.store.LatestMovieRounds(ctx, chatID)
+	rounds, err := s.serviceRoundRepository.LatestMovieRounds(ctx, chatID)
 	if err != nil {
 		return SettingsView{}, err
 	}
-	preference, err := s.store.MoviePreferenceSettings(ctx, chatID, s.now())
+	preference, err := s.preferenceRepository.MoviePreferenceSettings(ctx, chatID, s.now())
 	if err != nil {
 		return SettingsView{}, err
 	}
@@ -80,7 +83,7 @@ func (s *Service) SetPersonalization(ctx context.Context, operationID, chatID in
 	if !mode.Valid() {
 		return errors.New("invalid movie personalization mode")
 	}
-	err := s.store.SetMoviePreferenceMode(ctx, operationID, chatID, mode, s.now())
+	err := s.preferenceRepository.SetMoviePreferenceMode(ctx, operationID, chatID, mode, s.now())
 	if err == nil {
 		s.log.Info("movieclub personalization changed", "chat_id", chatID, "mode", mode, "policy_version", RankingPolicyV1)
 	}
@@ -89,11 +92,11 @@ func (s *Service) SetPersonalization(ctx context.Context, operationID, chatID in
 
 func (s *Service) Taste(ctx context.Context, chatID int64) (PreferenceSettings, ChatTasteProfile, error) {
 	now := s.now()
-	settings, err := s.store.MoviePreferenceSettings(ctx, chatID, now)
+	settings, err := s.preferenceRepository.MoviePreferenceSettings(ctx, chatID, now)
 	if err != nil {
 		return settings, ChatTasteProfile{}, err
 	}
-	rounds, err := s.store.MovieTasteHistory(ctx, chatID, 0, now)
+	rounds, err := s.preferenceRepository.MovieTasteHistory(ctx, chatID, 0, now)
 	if err != nil {
 		return settings, ChatTasteProfile{}, err
 	}
@@ -101,7 +104,7 @@ func (s *Service) Taste(ctx context.Context, chatID int64) (PreferenceSettings, 
 }
 
 func (s *Service) ResetTaste(ctx context.Context, operationID, chatID int64) error {
-	err := s.store.ResetMovieTaste(ctx, operationID, chatID, s.now())
+	err := s.preferenceRepository.ResetMovieTaste(ctx, operationID, chatID, s.now())
 	if err == nil {
 		s.log.Info("movieclub taste reset", "chat_id", chatID, "policy_version", RankingPolicyV1)
 	}
@@ -112,7 +115,7 @@ func (s *Service) PollClosed(ctx context.Context, pollID string, votes []int) er
 	if pollID == "" {
 		return ErrConflict
 	}
-	err := s.store.SaveMoviePollByID(ctx, pollID, votes)
+	err := s.serviceRoundRepository.SaveMoviePollByID(ctx, pollID, votes)
 	if err == nil {
 		s.log.Info("movieclub poll closed", "poll_id_present", true, "options", len(votes))
 	}
@@ -120,7 +123,7 @@ func (s *Service) PollClosed(ctx context.Context, pollID string, votes []int) er
 }
 
 func (s *Service) More(ctx context.Context, chatID, roundID int64) (Summary, error) {
-	round, err := s.store.MovieRound(ctx, chatID, roundID)
+	round, err := s.serviceRoundRepository.MovieRound(ctx, chatID, roundID)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -133,16 +136,16 @@ func (s *Service) More(ctx context.Context, chatID, roundID int64) (Summary, err
 	if round.Page2State != "ready" {
 		return Summary{}, ErrConflict
 	}
-	claimed, err := s.store.ClaimMoviePage2(ctx, chatID, roundID)
+	claimed, err := s.servicePageRepository.ClaimMoviePage2(ctx, chatID, roundID)
 	if err != nil || !claimed {
 		if err == nil {
 			err = ErrConflict
 		}
 		return Summary{}, err
 	}
-	movies, err := s.store.MovieRecommendations(ctx, roundID, 2)
+	movies, err := s.servicePageRepository.MovieRecommendations(ctx, roundID, 2)
 	if err != nil {
-		_ = s.store.FinishMoviePage2(context.WithoutCancel(ctx), chatID, roundID, "ready")
+		_ = s.servicePageRepository.FinishMoviePage2(context.WithoutCancel(ctx), chatID, roundID, "ready")
 		return Summary{}, err
 	}
 	_, err = s.telegram.SendMovies(ctx, chatID, movies)
@@ -152,7 +155,7 @@ func (s *Service) More(ctx context.Context, chatID, roundID int64) (Summary, err
 	}
 	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if saveErr := s.store.FinishMoviePage2(persist, chatID, roundID, state); saveErr != nil {
+	if saveErr := s.servicePageRepository.FinishMoviePage2(persist, chatID, roundID, state); saveErr != nil {
 		return Summary{}, saveErr
 	}
 	if err != nil {
@@ -163,11 +166,11 @@ func (s *Service) More(ctx context.Context, chatID, roundID int64) (Summary, err
 }
 
 func (s *Service) fullSummary(ctx context.Context, round Round) (Summary, error) {
-	page1, err := s.store.MovieRecommendations(ctx, round.ID, 1)
+	page1, err := s.servicePageRepository.MovieRecommendations(ctx, round.ID, 1)
 	if err != nil {
 		return Summary{}, err
 	}
-	page2, err := s.store.MovieRecommendations(ctx, round.ID, 2)
+	page2, err := s.servicePageRepository.MovieRecommendations(ctx, round.ID, 2)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -178,7 +181,7 @@ func (s *Service) fullSummary(ctx context.Context, round Round) (Summary, error)
 }
 
 func (s *Service) Resolve(ctx context.Context, operationID, chatID, roundID int64, action ResolveAction) error {
-	return s.store.ResolveMovieRound(ctx, operationID, chatID, roundID, action, s.now())
+	return s.serviceRoundRepository.ResolveMovieRound(ctx, operationID, chatID, roundID, action, s.now())
 }
 
 func pageFailure(err error) string {

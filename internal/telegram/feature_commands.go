@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -119,7 +120,7 @@ func responseError(err error) error {
 	return err
 }
 
-func errorsIsResponseSent(err error) bool { return err == errResponseSent }
+func errorsIsResponseSent(err error) bool { return errors.Is(err, errResponseSent) }
 
 func (h *Handler) setFeatureSchedule(ctx context.Context, operationID, chatID int64, args string) error {
 	fields := strings.Fields(args)
@@ -173,6 +174,8 @@ func (h *Handler) changeFeatureState(ctx context.Context, update *models.Update,
 	switch state {
 	case featurevote.IdeaImplemented:
 		message = "отмечена реализованной"
+	case featurevote.IdeaBacklog, featurevote.IdeaRemoved:
+	// The default message applies to ideas outside the active voting pool.
 	case featurevote.IdeaActive:
 		message = "возвращена в голосования"
 	}

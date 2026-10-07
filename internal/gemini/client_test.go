@@ -34,7 +34,10 @@ func response(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
 func answer(s string) string {
-	b, _ := json.Marshal(map[string]any{"candidates": []any{map[string]any{"finishReason": "STOP", "content": map[string]any{"parts": []any{map[string]any{"text": s}}}}}})
+	b, err := json.Marshal(map[string]any{"candidates": []any{map[string]any{"finishReason": "STOP", "content": map[string]any{"parts": []any{map[string]any{"text": s}}}}}})
+	if err != nil {
+		panic(err)
+	} // Test fixture consists only of JSON-compatible values.
 	return string(b)
 }
 func testClient(rt transport, b *budget) *Client {
@@ -46,7 +49,7 @@ func TestFactProvenanceAndBudget(t *testing.T) {
 	calls := 0
 	c := testClient(func(r *http.Request) (*http.Response, error) {
 		calls++
-		if r.Header.Get("x-goog-api-key") != "secret" || strings.Contains(r.URL.String(), "secret") {
+		if r.Header.Get("X-Goog-Api-Key") != "secret" || strings.Contains(r.URL.String(), "secret") {
 			t.Error("key transport")
 		}
 		var req map[string]any

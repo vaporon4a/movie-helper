@@ -72,7 +72,7 @@ func TestSeedAIWorkMaintainsStockAndExpiresMemes(t *testing.T) {
 	must(t, err)
 	must(t, store.SeedAIWork(ctx, testNow))
 	var state string
-	must(t, store.db.QueryRow("SELECT state FROM items WHERE content_key='old'").Scan(&state))
+	must(t, store.db.QueryRowContext(t.Context(), "SELECT state FROM items WHERE content_key='old'").Scan(&state))
 	if state != "rejected" {
 		t.Fatal("stale meme remained publishable", state)
 	}

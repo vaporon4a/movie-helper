@@ -32,16 +32,7 @@ func (f *Fallback) selectItem(ctx context.Context, call func(context.Context, Ed
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		timeout := f.PrimaryTimeout
-		if timeout <= 0 {
-			timeout = GeminiSelectionTimeout
-		}
-		if n == 1 {
-			timeout = f.SecondaryTimeout
-			if timeout <= 0 {
-				timeout = GroqSelectionTimeout
-			}
-		}
+		timeout := f.attemptTimeout(n)
 		attempt, cancel := context.WithTimeout(ctx, timeout)
 		item, err := call(attempt, e)
 		cancel()
@@ -52,9 +43,7 @@ func (f *Fallback) selectItem(ctx context.Context, call func(context.Context, Ed
 			allRejected = false
 		}
 		last = err
-		if f.Log != nil {
-			f.Log.Warn("AI provider attempt failed", "provider", []string{"gemini", "groq"}[n], "reason", failureReason(err))
-		}
+		f.logFailure(n, err)
 		if n == 0 && deferredProviderRetry(err) {
 			return nil, err
 		}
@@ -80,16 +69,7 @@ func (f *Fallback) SelectMemes(ctx context.Context, items []daily.Item, limit in
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		timeout := f.PrimaryTimeout
-		if timeout <= 0 {
-			timeout = GeminiSelectionTimeout
-		}
-		if n == 1 {
-			timeout = f.SecondaryTimeout
-			if timeout <= 0 {
-				timeout = GroqSelectionTimeout
-			}
-		}
+		timeout := f.attemptTimeout(n)
 		attempt, cancel := context.WithTimeout(ctx, timeout)
 		selected, err := e.SelectMemes(attempt, items, limit)
 		cancel()
@@ -97,9 +77,7 @@ func (f *Fallback) SelectMemes(ctx context.Context, items []daily.Item, limit in
 			return selected, nil
 		}
 		last = err
-		if f.Log != nil {
-			f.Log.Warn("AI provider attempt failed", "provider", []string{"gemini", "groq"}[n], "reason", failureReason(err))
-		}
+		f.logFailure(n, err)
 		if n == 0 && deferredProviderRetry(err) {
 			return nil, err
 		}
@@ -144,4 +122,23 @@ func failureReason(err error) string {
 		return "cancelled"
 	}
 	return "source_or_connection_failed"
+}
+
+func (f *Fallback) attemptTimeout(index int) time.Duration {
+	if index == 1 {
+		if f.SecondaryTimeout > 0 {
+			return f.SecondaryTimeout
+		}
+		return GroqSelectionTimeout
+	}
+	if f.PrimaryTimeout > 0 {
+		return f.PrimaryTimeout
+	}
+	return GeminiSelectionTimeout
+}
+
+func (f *Fallback) logFailure(index int, err error) {
+	if f.Log != nil {
+		f.Log.Warn("AI provider attempt failed", "provider", []string{"gemini", "groq"}[index], "reason", failureReason(err))
+	}
 }

@@ -40,6 +40,8 @@ type HTTPError struct {
 
 func (e *HTTPError) Error() string { return fmt.Sprintf("Gemini status %d", e.Status) }
 
+func (e *HTTPError) RetryAfter() time.Duration { return e.After }
+
 type Client struct {
 	HTTP                *http.Client
 	BaseURL, Key, Model string
@@ -66,50 +68,74 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 	if err != nil {
 		return result, errors.New("cannot encode Gemini request")
 	}
-	var r *http.Response
+	r, err := c.request(ctx, data)
+	if err != nil {
+		return result, err
+	}
+	return decodeSelection(r)
+}
+func (c *Client) request(ctx context.Context, data []byte) (*http.Response, error) {
 	for attempt := 1; attempt <= 2; attempt++ {
-		allowed, budgetErr := c.Budget.AllowAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
-		if budgetErr != nil {
-			return result, errors.New("gemini budget unavailable")
-		}
-		if !allowed {
-			return result, ErrDailyLimit
-		}
-		c.logBudget(ctx)
-		req, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/models/"+url.PathEscape(c.Model)+":generateContent", bytes.NewReader(data))
-		if requestErr != nil {
-			return result, errors.New("invalid Gemini endpoint")
-		}
-		req.Header.Set("x-goog-api-key", c.Key)
-		req.Header.Set("Content-Type", "application/json")
-		r, err = c.HTTP.Do(req)
+		response, err := c.sendRequest(ctx, data)
 		if err != nil {
-			return result, errors.New("gemini connection failed")
+			return nil, err
 		}
-		if r.StatusCode == http.StatusOK {
-			break
+		if response.StatusCode == http.StatusOK {
+			return response, nil
 		}
-		status := r.StatusCode
-		_ = r.Body.Close()
-		if !temporaryStatus(status) {
-			return result, &HTTPError{Status: status}
-		}
-		delay, source := c.retryAfter(r.Header.Get("Retry-After"))
-		httpErr := &HTTPError{Status: status, After: delay, RetrySource: source}
-		if attempt == 2 {
-			c.logRetry(attempt, httpErr, false)
-			return result, httpErr
-		}
-		if delay > c.inlineLimit() || !c.waitFits(ctx, delay) {
-			httpErr.Deferred = true
-			c.logRetry(attempt, httpErr, false)
-			return result, httpErr
-		}
-		c.logRetry(attempt, httpErr, true)
-		if err = c.wait(ctx, delay); err != nil {
-			return result, err
+		if err = c.retryResponse(ctx, response, attempt); err != nil {
+			return nil, err
 		}
 	}
+	return nil, errors.New("provider retries exhausted")
+}
+func (c *Client) sendRequest(ctx context.Context, data []byte) (*http.Response, error) {
+	allowed, budgetErr := c.Budget.AllowAPI(ctx, c.Now().UTC().Format("2006-01-02"), c.DailyLimit)
+	if budgetErr != nil {
+		return nil, errors.New("gemini budget unavailable")
+	}
+	if !allowed {
+		return nil, ErrDailyLimit
+	}
+	c.logBudget(ctx)
+	req, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/models/"+url.PathEscape(c.Model)+":generateContent", bytes.NewReader(data))
+	if requestErr != nil {
+		return nil, errors.New("invalid Gemini endpoint")
+	}
+	req.Header.Set("X-Goog-Api-Key", c.Key)
+	req.Header.Set("Content-Type", "application/json")
+	r, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, errors.New("gemini connection failed")
+	}
+	return r, nil
+}
+func (c *Client) retryResponse(ctx context.Context, r *http.Response, attempt int) error {
+	status := r.StatusCode
+	_ = r.Body.Close()
+	if !temporaryStatus(status) {
+		return &HTTPError{Status: status}
+	}
+	delay, source := c.retryAfter(r.Header.Get("Retry-After"))
+	httpErr := &HTTPError{Status: status, After: delay, RetrySource: source}
+	if attempt == 2 {
+		c.logRetry(attempt, httpErr, false)
+		return httpErr
+	}
+	if delay > c.inlineLimit() || !c.waitFits(ctx, delay) {
+		httpErr.Deferred = true
+		c.logRetry(attempt, httpErr, false)
+		return httpErr
+	}
+	c.logRetry(attempt, httpErr, true)
+	if err := c.wait(ctx, delay); err != nil {
+		return err
+	}
+	return nil
+}
+func decodeSelection(r *http.Response) (ai.Selection, error) {
+	var result ai.Selection
+	var err error
 	defer r.Body.Close()
 	var response struct {
 		Candidates []struct {

@@ -34,7 +34,10 @@ func response(code int, body string) *http.Response {
 	return &http.Response{StatusCode: code, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
 func answer(s, finish string) string {
-	b, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"finish_reason": finish, "message": map[string]string{"content": s}}}})
+	b, err := json.Marshal(map[string]any{"choices": []any{map[string]any{"finish_reason": finish, "message": map[string]string{"content": s}}}})
+	if err != nil {
+		panic(err)
+	} // Test fixture consists only of JSON-compatible values.
 	return string(b)
 }
 func client(rt transport, b *budget) *Client {
@@ -55,7 +58,7 @@ func TestVisionPayloadSelectionAndBudget(t *testing.T) {
 			return response(200, string(imageBytes)), nil
 		}
 		calls++
-		if r.URL.Path != "/openai/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer test-secret" || r.Header.Get("x-goog-api-key") != "" {
+		if r.URL.Path != "/openai/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer test-secret" || r.Header.Get("X-Goog-Api-Key") != "" {
 			t.Fatal("invalid auth or endpoint")
 		}
 		var req struct {
@@ -158,7 +161,7 @@ func TestGenerateRetriesShortRateLimitAndCountsBothRequests(t *testing.T) {
 		if calls == 1 {
 			r := response(http.StatusTooManyRequests, "private upstream body")
 			r.Header.Set("Retry-After", "3")
-			r.Header.Set("x-ratelimit-remaining-tokens", "0")
+			r.Header.Set("X-Ratelimit-Remaining-Tokens", "0")
 			return r, nil
 		}
 		return response(http.StatusOK, answer(`{"index":-1,"text":"","evidence":""}`, "stop")), nil
@@ -188,7 +191,7 @@ func TestGenerateDefersLongRateLimitAndCapsAdvice(t *testing.T) {
 			calls++
 			r := response(http.StatusTooManyRequests, "private upstream body")
 			r.Header.Set("Retry-After", tc.header)
-			r.Header.Set("x-ratelimit-remaining-requests", "0")
+			r.Header.Set("X-Ratelimit-Remaining-Requests", "0")
 			return r, nil
 		}, b)
 		c.Wait = func(context.Context, time.Duration) error {

@@ -88,6 +88,8 @@ func personalizationChangedText(mode movieclub.PersonalizationMode) string {
 		return "Персонализация включена: новые опросы и подборки учитывают историю голосований чата."
 	case movieclub.PersonalizationShadow:
 		return "Режим наблюдения включён: бот сравнивает алгоритмы, но публикует прежнюю выдачу."
+	case movieclub.PersonalizationOff:
+		return "Персонализация выключена: используется базовая ротация. История продолжает сохраняться."
 	default:
 		return "Персонализация выключена: используется базовая ротация. История продолжает сохраняться."
 	}

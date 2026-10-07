@@ -42,11 +42,11 @@ func TestPreparationUsesProviderRetryAfterWithoutBlockingScheduler(t *testing.T)
 		s.Provider = p
 		*n = n.Add(time.Hour)
 		tick(t, s)
-		rows, err := storeOf(s).Preparing(context.Background())
+		rows, err := storeOf(t, s).Preparing(context.Background())
 		if err != nil || len(rows) != 1 || rows[0].NextAttempt != n.Add(tc.want).Unix() || rows[0].FetchAttempts != 1 || send.calls != 0 {
 			t.Fatalf("after=%s rows=%#v err=%v calls=%d", tc.after, rows, err, send.calls)
 		}
-		issues, err := storeOf(s).Issues(context.Background(), -1)
+		issues, err := storeOf(t, s).Issues(context.Background(), -1)
 		if err != nil || len(issues) != 1 || issues[0].Error != "groq_quota" {
 			t.Fatalf("issues=%#v err=%v", issues, err)
 		}
@@ -60,10 +60,10 @@ func TestPreparationRetriesBothKindsAndSurvivesRestart(t *testing.T) {
 				s, send, n := fixture(t)
 				ctx := context.Background()
 				if kind == daily.Fact {
-					if err := storeOf(s).SetSchedule(ctx, 3, -1, daily.Meme, "09:00", false, *n); err != nil {
+					if err := storeOf(t, s).SetSchedule(ctx, 3, -1, daily.Meme, "09:00", false, *n); err != nil {
 						t.Fatal(err)
 					}
-					if err := storeOf(s).SetSchedule(ctx, 4, -1, daily.Fact, "09:00", true, *n); err != nil {
+					if err := storeOf(t, s).SetSchedule(ctx, 4, -1, daily.Fact, "09:00", true, *n); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -75,11 +75,11 @@ func TestPreparationRetriesBothKindsAndSurvivesRestart(t *testing.T) {
 				if p.calls != 1 || send.calls != 0 {
 					t.Fatal("retried immediately", p.calls, send.calls)
 				}
-				rows, err := storeOf(s).Preparing(ctx)
+				rows, err := storeOf(t, s).Preparing(ctx)
 				if err != nil || len(rows) != 1 || rows[0].FetchAttempts != 1 || rows[0].NextAttempt != n.Add(5*time.Minute).Unix() {
 					t.Fatal(rows, err)
 				}
-				issues, err := storeOf(s).Issues(ctx, -1)
+				issues, err := storeOf(t, s).Issues(ctx, -1)
 				if err != nil || len(issues) != 1 {
 					t.Fatal(issues, err)
 				}
@@ -91,10 +91,10 @@ func TestPreparationRetriesBothKindsAndSurvivesRestart(t *testing.T) {
 					t.Fatal(issues[0])
 				}
 				// Startup recovery and a fresh scheduler preserve the retry deadline.
-				if err := storeOf(s).Recover(ctx); err != nil {
+				if err := storeOf(t, s).Recover(ctx); err != nil {
 					t.Fatal(err)
 				}
-				fresh := &Scheduler{Store: s.Store, Sender: send, Provider: p, Allowed: s.Allowed, Log: s.Log, Now: s.Now}
+				fresh := &Scheduler{schedules: s.schedules, preparation: s.preparation, stock: s.stock, deliveries: s.deliveries, Sender: send, Provider: p, Allowed: s.Allowed, Log: s.Log, Now: s.Now}
 				*n = n.Add(4 * time.Minute)
 				tick(t, fresh)
 				if p.calls != 1 {
@@ -123,7 +123,7 @@ func TestPreparationBoundedAndCancelled(t *testing.T) {
 	}
 	*n = n.Add(time.Minute)
 	tick(t, s)
-	rows, err := storeOf(s).Preparing(context.Background())
+	rows, err := storeOf(t, s).Preparing(context.Background())
 	if err != nil || len(rows) != 0 || p.calls != 6 || send.calls != 0 {
 		t.Fatal(rows, err, p.calls, send.calls)
 	}
@@ -132,7 +132,7 @@ func TestPreparationBoundedAndCancelled(t *testing.T) {
 	s.Provider = p
 	*n = n.Add(time.Hour)
 	tick(t, s)
-	if err := storeOf(s).SetSchedule(context.Background(), 3, -1, daily.Meme, "09:00", false, *n); err != nil {
+	if err := storeOf(t, s).SetSchedule(context.Background(), 3, -1, daily.Meme, "09:00", false, *n); err != nil {
 		t.Fatal(err)
 	}
 	*n = n.Add(10 * time.Minute)
@@ -158,7 +158,7 @@ func TestPreparationWindowAndLateResult(t *testing.T) {
 		t.Fatal("missed slot not recovered in six-hour window")
 	}
 	s, send, n = fixture(t)
-	s.Provider.(*provider).hook = func() { *n = n.Add(7 * time.Hour) }
+	providerOf(t, s).hook = func() { *n = n.Add(7 * time.Hour) }
 	*n = n.Add(time.Hour)
 	tick(t, s)
 	if send.calls != 0 {
@@ -176,11 +176,11 @@ func TestBackgroundModeNeverCallsProviderWhenStockIsEmpty(t *testing.T) {
 	if provider.calls != 0 || send.calls != 0 {
 		t.Fatal("foreground provider used in background mode", provider.calls, send.calls)
 	}
-	work, claimed, err := storeOf(s).ClaimAIWork(context.Background(), *now, time.Minute)
+	work, claimed, err := storeOf(t, s).ClaimAIWork(context.Background(), *now, time.Minute)
 	if err != nil || !claimed || work.Kind != aiwork.MemeRefill || work.ScopeID != -1 {
 		t.Fatal(work, claimed, err)
 	}
-	issues, err := storeOf(s).Issues(context.Background(), -1)
+	issues, err := storeOf(t, s).Issues(context.Background(), -1)
 	if err != nil || len(issues) != 1 || issues[0].Error != "background_refill_pending" {
 		t.Fatal(issues, err)
 	}

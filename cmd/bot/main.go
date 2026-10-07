@@ -17,6 +17,7 @@ import (
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/ai"
 	"github.com/vaporon4a/movie-helper/internal/aiwork"
+	"github.com/vaporon4a/movie-helper/internal/clubreminder"
 	"github.com/vaporon4a/movie-helper/internal/config"
 	"github.com/vaporon4a/movie-helper/internal/content"
 	"github.com/vaporon4a/movie-helper/internal/daily"
@@ -55,19 +56,9 @@ func run() error {
 	if err != nil {
 		return errors.New("cannot open or migrate database")
 	}
-	defer func() {
-		if err := store.Close(); err != nil {
-			log.Warn("database close failed")
-		}
-	}()
-	if err = store.Recover(ctx); err != nil {
-		return errors.New("cannot recover delivery state")
-	}
-	if err = store.RecoverMovieRounds(ctx); err != nil {
-		return errors.New("cannot recover movie poll state")
-	}
-	if err = store.RecoverFeatureRounds(ctx); err != nil {
-		return errors.New("cannot recover feature vote state")
+	defer closeStore(store, log)
+	if err = recoverBotState(ctx, store); err != nil {
+		return err
 	}
 	var handler *telegram.Handler
 	b, err := bot.New(cfg.Token, bot.WithDefaultHandler(func(handlerCtx context.Context, telegramBot *bot.Bot, update *models.Update) {
@@ -81,17 +72,9 @@ func run() error {
 	if err != nil {
 		return errors.New("telegram initialization failed; check token and connection")
 	}
-	me, err := b.GetMe(ctx)
+	username, err := telegramIdentity(ctx, b)
 	if err != nil {
-		return errors.New("cannot identify Telegram bot")
-	}
-	// Do not silently delete a webhook belonging to an existing deployment.
-	wh, err := b.GetWebhookInfo(ctx)
-	if err != nil {
-		return errors.New("cannot check webhook state")
-	}
-	if wh.URL != "" {
-		return errors.New("webhook is active; remove it before running polling")
+		return err
 	}
 	redirect := func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
 	provider, primaryAI, secondaryAI := buildContentProvider(cfg, store, log, redirect)
@@ -101,7 +84,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	handler, err = telegram.NewHandler(b, dailyService, cfg.Chats, me.Username, log, time.Now)
+	handler, err = telegram.NewHandler(b, dailyService, cfg.Chats, username, log, time.Now)
 	if err != nil {
 		return err
 	}
@@ -110,9 +93,12 @@ func run() error {
 		return err
 	}
 	s.BackgroundOnly = cfg.AIResultMode == "background"
+	handler.Club = clubreminder.NewService(store, time.Now, log)
 	var workers sync.WaitGroup
+	reminders := &clubreminder.Coordinator{Store: store, Sender: telegram.ClubSender{API: b}, Allowed: cfg.Chats, Log: log, Now: time.Now}
+	workers.Go(func() { reminders.Run(ctx) })
 	workers.Go(func() { s.Run(ctx) })
-	if err = startAIWork(ctx, store, provider, titles, log, &workers); err != nil {
+	if err = startAIWork(ctx, store, provider, titles, primaryAI, secondaryAI, log, &workers); err != nil {
 		return err
 	}
 	if err = startFeatureVoting(ctx, store, b, handler, cfg.Chats, log, &workers); err != nil {
@@ -154,11 +140,17 @@ func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Log
 	return provider, primary, secondary
 }
 
-func startAIWork(ctx context.Context, store *storage.Store, provider *content.Provider, titles ai.FeatureTitleGenerator, log *slog.Logger, workers *sync.WaitGroup) error {
+func startAIWork(ctx context.Context, store *storage.Store, provider *content.Provider, titles ai.FeatureTitleGenerator, primary, secondary ai.Generator, log *slog.Logger, workers *sync.WaitGroup) error {
+	if client, ok := secondary.(*groq.Client); ok {
+		copyClient := *client
+		copyClient.MaxCompletionTokens = 1800
+		secondary = &copyClient
+	}
+	clubRefiller := content.ClubRefiller{Store: store, Primary: primary, Secondary: secondary}
 	contentRefiller := &content.Refiller{Store: store, Provider: provider, Log: log}
 	titleRefiller := featurevote.TitleRefiller{Store: store, Generator: titles}
 	coordinator, err := aiwork.NewCoordinator(store, map[string]aiwork.Executor{
-		aiwork.FactRefill: contentRefiller, aiwork.MemeRefill: contentRefiller, aiwork.FeatureTitle: titleRefiller,
+		aiwork.FactRefill: contentRefiller, aiwork.MemeRefill: contentRefiller, aiwork.FeatureTitle: titleRefiller, aiwork.ClubReminderRefill: clubRefiller,
 	}, log, time.Now)
 	if err != nil {
 		return err
@@ -239,4 +231,43 @@ func lockDB(path string) (*os.File, error) {
 		return nil, errors.New("database is already in use")
 	}
 	return f, nil
+}
+
+func recoverBotState(ctx context.Context, store *storage.Store) error {
+	var err error
+	if err = store.Recover(ctx); err != nil {
+		return errors.New("cannot recover delivery state")
+	}
+	if err = store.RecoverClub(ctx); err != nil {
+		return errors.New("cannot recover club reminders")
+	}
+	if err = store.RecoverMovieRounds(ctx); err != nil {
+		return errors.New("cannot recover movie poll state")
+	}
+	if err = store.RecoverFeatureRounds(ctx); err != nil {
+		return errors.New("cannot recover feature vote state")
+	}
+	return nil
+}
+
+func telegramIdentity(ctx context.Context, b *bot.Bot) (string, error) {
+	me, err := b.GetMe(ctx)
+	if err != nil {
+		return "", errors.New("cannot identify Telegram bot")
+	}
+	// Do not silently delete a webhook belonging to an existing deployment.
+	wh, err := b.GetWebhookInfo(ctx)
+	if err != nil {
+		return "", errors.New("cannot check webhook state")
+	}
+	if wh.URL != "" {
+		return "", errors.New("webhook is active; remove it before running polling")
+	}
+	return me.Username, nil
+}
+
+func closeStore(store *storage.Store, log *slog.Logger) {
+	if err := store.Close(); err != nil {
+		log.Warn("database close failed")
+	}
 }

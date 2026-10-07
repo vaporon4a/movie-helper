@@ -33,7 +33,7 @@ func TestMemeRejectionsPersistExpireAndScope(t *testing.T) {
 	}
 	must(t, s.RejectMeme(ctx, "groq:model:v2", "another", now.Add(25*time.Hour)))
 	var count int
-	must(t, s.db.QueryRow("SELECT count(*) FROM meme_rejections").Scan(&count))
+	must(t, s.db.QueryRowContext(t.Context(), "SELECT count(*) FROM meme_rejections").Scan(&count))
 	if count != 1 {
 		t.Fatal("expired rejection not pruned", count)
 	}

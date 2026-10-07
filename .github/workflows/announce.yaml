@@ -1,0 +1,30 @@
+name: Retry or preview bot announcement
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Send reviewed summary to Telegram (false = preview only)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  announce:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: production
+    concurrency:
+      group: movie-helper-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Preview or publish deployed announcements
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          ANNOUNCEMENT_PUBLISH: ${{ inputs.publish }}
+        run: python3 deploy/announce.py

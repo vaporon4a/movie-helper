@@ -2,7 +2,6 @@ package featurevote_test
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"path/filepath"
 	"testing"
@@ -54,7 +53,7 @@ func TestCoordinatorOpensAllActiveIdeasAndPublishesWinner(t *testing.T) {
 	if err = store.SetZone(ctx, 1, -1, "UTC", now); err != nil {
 		t.Fatal(err)
 	}
-	service, err := featurevote.NewService(store, slog.New(slog.NewTextHandler(io.Discard, nil)), func() time.Time { return now }, func() (string, error) { return "main-token", nil })
+	service, err := featurevote.NewService(store, slog.New(slog.DiscardHandler), func() time.Time { return now }, func() (string, error) { return "main-token", nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +70,7 @@ func TestCoordinatorOpensAllActiveIdeasAndPublishesWinner(t *testing.T) {
 		t.Fatal(err)
 	}
 	sender := &featureSenderStub{}
-	coordinator, err := featurevote.NewCoordinator(store, sender, map[int64]bool{-1: true}, slog.New(slog.NewTextHandler(io.Discard, nil)), func() time.Time { return now }, func() (string, error) { return "runoff-token", nil })
+	coordinator, err := featurevote.NewCoordinator(store, sender, map[int64]bool{-1: true}, slog.New(slog.DiscardHandler), func() time.Time { return now }, func() (string, error) { return "runoff-token", nil })
 	if err != nil {
 		t.Fatal(err)
 	}

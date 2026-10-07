@@ -93,9 +93,10 @@ func overlapAt(first, second []Movie, limit int) int {
 func rankingCandidates(roundID int64, bucket string, legacy []Movie, adaptive []RankedMovie) []RankingCandidate {
 	legacyPositions := make(map[int64]int, len(legacy))
 	adaptivePositions := make(map[int64]int, len(adaptive))
-	byID := make(map[int64]RankedMovie, len(adaptive))
+	byID := make(map[int64]RankedMovie, len(adaptive)+len(legacy))
 	for index, movie := range legacy {
 		legacyPositions[movie.ID] = index
+		byID[movie.ID] = RankedMovie{Movie: movie}
 	}
 	for index, movie := range adaptive {
 		adaptivePositions[movie.ID] = index
@@ -126,14 +127,6 @@ func rankingCandidates(roundID int64, bucket string, legacy []Movie, adaptive []
 			adaptivePosition = -1
 		}
 		ranked := byID[id]
-		if ranked.ID == 0 {
-			for _, movie := range legacy {
-				if movie.ID == id {
-					ranked.Movie = movie
-					break
-				}
-			}
-		}
 		out = append(out, RankingCandidate{
 			RoundID: roundID, TMDBID: id, SourceBucket: bucket, SelectedMode: "none",
 			Movie: ranked.Movie, LegacyPosition: legacyPosition, AdaptivePosition: adaptivePosition,

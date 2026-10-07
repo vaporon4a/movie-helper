@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"path/filepath"
 	"slices"
@@ -130,17 +129,17 @@ func handler(t *testing.T) (*Handler, *fakeAPI) {
 	}
 	t.Cleanup(func() { s.Close() })
 	a := &fakeAPI{}
-	service, err := daily.NewService(s, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	service, err := daily.NewService(s, nil, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
 	app := &testDailyApp{Service: service, store: s}
-	return &Handler{Daily: app, API: a, Allowed: map[int64]bool{-1: true, -2: true}, Username: "film_bot", Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: time.Now}, a
+	return &Handler{Daily: app, API: a, Allowed: map[int64]bool{-1: true, -2: true}, Username: "film_bot", Log: slog.New(slog.DiscardHandler), Now: time.Now}, a
 }
 
 func attachFeatureService(t *testing.T, h *Handler) *storage.Store {
 	t.Helper()
-	store := h.Daily.(*testDailyApp).store
+	store := appOf(t, h).store
 	service, err := featurevote.NewService(store, h.Log, h.Now, func() (string, error) { return "test-token", nil })
 	if err != nil {
 		t.Fatal(err)
@@ -312,7 +311,7 @@ func TestFeatureSenderPublishesDeepLinkAndEscapedWinner(t *testing.T) {
 	if _, err := sender.OpenRound(context.Background(), round, "ideas_token"); err != nil {
 		t.Fatal(err)
 	}
-	keyboard := api.messages[0].ReplyMarkup.(*models.InlineKeyboardMarkup)
+	keyboard := testValue[*models.InlineKeyboardMarkup](t, api.messages[0].ReplyMarkup)
 	if got := keyboard.InlineKeyboard[0][0].URL; got != "https://t.me/film_bot?start=ideas_token" {
 		t.Fatalf("url=%q", got)
 	}
@@ -336,7 +335,7 @@ func TestFeatureSenderUsesNativePollWithDetailsButton(t *testing.T) {
 	if err != nil || opened.Mode != featurevote.BallotNative || opened.PollID != "poll-99" || len(api.polls) != 1 {
 		t.Fatalf("opened=%#v polls=%d err=%v", opened, len(api.polls), err)
 	}
-	keyboard := api.polls[0].ReplyMarkup.(*models.InlineKeyboardMarkup)
+	keyboard := testValue[*models.InlineKeyboardMarkup](t, api.polls[0].ReplyMarkup)
 	if got := keyboard.InlineKeyboard[0][0].URL; got != "https://t.me/film_bot?start=ideas_native-token" {
 		t.Fatalf("details url=%q", got)
 	}
@@ -390,7 +389,7 @@ func TestSenderAndErrors(t *testing.T) {
 	if id, err := s.Send(ctx, -1, daily.Item{Kind: daily.Meme, Image: "telegram-file-id", Text: "Предпросмотр · <b>Мем</b> & шутка", Source: "https://redd.it/a?x=1&y=2"}); err != nil || id != 99 {
 		t.Fatal(id, err)
 	}
-	if p := a.photos[0]; p.Photo.(*models.InputFileString).Data != "telegram-file-id" || p.ParseMode != models.ParseModeHTML ||
+	if p := a.photos[0]; testValue[*models.InputFileString](t, p.Photo).Data != "telegram-file-id" || p.ParseMode != models.ParseModeHTML ||
 		!strings.Contains(p.Caption, "🎭 <b>Мем дня</b> · <i>предпросмотр</i>") ||
 		!strings.Contains(p.Caption, "&lt;b&gt;Мем&lt;/b&gt; &amp; шутка") ||
 		!strings.Contains(p.Caption, `href="https://redd.it/a?x=1&amp;y=2"`) || strings.Contains(p.Caption, "Предпросмотр ·") {
@@ -427,7 +426,7 @@ func TestMovieCommandsCreateIsolatedRoundAndSchedule(t *testing.T) {
 	h, api := handler(t)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	h.Now = func() time.Time { return now }
-	store := h.Daily.(*testDailyApp).store
+	store := appOf(t, h).store
 	scenario, err := movieclub.NewGenreScenario(testCatalog{}, store)
 	if err != nil {
 		t.Fatal(err)
@@ -765,7 +764,7 @@ func (p *previewProvider) Candidates(ctx context.Context, kind string, chat int6
 func TestPreviewUsesGeminiProviderWithoutQueueOrSchedule(t *testing.T) {
 	h, a := handler(t)
 	p := &previewProvider{}
-	h.Daily.(*testDailyApp).provider = p
+	appOf(t, h).provider = p
 	ctx := context.Background()
 	for _, cmd := range []string{"/preview meme", "/preview fact"} {
 		h.Handle(ctx, nil, update(1, -1, 7, cmd))
@@ -790,7 +789,7 @@ func TestPreviewUsesGeminiProviderWithoutQueueOrSchedule(t *testing.T) {
 	if err != nil || len(q) != 0 {
 		t.Fatal("preview queued item", q, err)
 	}
-	seen, err := h.Daily.(*testDailyApp).store.Seen(ctx, -1, daily.Meme, "preview")
+	seen, err := appOf(t, h).store.Seen(ctx, -1, daily.Meme, "preview")
 	if err != nil || seen {
 		t.Fatal("preview marked item published")
 	}
@@ -855,4 +854,22 @@ func TestSettingsShowsPreparationReasonAndConditionalResolveHelp(t *testing.T) {
 	if !strings.Contains(text, "unknown: проверьте чат") || !strings.Contains(text, "/resolve ID sent") {
 		t.Fatal(text)
 	}
+}
+
+func appOf(t *testing.T, h *Handler) *testDailyApp {
+	t.Helper()
+	app, ok := h.Daily.(*testDailyApp)
+	if !ok {
+		t.Fatalf("unexpected daily fixture: %T", h.Daily)
+	}
+	return app
+}
+
+func testValue[T any](t *testing.T, value any) T {
+	t.Helper()
+	result, ok := value.(T)
+	if !ok {
+		t.Fatalf("unexpected fixture: %T", value)
+	}
+	return result
 }

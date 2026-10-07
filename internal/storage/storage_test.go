@@ -71,7 +71,7 @@ func TestMigrationsAndPersistence(t *testing.T) {
 		t.Fatal(i)
 	}
 	var fk int
-	must(t, s.db.QueryRow("PRAGMA foreign_keys").Scan(&fk))
+	must(t, s.db.QueryRowContext(t.Context(), "PRAGMA foreign_keys").Scan(&fk))
 	if fk != 1 {
 		t.Fatal("foreign keys disabled")
 	}
@@ -313,16 +313,16 @@ func TestModerationMigrationPreservesExistingData(t *testing.T) {
 	must(t, err)
 	_, err = p.DownTo(ctx, 2)
 	must(t, err)
-	_, err = s.db.Exec("INSERT INTO chats(chat_id,zone) VALUES(-1,'UTC')")
+	_, err = s.db.ExecContext(t.Context(), "INSERT INTO chats(chat_id,zone) VALUES(-1,'UTC')")
 	must(t, err)
-	_, err = s.db.Exec(`INSERT INTO items(chat_id,kind,text,source,content_key,author_id,state,created_at,approved_by) VALUES(-1,'fact','Old fact','https://example.org','old',42,'approved',1,42)`)
+	_, err = s.db.ExecContext(t.Context(), `INSERT INTO items(chat_id,kind,text,source,content_key,author_id,state,created_at,approved_by) VALUES(-1,'fact','Old fact','https://example.org','old',42,'approved',1,42)`)
 	must(t, err)
 	_, err = p.Up(ctx)
 	must(t, err)
 	var moderation, ai bool
 	var text string
-	must(t, s.db.QueryRow("SELECT moderation FROM chats WHERE chat_id=-1").Scan(&moderation))
-	must(t, s.db.QueryRow("SELECT text,ai_approved FROM items WHERE chat_id=-1").Scan(&text, &ai))
+	must(t, s.db.QueryRowContext(t.Context(), "SELECT moderation FROM chats WHERE chat_id=-1").Scan(&moderation))
+	must(t, s.db.QueryRowContext(t.Context(), "SELECT text,ai_approved FROM items WHERE chat_id=-1").Scan(&text, &ai))
 	if moderation || ai || text != "Old fact" {
 		t.Fatal(moderation, ai, text)
 	}
@@ -339,7 +339,7 @@ func TestModerationMigrationPreservesExistingData(t *testing.T) {
 	}
 	_, err = p.DownTo(ctx, 2)
 	must(t, err)
-	must(t, s.db.QueryRow("SELECT text FROM items WHERE chat_id=-1").Scan(&text))
+	must(t, s.db.QueryRowContext(t.Context(), "SELECT text FROM items WHERE chat_id=-1").Scan(&text))
 	if text != "Old fact" {
 		t.Fatal("downgrade lost item")
 	}

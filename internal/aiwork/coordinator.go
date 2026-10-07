@@ -84,7 +84,7 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 	if executeErr != nil {
 		after := retryDelay(work.Attempts)
 		c.Log.Warn("AI work execution failed", "work_id", work.ID, "kind", work.Kind, "scope_id", work.ScopeID, "reason", "internal", "retry_after_ms", after.Milliseconds())
-		return c.deferWork(ctx, work, now.Add(after), "internal")
+		return c.deferWork(ctx, work, c.Now().Add(after), "internal")
 	}
 	if outcome.Done {
 		if err = c.Store.CompleteAIWork(context.WithoutCancel(ctx), work.ID, c.Now()); err != nil {
@@ -101,7 +101,7 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 	if reason == "" {
 		reason = "retry"
 	}
-	return c.deferWork(ctx, work, now.Add(after), reason)
+	return c.deferWork(ctx, work, c.Now().Add(after), reason)
 }
 
 func (c *Coordinator) deferWork(ctx context.Context, work Work, next time.Time, reason string) error {

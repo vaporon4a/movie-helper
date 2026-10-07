@@ -12,10 +12,12 @@ import (
 )
 
 type Service struct {
-	store ServiceRepository
-	log   *slog.Logger
-	now   func() time.Time
-	token func() (string, error)
+	ideaRepository            IdeaRepository
+	serviceScheduleRepository ServiceScheduleRepository
+	serviceRoundRepository    ServiceRoundRepository
+	log                       *slog.Logger
+	now                       func() time.Time
+	token                     func() (string, error)
 }
 
 func NewService(store ServiceRepository, log *slog.Logger, now func() time.Time, token func() (string, error)) (*Service, error) {
@@ -28,7 +30,7 @@ func NewService(store ServiceRepository, log *slog.Logger, now func() time.Time,
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{store: store, log: log, now: now, token: token}, nil
+	return &Service{ideaRepository: store, serviceScheduleRepository: store, serviceRoundRepository: store, log: log, now: now, token: token}, nil
 }
 
 func (s *Service) Add(ctx context.Context, operationID, chatID, authorID int64, text string) (Idea, error) {
@@ -38,7 +40,7 @@ func (s *Service) Add(ctx context.Context, operationID, chatID, authorID int64, 
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
 	sum := sha256.Sum256([]byte(normalized))
-	idea, err := s.store.AddFeature(ctx, operationID, chatID, authorID, text, hex.EncodeToString(sum[:]), s.now())
+	idea, err := s.ideaRepository.AddFeature(ctx, operationID, chatID, authorID, text, hex.EncodeToString(sum[:]), s.now())
 	if err == nil {
 		s.log.Info("feature idea added", "chat_id", chatID, "idea_id", idea.ID)
 	}
@@ -46,30 +48,30 @@ func (s *Service) Add(ctx context.Context, operationID, chatID, authorID int64, 
 }
 
 func (s *Service) Mine(ctx context.Context, chatID, authorID int64) ([]Idea, error) {
-	return s.store.AuthorFeatures(ctx, chatID, authorID)
+	return s.ideaRepository.AuthorFeatures(ctx, chatID, authorID)
 }
 
 func (s *Service) Backlog(ctx context.Context, chatID int64) ([]Idea, error) {
-	return s.store.FeatureBacklog(ctx, chatID)
+	return s.ideaRepository.FeatureBacklog(ctx, chatID)
 }
 
 func (s *Service) ChangeState(ctx context.Context, operationID, chatID, ideaID, actorID int64, state IdeaState, admin bool) error {
 	if state != IdeaActive && state != IdeaImplemented && state != IdeaRemoved {
 		return ErrConflict
 	}
-	return s.store.ChangeFeatureState(ctx, operationID, chatID, ideaID, actorID, state, admin, s.now())
+	return s.ideaRepository.ChangeFeatureState(ctx, operationID, chatID, ideaID, actorID, state, admin, s.now())
 }
 
 func (s *Service) SetSchedule(ctx context.Context, operationID, chatID int64, weekday int, clock string) error {
-	return s.store.SetFeatureSchedule(ctx, operationID, chatID, weekday, clock, true, s.now())
+	return s.serviceScheduleRepository.SetFeatureSchedule(ctx, operationID, chatID, weekday, clock, true, s.now())
 }
 
 func (s *Service) Pause(ctx context.Context, operationID, chatID int64) error {
-	return s.store.PauseFeatureSchedule(ctx, operationID, chatID, s.now())
+	return s.serviceScheduleRepository.PauseFeatureSchedule(ctx, operationID, chatID, s.now())
 }
 
 func (s *Service) Settings(ctx context.Context, chatID int64) (SettingsView, error) {
-	return s.store.FeatureSettings(ctx, chatID)
+	return s.serviceScheduleRepository.FeatureSettings(ctx, chatID)
 }
 
 func (s *Service) Start(ctx context.Context, operationID, chatID int64, duration time.Duration) (int64, error) {
@@ -80,27 +82,27 @@ func (s *Service) Start(ctx context.Context, operationID, chatID int64, duration
 	if err != nil {
 		return 0, err
 	}
-	return s.store.StartFeatureRound(ctx, operationID, chatID, s.now(), duration, token)
+	return s.serviceRoundRepository.StartFeatureRound(ctx, operationID, chatID, s.now(), duration, token)
 }
 
 func (s *Service) View(ctx context.Context, token string, userID int64) (View, error) {
-	return s.store.FeatureView(ctx, token, userID)
+	return s.serviceRoundRepository.FeatureView(ctx, token, userID)
 }
 
 func (s *Service) Vote(ctx context.Context, token string, userID, ideaID int64) error {
-	return s.store.VoteFeature(ctx, token, userID, ideaID, s.now())
+	return s.serviceRoundRepository.VoteFeature(ctx, token, userID, ideaID, s.now())
 }
 
 func (s *Service) PollClosed(ctx context.Context, pollID string, votes []int) error {
 	if pollID == "" {
 		return ErrConflict
 	}
-	return s.store.SaveFeaturePollByID(ctx, pollID, votes)
+	return s.serviceRoundRepository.SaveFeaturePollByID(ctx, pollID, votes)
 }
 
 func (s *Service) Resolve(ctx context.Context, operationID, chatID, roundID int64, action ResolveAction) error {
 	if action != ResolveSent && action != ResolveRetry && action != ResolveCancel {
 		return ErrConflict
 	}
-	return s.store.ResolveFeatureRound(ctx, operationID, chatID, roundID, action, s.now())
+	return s.serviceRoundRepository.ResolveFeatureRound(ctx, operationID, chatID, roundID, action, s.now())
 }

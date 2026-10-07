@@ -66,7 +66,7 @@ func TestProviderBudgetMigrationPreservesGeminiCounter(t *testing.T) {
 	must(t, err)
 	_, err = p.DownTo(ctx, 3)
 	must(t, err)
-	_, err = s.db.Exec("INSERT INTO api_usage(utc_date,requests) VALUES('2026-09-22',6)")
+	_, err = s.db.ExecContext(t.Context(), "INSERT INTO api_usage(utc_date,requests) VALUES('2026-09-22',6)")
 	must(t, err)
 	_, err = p.Up(ctx)
 	must(t, err)
@@ -84,7 +84,7 @@ func TestProviderBudgetMigrationPreservesGeminiCounter(t *testing.T) {
 	_, err = p.DownTo(ctx, 3)
 	must(t, err)
 	var used int
-	must(t, s.db.QueryRow("SELECT requests FROM api_usage WHERE utc_date='2026-09-22'").Scan(&used))
+	must(t, s.db.QueryRowContext(t.Context(), "SELECT requests FROM api_usage WHERE utc_date='2026-09-22'").Scan(&used))
 	if used != 6 {
 		t.Fatal("downgrade changed Gemini history")
 	}

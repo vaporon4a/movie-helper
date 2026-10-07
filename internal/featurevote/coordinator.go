@@ -12,12 +12,15 @@ import (
 const scheduleCatchup = 6 * time.Hour
 
 type Coordinator struct {
-	store   CoordinatorRepository
-	sender  Transport
-	allowed map[int64]bool
-	log     *slog.Logger
-	now     func() time.Time
-	token   func() (string, error)
+	coordinatorScheduleRepository CoordinatorScheduleRepository
+	coordinatorRoundRepository    CoordinatorRoundRepository
+	optionRepository              OptionRepository
+	finalizationRepository        FinalizationRepository
+	sender                        Transport
+	allowed                       map[int64]bool
+	log                           *slog.Logger
+	now                           func() time.Time
+	token                         func() (string, error)
 }
 
 func NewCoordinator(store CoordinatorRepository, sender Transport, allowed map[int64]bool, log *slog.Logger, now func() time.Time, token func() (string, error)) (*Coordinator, error) {
@@ -30,7 +33,7 @@ func NewCoordinator(store CoordinatorRepository, sender Transport, allowed map[i
 	if now == nil {
 		now = time.Now
 	}
-	return &Coordinator{store: store, sender: sender, allowed: allowed, log: log, now: now, token: token}, nil
+	return &Coordinator{coordinatorScheduleRepository: store, coordinatorRoundRepository: store, optionRepository: store, finalizationRepository: store, sender: sender, allowed: allowed, log: log, now: now, token: token}, nil
 }
 
 func (c *Coordinator) Run(ctx context.Context) {
@@ -59,7 +62,7 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 }
 
 func (c *Coordinator) reserveSchedules(ctx context.Context, now time.Time) error {
-	schedules, err := c.store.FeatureSchedules(ctx, 0)
+	schedules, err := c.coordinatorScheduleRepository.FeatureSchedules(ctx, 0)
 	if err != nil {
 		return err
 	}
@@ -86,7 +89,7 @@ func (c *Coordinator) reserveSchedule(ctx context.Context, schedule Schedule, no
 	if err != nil {
 		return err
 	}
-	_, err = c.store.ReserveFeatureRound(ctx, schedule.ChatID, slot.Unix(), slot.Add(DefaultRoundDuration).Unix(), token)
+	_, err = c.coordinatorScheduleRepository.ReserveFeatureRound(ctx, schedule.ChatID, slot.Unix(), slot.Add(DefaultRoundDuration).Unix(), token)
 	if errors.Is(err, ErrDuplicate) || errors.Is(err, ErrActiveRound) {
 		return nil
 	}
@@ -94,7 +97,7 @@ func (c *Coordinator) reserveSchedule(ctx context.Context, schedule Schedule, no
 }
 
 func (c *Coordinator) openPlanned(ctx context.Context, now time.Time) error {
-	rounds, err := c.store.FeatureRounds(ctx, RoundPlanned)
+	rounds, err := c.coordinatorRoundRepository.FeatureRounds(ctx, RoundPlanned)
 	if err != nil {
 		return err
 	}
@@ -115,9 +118,9 @@ func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time)
 		return err
 	}
 	if len(options) == 0 {
-		return c.store.CancelEmptyFeatureRound(ctx, round.ID)
+		return c.finalizationRepository.CancelEmptyFeatureRound(ctx, round.ID)
 	}
-	claimed, err := c.store.ClaimFeatureRound(ctx, round.ID, RoundPlanned, RoundOpening, now)
+	claimed, err := c.coordinatorRoundRepository.ClaimFeatureRound(ctx, round.ID, RoundPlanned, RoundOpening, now)
 	if err != nil || !claimed {
 		return err
 	}
@@ -126,7 +129,7 @@ func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time)
 	if sendErr != nil {
 		return c.handleFailure(ctx, round, RoundOpening, sendErr, now)
 	}
-	if err = c.store.OpenFeatureRound(ctx, round.ID, opened, now); err != nil {
+	if err = c.coordinatorRoundRepository.OpenFeatureRound(ctx, round.ID, opened, now); err != nil {
 		return err
 	}
 	c.log.Info("feature vote opened", "round_id", round.ID, "chat_id", round.ChatID, "ideas", len(options), "runoff", round.ParentID != 0, "ballot_mode", opened.Mode)
@@ -134,11 +137,11 @@ func (c *Coordinator) openRound(ctx context.Context, round Round, now time.Time)
 }
 
 func (c *Coordinator) prepareOptions(ctx context.Context, round Round) ([]Option, error) {
-	options, err := c.store.FeatureRoundOptions(ctx, round.ID)
+	options, err := c.coordinatorRoundRepository.FeatureRoundOptions(ctx, round.ID)
 	if err != nil || len(options) > 0 {
 		return options, err
 	}
-	ideas, err := c.store.ActiveFeatures(ctx, round.ChatID)
+	ideas, err := c.optionRepository.ActiveFeatures(ctx, round.ChatID)
 	if err != nil {
 		return nil, err
 	}
@@ -159,14 +162,14 @@ func (c *Coordinator) prepareOptions(ctx context.Context, round Round) ([]Option
 		used[strings.ToLower(title)] = true
 		options = append(options, Option{RoundID: round.ID, IdeaID: idea.ID, Position: position, Title: title, Text: idea.Text})
 	}
-	if err = c.store.SaveFeatureRoundOptions(ctx, round.ID, options); err != nil {
+	if err = c.optionRepository.SaveFeatureRoundOptions(ctx, round.ID, options); err != nil {
 		return nil, err
 	}
 	return options, nil
 }
 
 func (c *Coordinator) closeDue(ctx context.Context, now time.Time) error {
-	rounds, err := c.store.FeatureRounds(ctx, RoundOpen)
+	rounds, err := c.coordinatorRoundRepository.FeatureRounds(ctx, RoundOpen)
 	if err != nil {
 		return err
 	}
@@ -182,12 +185,12 @@ func (c *Coordinator) closeDue(ctx context.Context, now time.Time) error {
 }
 
 func (c *Coordinator) closeRound(ctx context.Context, round Round, now time.Time) error {
-	claimed, err := c.store.ClaimFeatureRound(ctx, round.ID, RoundOpen, RoundClosing, now)
+	claimed, err := c.coordinatorRoundRepository.ClaimFeatureRound(ctx, round.ID, RoundOpen, RoundClosing, now)
 	if err != nil || !claimed {
 		return err
 	}
 	if round.BallotMode == BallotNative {
-		round.Options, err = c.store.FeatureRoundOptions(ctx, round.ID)
+		round.Options, err = c.coordinatorRoundRepository.FeatureRoundOptions(ctx, round.ID)
 		if err != nil {
 			return err
 		}
@@ -195,7 +198,7 @@ func (c *Coordinator) closeRound(ctx context.Context, round Round, now time.Time
 		if closeErr != nil {
 			return c.handleFailure(ctx, round, RoundClosing, closeErr, now)
 		}
-		if err = c.store.SaveFeaturePoll(ctx, round.ID, votes); err != nil {
+		if err = c.coordinatorRoundRepository.SaveFeaturePoll(ctx, round.ID, votes); err != nil {
 			return err
 		}
 	}
@@ -203,12 +206,12 @@ func (c *Coordinator) closeRound(ctx context.Context, round Round, now time.Time
 	if err != nil {
 		return err
 	}
-	_, err = c.store.FinalizeFeatureRound(ctx, round.ID, token, now)
+	_, err = c.finalizationRepository.FinalizeFeatureRound(ctx, round.ID, token, now)
 	return err
 }
 
 func (c *Coordinator) publishReady(ctx context.Context, now time.Time) error {
-	rounds, err := c.store.FeatureRounds(ctx, RoundReady)
+	rounds, err := c.coordinatorRoundRepository.FeatureRounds(ctx, RoundReady)
 	if err != nil {
 		return err
 	}
@@ -216,18 +219,18 @@ func (c *Coordinator) publishReady(ctx context.Context, now time.Time) error {
 		if round.NextAttempt > now.Unix() {
 			continue
 		}
-		claimed, claimErr := c.store.ClaimFeatureRound(ctx, round.ID, RoundReady, RoundPublishing, now)
+		claimed, claimErr := c.coordinatorRoundRepository.ClaimFeatureRound(ctx, round.ID, RoundReady, RoundPublishing, now)
 		if claimErr != nil || !claimed {
 			return claimErr
 		}
-		round.Options, err = c.store.FeatureRoundOptions(ctx, round.ID)
+		round.Options, err = c.coordinatorRoundRepository.FeatureRoundOptions(ctx, round.ID)
 		if err != nil {
 			return err
 		}
 		if sendErr := c.sender.SendResult(ctx, round); sendErr != nil {
 			return c.handleFailure(ctx, round, RoundPublishing, sendErr, now)
 		}
-		if err = c.store.PublishFeatureRound(ctx, round.ID); err != nil {
+		if err = c.finalizationRepository.PublishFeatureRound(ctx, round.ID); err != nil {
 			return err
 		}
 		c.log.Info("feature vote result published", "round_id", round.ID, "chat_id", round.ChatID, "outcome", round.Outcome)
@@ -248,15 +251,17 @@ func (c *Coordinator) handleFailure(ctx context.Context, round Round, from Round
 			target, code, next = retryState(from), "telegram_rate_limit", now.Add(max(typed.After, time.Second))
 		case DeliveryForbidden:
 			target, code = RoundFailed, "telegram_forbidden"
-			if disableErr := c.store.DisableFeatureSchedule(ctx, round.ChatID); disableErr != nil {
+			if disableErr := c.coordinatorScheduleRepository.DisableFeatureSchedule(ctx, round.ChatID); disableErr != nil {
 				return disableErr
 			}
+		case DeliveryUnknown:
+			target, code = RoundUnknown, "telegram_unknown"
 		case DeliveryPermanent:
 			target, code = RoundFailed, "telegram_rejected"
 		}
 	}
 	c.log.Warn("feature vote delivery failed", "round_id", round.ID, "chat_id", round.ChatID, "from", from, "target", target, "reason", code)
-	return c.store.DeferFeatureRound(context.WithoutCancel(ctx), round.ID, from, target, next, code)
+	return c.coordinatorRoundRepository.DeferFeatureRound(context.WithoutCancel(ctx), round.ID, from, target, next, code)
 }
 
 func retryState(from RoundState) RoundState {

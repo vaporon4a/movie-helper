@@ -13,9 +13,9 @@ func TestReviewSchemaHasExactlyOneFieldPerImage(t *testing.T) {
 			parts = append(parts, Part{Inline: &Inline{}})
 		}
 		s := SelectionSchema(parts)
-		props := s["properties"].(map[string]any)
-		reviews := props["reviews"].(map[string]any)
-		if reviews["type"] != "object" || reviews["additionalProperties"] != false || len(reviews["required"].([]string)) != count || len(reviews["properties"].(map[string]any)) != count {
+		props := schemaValue[map[string]any](t, s["properties"])
+		reviews := schemaValue[map[string]any](t, props["reviews"])
+		if reviews["type"] != "object" || reviews["additionalProperties"] != false || len(schemaValue[[]string](t, reviews["required"])) != count || len(schemaValue[map[string]any](t, reviews["properties"])) != count {
 			t.Fatal(reviews)
 		}
 	}
@@ -43,4 +43,13 @@ func TestSelectionDecodesKeyedReviewsAndRejectsRepeatedArray(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"index":0,"text":"fact","evidence":"exact quote"}`), &s); err != nil || len(s.Reviews) != 0 {
 		t.Fatal("fact decoding changed", err)
 	}
+}
+
+func schemaValue[T any](t *testing.T, value any) T {
+	t.Helper()
+	result, ok := value.(T)
+	if !ok {
+		t.Fatalf("unexpected schema value: %T", value)
+	}
+	return result
 }

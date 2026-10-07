@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"path/filepath"
 	"sync"
@@ -234,7 +233,7 @@ func TestConcurrentCoordinatorTicksOpenOnePoll(t *testing.T) {
 
 func movieRuntime(t *testing.T, store *storage.Store, transport *fakeTransport, allowed map[int64]bool, now func() time.Time) (*movieclub.Service, *movieclub.Coordinator) {
 	t.Helper()
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 	scenario, err := movieclub.NewGenreScenario(fakeCatalog{}, store)
 	if err != nil {
 		t.Fatal(err)
@@ -301,7 +300,7 @@ func TestScenarioContractRunsReferenceRoundThroughSharedLifecycle(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 	service, err := movieclub.NewService(store, transport, scenarios, log, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
@@ -352,7 +351,7 @@ func TestDifferentMovieFeaturesOpenInParallel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 	service, err := movieclub.NewService(store, transport, scenarios, log, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
