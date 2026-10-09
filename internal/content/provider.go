@@ -22,16 +22,20 @@ type History interface {
 	Seen(context.Context, int64, string, string) (bool, error)
 }
 type Provider struct {
-	Memes   Memes
-	Editor  Editor
-	History History
-	Facts   *Wikipedia
+	Memes        Memes
+	Editor       Editor
+	History      History
+	Facts        *Wikipedia
+	FactPipeline FactProvider
 }
 
 func (p *Provider) Candidates(ctx context.Context, kind string, chat int64) (items []daily.Item, err error) {
 	defer func() {
 		err = normalizePreviewError(err)
 	}()
+	if kind == daily.Fact && p.FactPipeline != nil {
+		return p.FactPipeline.Candidates(ctx, chat)
+	}
 	// Automatic candidates must always pass AI selection.
 	if p.Editor == nil {
 		return nil, nil

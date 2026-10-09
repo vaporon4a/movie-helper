@@ -66,15 +66,29 @@ func factMessage(item daily.Item) string {
 		text = strings.TrimSpace(strings.TrimPrefix(text, previewPrefix))
 	}
 	body, wikipedia := strings.CutSuffix(text, "\n\n"+daily.WikipediaAttribution)
+	extracted, original := strings.CutSuffix(text, "\n\n"+daily.WikipediaExtractiveAttribution)
+	if original {
+		body = extracted
+		wikipedia = true
+	}
 	if wikipedia {
 		text = strings.TrimSpace(body)
 	}
 	parts := []string{heading}
 	if text != "" {
-		parts = append(parts, html.EscapeString(text))
+		if original {
+			title, story, _ := strings.Cut(text, "\n\n")
+			parts = append(parts, "<b>"+html.EscapeString(title)+"</b>\n\n"+html.EscapeString(story))
+		} else {
+			parts = append(parts, html.EscapeString(text))
+		}
 	}
 	if wikipedia {
-		parts = append(parts, `📚 <a href="`+html.EscapeString(item.Source)+`">Wikipedia</a> · <a href="`+daily.WikipediaLicenseURL+`">CC BY-SA 4.0</a>`+"\n<i>Текст переработан AI</i>")
+		attributionNote := "Текст переработан AI"
+		if original {
+			attributionNote = "Исходный русский текст · отобрано AI"
+		}
+		parts = append(parts, `📚 <a href="`+html.EscapeString(item.Source)+`">Wikipedia</a> · <a href="`+daily.WikipediaLicenseURL+`">CC BY-SA 4.0</a>`+"\n<i>"+attributionNote+"</i>")
 	} else if item.Source != "" {
 		parts = append(parts, `🔗 <a href="`+html.EscapeString(item.Source)+`">Источник</a>`)
 	}

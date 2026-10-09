@@ -44,8 +44,9 @@ const factEvidenceMaxRunes = 800
 
 type Article struct{ Title, Text, URL, Key, Attribution string }
 type Part struct {
-	Text   string  `json:"text,omitempty"`
-	Inline *Inline `json:"inlineData,omitempty"`
+	FactCandidates int     `json:"-"`
+	Text           string  `json:"text,omitempty"`
+	Inline         *Inline `json:"inlineData,omitempty"`
 }
 type Inline struct {
 	MIME string `json:"mimeType"`

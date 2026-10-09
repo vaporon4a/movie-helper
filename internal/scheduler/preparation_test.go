@@ -54,7 +54,7 @@ func TestPreparationUsesProviderRetryAfterWithoutBlockingScheduler(t *testing.T)
 }
 
 func TestPreparationRetriesBothKindsAndSurvivesRestart(t *testing.T) {
-	for _, kind := range []string{daily.Meme, daily.Fact} {
+	for _, kind := range []string{daily.Meme} {
 		for _, empty := range []bool{false, true} {
 			t.Run(kind+map[bool]string{true: "empty", false: "error"}[empty], func(t *testing.T) {
 				s, send, n := fixture(t)
@@ -183,5 +183,40 @@ func TestBackgroundModeNeverCallsProviderWhenStockIsEmpty(t *testing.T) {
 	issues, err := storeOf(t, s).Issues(context.Background(), -1)
 	if err != nil || len(issues) != 1 || issues[0].Error != "background_refill_pending" {
 		t.Fatal(issues, err)
+	}
+}
+
+func TestFactAlwaysWaitsForStockEvenInWarmupAndSurvivesRestart(t *testing.T) {
+	s, send, now := fixture(t)
+	store := storeOf(t, s)
+	ctx := t.Context()
+	if err := store.SetSchedule(ctx, 3, -1, daily.Meme, "09:00", false, *now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSchedule(ctx, 4, -1, daily.Fact, "09:00", true, *now); err != nil {
+		t.Fatal(err)
+	}
+	provider := &flakyProvider{}
+	s.Provider = provider
+	*now = now.Add(time.Hour)
+	tick(t, s)
+	for range 8 {
+		*now = now.Add(5 * time.Minute)
+		tick(t, s)
+	}
+	if provider.calls != 0 || send.calls != 0 {
+		t.Fatal("fact bypassed buffer", provider.calls, send.calls)
+	}
+	if _, err := store.SaveAIItems(ctx, -1, daily.Fact, []daily.Item{{Kind: daily.Fact, Key: "new", Text: "Исходный факт", Source: "https://ru.wikipedia.org/w/index.php?oldid=1", GenerationPolicy: daily.FactPolicy}}, *now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(5 * time.Minute)
+	tick(t, s)
+	tick(t, s)
+	if send.calls != 1 || provider.calls != 0 {
+		t.Fatal("late stock did not publish once", send.calls, provider.calls)
 	}
 }

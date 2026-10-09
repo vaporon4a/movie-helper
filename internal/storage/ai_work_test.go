@@ -82,7 +82,7 @@ func TestSaveAIItemsHonorsModerationAndPreview(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
 	must(t, store.EnsureChat(ctx, -1))
-	item := daily.Item{Kind: daily.Fact, Text: "Проверенный факт", Source: "https://example.org/fact", Key: "fact:one", GenerationPolicy: "fact-v4"}
+	item := daily.Item{Kind: daily.Fact, Text: "Проверенный факт", Source: "https://example.org/fact", Key: "fact:one", GenerationPolicy: daily.FactPolicy}
 	inserted, err := store.SaveAIItems(ctx, -1, daily.Fact, []daily.Item{item}, testNow)
 	must(t, err)
 	if inserted != 1 {
@@ -108,6 +108,10 @@ func TestAIStockRejectsStaleMemesAndOldFactPolicy(t *testing.T) {
 
 	oldFact := daily.Item{Kind: daily.Fact, Text: "Старый факт", Source: "https://example.org/old", Key: "fact:old", GenerationPolicy: "fact-v3"}
 	_, err := store.SaveAIItems(ctx, -1, daily.Fact, []daily.Item{oldFact}, testNow)
+	if err == nil {
+		t.Fatal("old policy accepted for refill")
+	}
+	_, err = store.db.ExecContext(ctx, `INSERT INTO items(chat_id,kind,text,source,content_key,author_id,state,created_at,ai_approved,generation_policy) VALUES(-1,'fact','old','https://example.org/old','fact:old',0,'approved',0,1,'fact-v3')`)
 	must(t, err)
 	count, err := store.AIStock(ctx, -1, daily.Fact, testNow)
 	must(t, err)

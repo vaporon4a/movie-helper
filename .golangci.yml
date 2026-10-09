@@ -128,7 +128,7 @@ linters:
       rules:
         domain:
           files:
-          - '**/internal/{aiwork,clubreminder,daily,movieclub,featurevote}/*.go'
+          - '**/internal/{aiwork,clubreminder,daily,movieclub,featurevote,facts}/*.go'
           - '!$test'
           list-mode: strict
           allow:
@@ -136,6 +136,7 @@ linters:
           - github.com/vaporon4a/movie-helper/internal/aiwork$
           - github.com/vaporon4a/movie-helper/internal/clubreminder$
           - github.com/vaporon4a/movie-helper/internal/daily$
+          - github.com/vaporon4a/movie-helper/internal/facts$
           - github.com/vaporon4a/movie-helper/internal/movieclub$
           - github.com/vaporon4a/movie-helper/internal/featurevote$
           deny:

@@ -123,7 +123,7 @@ func (s *Service) Candidates(ctx context.Context, kind string, chatID int64) ([]
 			s.log.Info("daily preview loaded from stock", "chat_id", chatID, "kind", kind, "item_id", item.ID)
 			return []Item{item}, nil
 		}
-		if s.backgroundOnly {
+		if s.backgroundOnly || kind == Fact {
 			if err = background.RequestAIRefill(ctx, chatID, kind, time.Now()); err != nil {
 				return nil, err
 			}

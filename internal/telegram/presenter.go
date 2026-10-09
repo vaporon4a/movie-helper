@@ -105,7 +105,7 @@ func settingsText(schedules []daily.Schedule, issues []daily.Delivery, now time.
 	for _, delivery := range issues {
 		lines = append(lines, deliveryText(delivery, schedules, now))
 	}
-	lines = append(lines, "Источники: Reddit и Wikipedia. Автоматический отбор: Gemini с резервом Groq (если настроен).")
+	lines = append(lines, "Источники: Reddit; фильмы TMDB → русская Wikipedia. AI отбирает факты без пересказа: Gemini с резервом Groq (если настроен).")
 	for _, delivery := range issues {
 		if delivery.State == "unknown" {
 			lines = append(lines, "unknown: проверьте чат и выполните /resolve ID sent или /resolve ID requeue.")

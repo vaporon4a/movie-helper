@@ -67,9 +67,9 @@ func seedContentAIWork(ctx context.Context, tx *sql.Tx, now time.Time) error {
  (SELECT count(*) FROM items i WHERE i.chat_id=s.chat_id AND i.kind=s.kind AND i.ai_approved=1
    AND i.state IN ('pending','approved','reserved')
    AND (i.kind!='meme' OR i.created_at>=?)
-   AND (i.kind!='fact' OR i.generation_policy='fact-v4'))
+   AND (i.kind!='fact' OR i.generation_policy=?))
  FROM schedules s JOIN chats c USING(chat_id)
- WHERE s.enabled=1 AND c.active=1 ORDER BY s.chat_id,s.kind`, now.Add(-memeStockTTL).Unix())
+ WHERE s.enabled=1 AND c.active=1 ORDER BY s.chat_id,s.kind`, now.Add(-memeStockTTL).Unix(), daily.FactPolicy)
 	if err != nil {
 		return err
 	}
@@ -256,7 +256,7 @@ func (s *Store) AIStock(ctx context.Context, chat int64, kind string, now time.T
 	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM items
  WHERE chat_id=? AND kind=? AND ai_approved=1 AND state IN ('pending','approved','reserved')
  AND (?=0 OR created_at>=?)
- AND (kind!='fact' OR generation_policy='fact-v4')`, chat, kind, cutoff, cutoff).Scan(&count)
+ AND (kind!='fact' OR generation_policy=?)`, chat, kind, cutoff, cutoff, daily.FactPolicy).Scan(&count)
 	return count, err
 }
 
@@ -272,9 +272,7 @@ func (s *Store) SaveAIItems(ctx context.Context, chat int64, kind string, candid
 			state = "pending"
 		}
 		for _, candidate := range candidates {
-			candidate.ChatID = chat
-			candidate.Kind = kind
-			if err := candidate.Validate(); err != nil {
+			if err := validateAIItem(chat, kind, candidate); err != nil {
 				return err
 			}
 			result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,ai_approved,source_evidence,ai_provider,generation_policy)
@@ -309,8 +307,8 @@ func (s *Store) PreviewAIItem(ctx context.Context, chat int64, kind string, now 
  WHERE i.chat_id=? AND i.kind=? AND i.state='approved'
  AND EXISTS (SELECT 1 FROM chats c WHERE c.chat_id=i.chat_id AND ((c.moderation=1 AND i.approved_by IS NOT NULL) OR (c.moderation=0 AND i.ai_approved=1)))
  AND (i.ai_approved=0 OR ?=0 OR i.created_at>=?)
- AND (i.kind!='fact' OR i.ai_approved=0 OR i.generation_policy='fact-v4')
- ORDER BY i.id LIMIT 1`, chat, kind, cutoff, cutoff))
+ AND (i.kind!='fact' OR i.ai_approved=0 OR i.generation_policy=?)
+ ORDER BY i.id LIMIT 1`, chat, kind, cutoff, cutoff, daily.FactPolicy))
 	if errors.Is(err, sql.ErrNoRows) {
 		return daily.Item{}, false, nil
 	}
@@ -385,4 +383,13 @@ func (s *Store) AIStocks(ctx context.Context, chat int64, now time.Time) ([]dail
 		stocks = append(stocks, stock)
 	}
 	return stocks, nil
+}
+
+func validateAIItem(chat int64, kind string, candidate daily.Item) error {
+	candidate.ChatID = chat
+	candidate.Kind = kind
+	if kind == daily.Fact && candidate.GenerationPolicy != daily.FactPolicy {
+		return errors.New("obsolete fact policy")
+	}
+	return candidate.Validate()
 }

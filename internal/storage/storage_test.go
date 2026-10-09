@@ -170,14 +170,14 @@ func TestAttachKeepsAutomaticReserve(t *testing.T) {
 		fact(-1, "auto:third"),
 	}
 	for index := range candidates {
-		candidates[index].GenerationPolicy = "fact-v4"
+		candidates[index].GenerationPolicy = daily.FactPolicy
 	}
 	candidates[0].SourceEvidence = "The source evidence is preserved."
 	candidates[0].AIProvider = "gemini"
 	must(t, s.Attach(ctx, id, candidates, testNow))
 	pending, err := s.Pending(ctx)
 	must(t, err)
-	if len(pending) != 1 || pending[0].Item.Key != "auto:first" || pending[0].Item.SourceEvidence != candidates[0].SourceEvidence || pending[0].Item.AIProvider != "gemini" || pending[0].Item.GenerationPolicy != "fact-v4" {
+	if len(pending) != 1 || pending[0].Item.Key != "auto:first" || pending[0].Item.SourceEvidence != candidates[0].SourceEvidence || pending[0].Item.AIProvider != "gemini" || pending[0].Item.GenerationPolicy != daily.FactPolicy {
 		t.Fatal(pending)
 	}
 	queued, err := s.Queue(ctx, -1, 0)

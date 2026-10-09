@@ -21,6 +21,8 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/config"
 	"github.com/vaporon4a/movie-helper/internal/content"
 	"github.com/vaporon4a/movie-helper/internal/daily"
+	"github.com/vaporon4a/movie-helper/internal/facts"
+	"github.com/vaporon4a/movie-helper/internal/factsource"
 	"github.com/vaporon4a/movie-helper/internal/featurevote"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
@@ -120,7 +122,6 @@ func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Log
 	memes := &meme.Client{HTTP: sourceHTTP, BaseURL: "https://meme-api.com", Subreddits: cfg.Subreddits}
 	provider := &content.Provider{
 		Memes: memes, History: store,
-		Facts: &content.Wikipedia{HTTP: sourceHTTP, Endpoint: "https://en.wikipedia.org/w/api.php", Titles: cfg.FactWikiTitles},
 	}
 	fallback := &content.Fallback{Log: log, PrimaryTimeout: content.GeminiSelectionTimeout, SecondaryTimeout: content.GroqSelectionTimeout}
 	var primary, secondary ai.Generator
@@ -136,6 +137,10 @@ func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Log
 		provider.Editor = fallback
 	} else {
 		log.Warn("AI disabled: automatic publishing unavailable")
+	}
+	catalog := &tmdb.Client{HTTP: sourceHTTP, BaseURL: "https://api.themoviedb.org/3", Token: cfg.TMDBToken, Log: log}
+	if cfg.TMDBToken != "" && (primary != nil || secondary != nil) {
+		provider.FactPipeline = &facts.Pipeline{Catalog: catalog, Source: &factsource.Source{HTTP: sourceHTTP, IDs: catalog, WikidataURL: "https://www.wikidata.org", WikipediaURL: "https://ru.wikipedia.org", Log: log}, Cache: store, History: store, Selector: &content.FactSelector{Primary: primary, Secondary: secondary, Fallback: fallback}, Now: time.Now, Log: log}
 	}
 	return provider, primary, secondary
 }

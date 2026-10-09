@@ -164,7 +164,7 @@ func (s *Scheduler) prepareDue(ctx context.Context) error {
 
 func (s *Scheduler) prepareIfDue(ctx context.Context, delivery daily.Delivery) error {
 	now := s.Now()
-	if !s.Allowed[delivery.ChatID] || now.Unix() >= delivery.Deadline || (!s.BackgroundOnly && delivery.FetchAttempts >= daily.MaxPreparationAttempts) {
+	if !s.Allowed[delivery.ChatID] || now.Unix() >= delivery.Deadline || (!s.backgroundFor(delivery.Kind) && delivery.FetchAttempts >= daily.MaxPreparationAttempts) {
 		return s.preparation.DeferPreparation(ctx, delivery.ID, time.Time{}, "preparation_window_exhausted")
 	}
 	if now.Unix() < delivery.NextAttempt {
@@ -172,7 +172,7 @@ func (s *Scheduler) prepareIfDue(ctx context.Context, delivery daily.Delivery) e
 	}
 	var claimed bool
 	var err error
-	if s.BackgroundOnly {
+	if s.backgroundFor(delivery.Kind) {
 		claimed, err = s.preparation.ClaimBackgroundPreparation(ctx, delivery.ID, now)
 	} else {
 		claimed, err = s.preparation.ClaimPreparation(ctx, delivery.ID, now)
@@ -310,7 +310,7 @@ func (s *Scheduler) prepare(ctx context.Context, d daily.Delivery) (err error) {
 
 func (s *Scheduler) deferPreparation(ctx context.Context, delivery daily.Delivery, reason string, retryAfter time.Duration) error {
 	delay := preparationDelay(delivery.FetchAttempts + 1)
-	if s.BackgroundOnly && reason == "background_refill_pending" {
+	if s.backgroundFor(delivery.Kind) && reason == "background_refill_pending" {
 		delay = 5 * time.Minute
 	}
 	if retryAfter > 0 {
@@ -339,7 +339,7 @@ func (s *Scheduler) preparationCandidates(ctx context.Context, delivery daily.De
 		}
 		return nil, approved, reason, 0, err
 	}
-	if s.BackgroundOnly {
+	if s.backgroundFor(delivery.Kind) {
 		if err = s.stock.RequestAIRefill(ctx, delivery.ChatID, delivery.Kind, s.Now()); err != nil {
 			return nil, false, "background_refill_failed", 0, err
 		}
@@ -386,3 +386,5 @@ func preparationErrorCode(err error) string {
 	}
 	return "source_unavailable"
 }
+
+func (s *Scheduler) backgroundFor(kind string) bool { return s.BackgroundOnly || kind == daily.Fact }

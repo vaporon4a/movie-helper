@@ -21,9 +21,10 @@ const schemaTypeKey = "type"
 const memeImageScope = "image:" + MemeReviewVersion
 
 type Review struct {
-	Index  *int   `json:"index"`
-	Reason string `json:"reason"`
-	Detail string `json:"detail"`
+	Interest, Clarity int
+	Index             *int   `json:"index"`
+	Reason            string `json:"reason"`
+	Detail            string `json:"detail"`
 }
 
 type ReviewCache interface {
@@ -175,7 +176,7 @@ func (m memeReviewSession) saveReviews(ctx context.Context, result Selection, ch
 	for _, review := range result.Reviews {
 		item := choices[*review.Index]
 		m.log.Info("meme reviewed", "scope", m.editor.Scope, "source", item.Key, "batch", batch, "reason", review.Reason, "detail", review.Detail)
-		if review.Reason != "accepted" && m.editor.Reviews != nil {
+		if review.Reason != reviewAccepted && m.editor.Reviews != nil {
 			if err := m.editor.Reviews.RejectMeme(ctx, m.editor.Scope, item.Key, m.now()); err != nil {
 				return errors.New("cannot save meme rejection")
 			}
@@ -189,7 +190,7 @@ func acceptedMemes(result Selection, choices []daily.Item) []daily.Item {
 		accepted = append(accepted, choices[*result.Index])
 	}
 	for _, review := range result.Reviews {
-		if review.Reason == "accepted" && *review.Index != *result.Index {
+		if review.Reason == reviewAccepted && *review.Index != *result.Index {
 			accepted = append(accepted, choices[*review.Index])
 		}
 	}
@@ -215,7 +216,7 @@ func validateReviews(s Selection, count int) error {
 		}
 		seen[*r.Index] = true
 		switch r.Reason {
-		case "accepted":
+		case reviewAccepted:
 			accepted[*r.Index] = true
 		case "unreadable_text", "context_required", "not_meme", "unsuitable", "low_humor":
 		default:
@@ -231,8 +232,13 @@ func validateReviews(s Selection, count int) error {
 // Facts retain their existing schema. Vision additionally requires a complete,
 // validated per-image decision, so a bare index cannot silently approve a meme.
 func SelectionSchema(parts []Part) map[string]any {
-	properties := map[string]any{"index": map[string]any{schemaTypeKey: "integer"}, "text": map[string]any{schemaTypeKey: "string"}, "evidence": map[string]any{schemaTypeKey: "string"}}
-	required := []string{"index", "text", "evidence"}
+	for _, part := range parts {
+		if part.FactCandidates > 0 {
+			return FactSelectionSchema(part.FactCandidates)
+		}
+	}
+	properties := map[string]any{"index": map[string]any{schemaTypeKey: schemaInteger}, schemaTextKey: map[string]any{schemaTypeKey: schemaString}, schemaEvidenceKey: map[string]any{schemaTypeKey: schemaString}}
+	required := []string{"index", schemaTextKey, schemaEvidenceKey}
 	count := 0
 	for _, p := range parts {
 		if p.Inline != nil {
@@ -248,18 +254,18 @@ func SelectionSchema(parts []Part) map[string]any {
 			keys = append(keys, key)
 			indexes = append(indexes, n)
 			reviews[key] = map[string]any{
-				schemaTypeKey: "object", "additionalProperties": false,
-				"properties": map[string]any{
-					"reason": map[string]any{schemaTypeKey: "string", "enum": []string{"accepted", "unreadable_text", "context_required", "not_meme", "unsuitable", "low_humor"}},
-					"detail": map[string]any{schemaTypeKey: "string"},
-				}, "required": []string{"reason", "detail"},
+				schemaTypeKey: schemaObject, schemaAdditionalKey: false,
+				schemaPropertiesKey: map[string]any{
+					"reason": map[string]any{schemaTypeKey: schemaString, schemaEnumKey: []string{reviewAccepted, "unreadable_text", "context_required", "not_meme", "unsuitable", "low_humor"}},
+					"detail": map[string]any{schemaTypeKey: schemaString},
+				}, schemaRequiredKey: []string{"reason", "detail"},
 			}
 		}
-		properties["index"] = map[string]any{schemaTypeKey: "integer", "enum": indexes}
-		properties["reviews"] = map[string]any{schemaTypeKey: "object", "additionalProperties": false, "properties": reviews, "required": keys}
+		properties["index"] = map[string]any{schemaTypeKey: schemaInteger, schemaEnumKey: indexes}
+		properties["reviews"] = map[string]any{schemaTypeKey: schemaObject, schemaAdditionalKey: false, schemaPropertiesKey: reviews, schemaRequiredKey: keys}
 		required = append(required, "reviews")
 	}
-	return map[string]any{schemaTypeKey: "object", "additionalProperties": false, "properties": properties, "required": required}
+	return map[string]any{schemaTypeKey: schemaObject, schemaAdditionalKey: false, schemaPropertiesKey: properties, schemaRequiredKey: required}
 }
 
 func (m memeReviewSession) selectBatch(ctx context.Context, choices []daily.Item, parts []Part, batch int, approved []daily.Item) ([]daily.Item, bool, error) {

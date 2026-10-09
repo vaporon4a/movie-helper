@@ -26,8 +26,10 @@ func (s *Selection) UnmarshalJSON(data []byte) error {
 		Text     string `json:"text"`
 		Evidence string `json:"evidence"`
 		Reviews  map[string]struct {
-			Reason string `json:"reason"`
-			Detail string `json:"detail"`
+			Interest int    `json:"interest"`
+			Clarity  int    `json:"clarity"`
+			Reason   string `json:"reason"`
+			Detail   string `json:"detail"`
 		} `json:"reviews"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
@@ -39,7 +41,7 @@ func (s *Selection) UnmarshalJSON(data []byte) error {
 		if err != nil || n < 0 || strconv.Itoa(n) != key {
 			return errors.New("invalid review key")
 		}
-		s.Reviews = append(s.Reviews, Review{Index: &n, Reason: r.Reason, Detail: r.Detail})
+		s.Reviews = append(s.Reviews, Review{Index: &n, Reason: r.Reason, Detail: r.Detail, Interest: r.Interest, Clarity: r.Clarity})
 	}
 	return nil
 }
