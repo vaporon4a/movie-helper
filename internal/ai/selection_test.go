@@ -23,10 +23,10 @@ func TestReviewSchemaHasExactlyOneFieldPerImage(t *testing.T) {
 
 func TestSelectionDecodesKeyedReviewsAndRejectsRepeatedArray(t *testing.T) {
 	var s Selection
-	if err := json.Unmarshal([]byte(`{"index":-1,"text":"","evidence":"","reviews":{"0":{"reason":"context_required","detail":"Нужен контекст"}}}`), &s); err != nil {
+	if err := json.Unmarshal([]byte(`{"index":-1,"text":"","evidence":"","reviews":{"0":{"reason":"context_required","assessment":{"joke_type":"visual","observation":"Кадр игры без подписи","punchline":"","humor":1,"clarity":2,"originality":1}}}}`), &s); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateReviews(s, 1); err != nil {
+	if err := ValidateMemeSelection(s, 1); err != nil {
 		t.Fatal(err)
 	}
 	// Regression: Qwen returned five separate reviews of the same input image.

@@ -99,7 +99,7 @@ func TestReferenceOptionsAreStableDiverseAndAvoidRecentSeeds(t *testing.T) {
 	}
 	details := make(map[int64]MovieDetails)
 	for _, seed := range seeds {
-		details[seed.ID] = MovieDetails{Movie: Movie{ID: seed.ID, Title: seed.Title, Year: seed.Decade + 1}}
+		details[seed.ID] = MovieDetails{ID: seed.ID, Title: seed.Title, Year: seed.Decade + 1}
 	}
 	scenario := &ReferenceScenario{Catalog: referenceCatalogStub{details: details}, History: referenceHistoryStub{recentSeeds: map[int64]bool{1: true}}, Seeds: seeds}
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)

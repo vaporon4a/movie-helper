@@ -83,7 +83,7 @@ func TestVisionPayloadSelectionAndBudget(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		if req.Model != cModel || req.Max != 768 || req.Reasoning != "none" || req.Format.Type != "json_schema" || !req.Format.Schema.Strict || req.Format.Schema.Schema.Additional || len(req.Format.Schema.Schema.Required) != 4 || len(req.Messages) != 2 {
+		if req.Model != cModel || req.Max != 2048 || req.Reasoning != "none" || req.Format.Type != "json_schema" || !req.Format.Schema.Strict || req.Format.Schema.Schema.Additional || len(req.Format.Schema.Schema.Required) != 4 || len(req.Messages) != 2 {
 			t.Fatal("invalid generation options")
 		}
 		var parts []struct {
@@ -102,14 +102,14 @@ func TestVisionPayloadSelectionAndBudget(t *testing.T) {
 				}
 			}
 		}
-		if n != 3 {
+		if n != 2 {
 			t.Fatalf("sent %d images", n)
 		}
-		return response(200, answer(`{"index":2,"text":"","evidence":"","reviews":{"0":{"reason":"not_meme","detail":"Нет шутки"},"1":{"reason":"unsuitable","detail":"Грубый текст"},"2":{"reason":"accepted","detail":"Понятная шутка"}}}`, "stop")), nil
+		return response(200, answer(`{"index":1,"text":"","evidence":"","reviews":{"0":{"reason":"not_meme","assessment":{"joke_type":"visual","observation":"Просто фото","punchline":"","humor":1,"clarity":4,"originality":1}},"1":{"reason":"eligible","assessment":{"joke_type":"visual","observation":"Картинка и подпись","punchline":"Игра слов","humor":4,"clarity":4,"originality":3}}}}`, "stop")), nil
 	}, b)
 	items := []daily.Item{{Image: "https://i.redd.it/a.png", Key: "a"}, {Image: "https://i.redd.it/b.png", Key: "b"}, {Image: "https://i.redd.it/c.png", Key: "c"}}
 	item, err := c.SelectMeme(context.Background(), items)
-	if err != nil || item == nil || *item != items[2] || images != 3 || calls != 1 || b.calls != 1 {
+	if err != nil || item == nil || item.Key != items[1].Key || item.GenerationPolicy != daily.MemePolicy || images != 2 || calls != 1 || b.calls != 1 {
 		t.Fatal(item, err, images, calls, b.calls)
 	}
 	b.allowed = false

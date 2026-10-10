@@ -42,7 +42,7 @@ func (referenceScenario) Winners(options []movieclub.Option, seed uint64) []movi
 	return movieclub.Winners(options, seed)
 }
 func (referenceScenario) Recommendations(context.Context, movieclub.Round, []movieclub.Option, time.Time) (movieclub.Selection, error) {
-	return movieclub.Selection{Hero: movieclub.Movie{ID: 7, Title: "Ориентир", PosterPath: "/7.jpg"}, Movies: []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 1, Title: "Похожий фильм", PosterPath: "/1.jpg"}, Page: 1, Relation: "similar"}}}, nil
+	return movieclub.Selection{Hero: movieclub.Movie{ID: 7, Title: "Ориентир", PosterPath: "/7.jpg"}, Movies: []movieclub.Recommendation{{ID: 1, Title: "Похожий фильм", PosterPath: "/1.jpg", Page: 1, Relation: "similar"}}}, nil
 }
 
 type fakeTransport struct {

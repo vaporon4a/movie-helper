@@ -13,6 +13,7 @@ services:
       MEME_SUBREDDITS: ${MEME_SUBREDDITS:-RUSSIANMemeSub,Pikabu,expectedrussians}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      GEMINI_MEME_MODEL: ${GEMINI_MEME_MODEL:-gemini-3.5-flash-lite}
       GEMINI_DAILY_REQUEST_LIMIT: ${GEMINI_DAILY_REQUEST_LIMIT:-20}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-qwen/qwen3.8-27b}

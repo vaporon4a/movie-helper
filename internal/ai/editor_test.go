@@ -34,7 +34,7 @@ func TestImageRestrictionsAndActualCandidateSelection(t *testing.T) {
 	images := 0
 	c := &Editor{MaxImages: 4, Generator: generatorFunc(func(context.Context, string, []Part) (Selection, error) {
 		n := 0
-		return Selection{Index: &n, Text: "invented caption", Reviews: []Review{{Index: &n, Reason: "accepted", Detail: "Понятная шутка"}}}, nil
+		return Selection{Index: &n, Reviews: []Review{{Index: &n, Reason: "eligible", Meme: assessment(4, 4, 3)}}}, nil
 	}), HTTP: &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host == "i.redd.it" {
 			images++
@@ -50,7 +50,7 @@ func TestImageRestrictionsAndActualCandidateSelection(t *testing.T) {
 	}
 	items := []daily.Item{{Key: "a", Image: "https://i.redd.it/a.png", Text: "Original"}}
 	got, err := c.SelectMeme(context.Background(), items)
-	if err != nil || got == nil || *got != items[0] || images != 1 {
+	if err != nil || got == nil || got.Key != items[0].Key || got.Text != items[0].Text || got.Image != items[0].Image || images != 1 {
 		t.Fatal(got, err, images)
 	}
 	c.HTTP.Transport = transport(func(*http.Request) (*http.Response, error) {

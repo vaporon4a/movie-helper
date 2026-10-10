@@ -11,6 +11,7 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/clubreminder"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/featurevote"
+	"github.com/vaporon4a/movie-helper/internal/feedback"
 	"github.com/vaporon4a/movie-helper/internal/movieclub"
 )
 
@@ -140,7 +141,13 @@ type ClubReminders interface {
 	Resolve(context.Context, int64, int64, int64, string) error
 }
 
+type FeedbackRecorder interface {
+	RegisterFeedbackPost(context.Context, feedback.Post) error
+	RecordFeedback(context.Context, feedback.Event) (bool, error)
+}
+
 type Handler struct {
+	Feedback  FeedbackRecorder
 	Club      ClubReminders
 	API       API
 	MovieClub MovieClub

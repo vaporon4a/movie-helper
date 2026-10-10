@@ -92,7 +92,7 @@ func TestClubPauseTimezoneStockAndAIWorkMigration(t *testing.T) {
 	if err = s.SetClubSchedule(ctx, 2, -1, 5, 2, "19:00", now); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		text := clubreminder.Text{Body: strings.Repeat(fmt.Sprintf("Уникальный%d вариант%d обсуждение%d ", i, i, i), 21), Intent: clubreminder.Explore, Tone: clubreminder.Tones[i%5], Provider: "test"}
 		saved, saveErr := s.SaveClubText(ctx, -1, text, now)
 		if saveErr != nil || saved != (i < 5) {

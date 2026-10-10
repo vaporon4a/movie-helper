@@ -69,7 +69,7 @@ func run() error {
 		}
 	}), bot.WithWorkers(1), bot.WithNotAsyncHandlers(),
 		bot.WithHTTPClient(25*time.Second, &http.Client{Timeout: 35 * time.Second}),
-		bot.WithAllowedUpdates(bot.AllowedUpdates{"message", "callback_query", "my_chat_member", "poll"}),
+		bot.WithAllowedUpdates(bot.AllowedUpdates{"message", "callback_query", "my_chat_member", "poll", "message_reaction", "message_reaction_count"}),
 		bot.WithErrorsHandler(func(err error) { log.Warn("telegram polling error") }))
 	if err != nil {
 		return errors.New("telegram initialization failed; check token and connection")
@@ -90,7 +90,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	s, err := scheduler.New(store, telegram.Sender{API: b}, provider, cfg.Chats, log, time.Now)
+	handler.Feedback = store
+	s, err := scheduler.New(store, telegram.Sender{API: b, Feedback: store, Log: log, Now: time.Now}, provider, cfg.Chats, log, time.Now)
 	if err != nil {
 		return err
 	}
@@ -109,7 +110,7 @@ func run() error {
 	if err = startMovieClub(ctx, cfg, store, b, handler, log, redirect, &workers); err != nil {
 		return err
 	}
-	log.Info("bot started", "allowed_chats", len(cfg.Chats), "ai_result_mode", cfg.AIResultMode, "gemini_model", cfg.GeminiModel, "gemini_enabled", cfg.GeminiKey != "", "groq_model", cfg.GroqModel, "groq_enabled", cfg.GroqKey != "", "tmdb_enabled", cfg.TMDBToken != "")
+	log.Info("bot started", "allowed_chats", len(cfg.Chats), "ai_result_mode", cfg.AIResultMode, "gemini_model", cfg.GeminiModel, "gemini_meme_model", cfg.GeminiMemeModel, "gemini_enabled", cfg.GeminiKey != "", "groq_model", cfg.GroqModel, "groq_enabled", cfg.GroqKey != "", "tmdb_enabled", cfg.TMDBToken != "")
 	b.Start(ctx)
 	cancel()
 	workers.Wait()
@@ -127,7 +128,9 @@ func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Log
 	var primary, secondary ai.Generator
 	if cfg.GeminiKey != "" {
 		client := &gemini.Client{HTTP: &http.Client{Timeout: content.GeminiRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://generativelanguage.googleapis.com/v1beta", Key: cfg.GeminiKey, Reviews: store, Model: cfg.GeminiModel, Budget: store, DailyLimit: cfg.GeminiDailyLimit, Now: time.Now, Log: log}
-		fallback.Primary, primary = client, client
+		memeClient := *client
+		memeClient.Model = cfg.GeminiMemeModel
+		fallback.Primary, primary = &memeClient, client
 	}
 	if cfg.GroqKey != "" {
 		client := &groq.Client{HTTP: &http.Client{Timeout: content.GroqRequestTimeout, CheckRedirect: redirect}, BaseURL: "https://api.groq.com/openai/v1", Key: cfg.GroqKey, Reviews: store, Model: cfg.GroqModel, Budget: storage.ProviderBudget{Store: store, Provider: "groq"}, DailyLimit: cfg.GroqDailyLimit, Now: time.Now, Log: log}

@@ -44,6 +44,8 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, update *models.Update)
 	defer cancel()
 
 	switch {
+	case update.MessageReaction != nil || update.MessageReactionCount != nil:
+		h.handleReactions(ctx, update)
 	case update.MyChatMember != nil:
 		h.handleMembership(ctx, update.MyChatMember)
 	case update.Poll != nil:

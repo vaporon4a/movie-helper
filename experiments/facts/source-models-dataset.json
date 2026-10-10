@@ -1,0 +1,126 @@
+{
+  "version": "source-models-v1",
+  "sources": [
+    {
+      "id": "psycho-ru",
+      "display_title": "Психо (1960)",
+      "publisher": "Wikipedia RU",
+      "language": "ru",
+      "url": "https://ru.wikipedia.org/w/index.php?oldid=154897465",
+      "revision": 154897465,
+      "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "captured_at": "2026-10-08T16:27:02.882399+00:00",
+      "attribution": "Wikipedia contributors; bounded normalized fragment",
+      "capture_method": "HTTP Wikipedia HTML",
+      "quote_sha256": "d27366203576ab9a32517a9bfb2764fee31ec534418ffbacf9d1e474d03fff79"
+    },
+    {
+      "id": "gravity-ru",
+      "display_title": "Гравитация (2013)",
+      "publisher": "Wikipedia RU",
+      "language": "ru",
+      "url": "https://ru.wikipedia.org/w/index.php?oldid=154441189",
+      "revision": 154441189,
+      "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "captured_at": "2026-10-08T16:27:02.882428+00:00",
+      "attribution": "Wikipedia contributors; bounded normalized fragment",
+      "capture_method": "HTTP Wikipedia HTML",
+      "quote_sha256": "f716e1fc0a3a6dcb67019bc8a719b555ea9c5510b62a82f622ad1c3fa83fd1c9"
+    },
+    {
+      "id": "psycho-bfi",
+      "display_title": "Психо (1960)",
+      "publisher": "BFI",
+      "language": "en",
+      "url": "https://www.bfi.org.uk/interviews/psycho-shower-scene-alfred-hitchcock",
+      "revision": null,
+      "license": null,
+      "captured_at": "2026-10-08T16:27:02.882434+00:00",
+      "attribution": "BFI; short quote only, not CC BY-SA",
+      "capture_method": "web.run visible page extraction",
+      "quote_sha256": "cacb5b298f29eef601cfd9bb40cc34e41398be861b127597ffa3e711c30b41cb"
+    },
+    {
+      "id": "gravity-academy",
+      "display_title": "Гравитация (2013)",
+      "publisher": "Academy of Motion Picture Arts and Sciences",
+      "language": "en",
+      "url": "https://www.oscars.org/events/deconstructing-gravity",
+      "revision": null,
+      "license": null,
+      "captured_at": "2026-10-08T16:27:02.882440+00:00",
+      "attribution": "Academy of Motion Picture Arts and Sciences; short quote only, not CC BY-SA",
+      "capture_method": "web.run visible page extraction",
+      "quote_sha256": "ed2ae54653130e496ba78edb2e2ae7a8f0a90de6e632b44a2f379dc2d6006553"
+    }
+  ],
+  "passages": [
+    {
+      "id": "psycho-ru",
+      "source_id": "psycho-ru",
+      "paragraph": "А звук ножа, впивающегося в плоть, — это звук ножа, втыкаемого в дыню.",
+      "excerpt": "А звук ножа, впивающегося в плоть, — это звук ножа, втыкаемого в дыню.",
+      "paragraph_sha256": "d27366203576ab9a32517a9bfb2764fee31ec534418ffbacf9d1e474d03fff79",
+      "capture_scope": "bounded exact fragment",
+      "editorial_context": {}
+    },
+    {
+      "id": "gravity-ru",
+      "source_id": "gravity-ru",
+      "paragraph": "лица актёров, снятых в специально построенном кубе размером 6×6×6 метров со светодиодными стенами, на которые выводилось изображение окружающего космоса.",
+      "excerpt": "лица актёров, снятых в специально построенном кубе размером 6×6×6 метров со светодиодными стенами, на которые выводилось изображение окружающего космоса.",
+      "paragraph_sha256": "f716e1fc0a3a6dcb67019bc8a719b555ea9c5510b62a82f622ad1c3fa83fd1c9",
+      "capture_scope": "bounded exact fragment",
+      "editorial_context": {}
+    },
+    {
+      "id": "psycho-bfi",
+      "source_id": "psycho-bfi",
+      "paragraph": "They used a casaba melon for the sound of the stabbing",
+      "excerpt": "They used a casaba melon for the sound of the stabbing",
+      "paragraph_sha256": "cacb5b298f29eef601cfd9bb40cc34e41398be861b127597ffa3e711c30b41cb",
+      "capture_scope": "bounded exact fragment",
+      "editorial_context": {
+        "source_brief": "This production detail concerns the sound of knife strikes in Psycho's shower scene."
+      }
+    },
+    {
+      "id": "gravity-academy",
+      "source_id": "gravity-academy",
+      "paragraph": "One major innovation used on the film was the lightbox, a structural cube with enormous LED panels",
+      "excerpt": "One major innovation used on the film was the lightbox, a structural cube with enormous LED panels",
+      "paragraph_sha256": "ed2ae54653130e496ba78edb2e2ae7a8f0a90de6e632b44a2f379dc2d6006553",
+      "capture_scope": "bounded exact fragment",
+      "editorial_context": {
+        "source_brief": "The panels reproduced changing light from the sun, Earth and other sources around the actors during filming."
+      }
+    }
+  ],
+  "batches": [
+    {
+      "id": "psycho-ru",
+      "passage_ids": [
+        "psycho-ru"
+      ]
+    },
+    {
+      "id": "gravity-ru",
+      "passage_ids": [
+        "gravity-ru"
+      ]
+    },
+    {
+      "id": "psycho-bfi",
+      "passage_ids": [
+        "psycho-bfi"
+      ]
+    },
+    {
+      "id": "gravity-academy",
+      "passage_ids": [
+        "gravity-academy"
+      ]
+    }
+  ],
+  "capture_note": "Russian fragments verified against downloaded Wikipedia HTML, revisions captured. BFI/Academy bounded quotes verified in web.run page text; local HTTP BFI capture returned 403, no blocked access was bypassed. This is manually chosen source input, not an automated collection pipeline."
+}

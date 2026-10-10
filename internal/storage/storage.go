@@ -272,8 +272,8 @@ func (s *Store) Add(ctx context.Context, op int64, i daily.Item, now time.Time) 
 	}
 	var id int64
 	err := s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		r, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,source_evidence,ai_provider,generation_policy)
-  VALUES(?,?,?,?,?,?,?,'pending',?,?,?,?)`, i.ChatID, i.Kind, i.Text, i.Source, i.Image, i.Key, i.AuthorID, now.Unix(), i.SourceEvidence, i.AIProvider, i.GenerationPolicy)
+		r, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,source_evidence,ai_provider,generation_policy,ai_model)
+  VALUES(?,?,?,?,?,?,?,'pending',?,?,?,?,?)`, i.ChatID, i.Kind, i.Text, i.Source, i.Image, i.Key, i.AuthorID, now.Unix(), i.SourceEvidence, i.AIProvider, i.GenerationPolicy, i.AIModel)
 		if err != nil {
 			return err
 		}
@@ -287,11 +287,11 @@ func (s *Store) Add(ctx context.Context, op int64, i daily.Item, now time.Time) 
 	return id, err
 }
 
-const itemColumns = "id,chat_id,kind,text,source,image,content_key,author_id,state,source_evidence,ai_provider,generation_policy"
+const itemColumns = "id,chat_id,kind,text,source,image,content_key,author_id,state,source_evidence,ai_provider,generation_policy,ai_model"
 
 func scanItem(row interface{ Scan(...any) error }) (daily.Item, error) {
 	var x daily.Item
-	err := row.Scan(&x.ID, &x.ChatID, &x.Kind, &x.Text, &x.Source, &x.Image, &x.Key, &x.AuthorID, &x.State, &x.SourceEvidence, &x.AIProvider, &x.GenerationPolicy)
+	err := row.Scan(&x.ID, &x.ChatID, &x.Kind, &x.Text, &x.Source, &x.Image, &x.Key, &x.AuthorID, &x.State, &x.SourceEvidence, &x.AIProvider, &x.GenerationPolicy, &x.AIModel)
 	return x, err
 }
 func (s *Store) Queue(ctx context.Context, chat int64, after int64) ([]daily.Item, error) {
@@ -378,9 +378,9 @@ func (s *Store) Attach(ctx context.Context, id int64, candidates []daily.Item, n
 		var item int64
 		err := tx.QueryRowContext(ctx, `SELECT id FROM items WHERE chat_id=? AND kind=? AND state='approved'
  AND ((? AND approved_by IS NOT NULL) OR (NOT ? AND ai_approved=1))
- AND (kind!='meme' OR ai_approved=0 OR created_at>=?)
+ AND (kind!='meme' OR ai_approved=0 OR (created_at>=? AND generation_policy=?))
  AND (kind!='fact' OR ai_approved=0 OR generation_policy=?)
- ORDER BY id LIMIT 1`, chat, kind, moderation, moderation, now.Add(-memeStockTTL).Unix(), daily.FactPolicy).Scan(&item)
+ ORDER BY id LIMIT 1`, chat, kind, moderation, moderation, now.Add(-memeStockTTL).Unix(), daily.MemePolicy, daily.FactPolicy).Scan(&item)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
@@ -398,8 +398,8 @@ func (s *Store) HasApproved(ctx context.Context, chat int64, kind string, now ti
 	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM items i JOIN chats c USING(chat_id)
  WHERE i.chat_id=? AND i.kind=? AND i.state='approved'
  AND ((c.moderation=1 AND i.approved_by IS NOT NULL) OR (c.moderation=0 AND i.ai_approved=1))
- AND (i.kind!='meme' OR i.ai_approved=0 OR i.created_at>=?)
- AND (i.kind!='fact' OR i.ai_approved=0 OR i.generation_policy=?)`, chat, kind, now.Add(-memeStockTTL).Unix(), daily.FactPolicy).Scan(&n)
+ AND (i.kind!='meme' OR i.ai_approved=0 OR (i.created_at>=? AND i.generation_policy=?))
+ AND (i.kind!='fact' OR i.ai_approved=0 OR i.generation_policy=?)`, chat, kind, now.Add(-memeStockTTL).Unix(), daily.MemePolicy, daily.FactPolicy).Scan(&n)
 	return n > 0, err
 }
 func (s *Store) Pending(ctx context.Context) ([]daily.Delivery, error) {
@@ -432,8 +432,8 @@ func (s *Store) Claim(ctx context.Context, id int64, now time.Time) (bool, error
 	r, err := s.db.ExecContext(ctx, `UPDATE deliveries SET state='sending' WHERE id=? AND state IN ('ready','retry') AND next_attempt<=? AND deadline>?
  AND EXISTS (SELECT 1 FROM schedules s JOIN chats c USING(chat_id) WHERE s.chat_id=deliveries.chat_id AND s.kind=deliveries.kind AND s.enabled=1 AND c.active=1 AND s.effective < deliveries.slot_at)
  AND EXISTS (SELECT 1 FROM items i WHERE i.id=deliveries.item_id
-   AND (i.kind!='meme' OR i.ai_approved=0 OR i.created_at>=?)
-   AND (i.kind!='fact' OR i.ai_approved=0 OR i.generation_policy=?))`, id, now.Unix(), now.Unix(), now.Add(-memeStockTTL).Unix(), daily.FactPolicy)
+   AND (i.kind!='meme' OR i.ai_approved=0 OR (i.created_at>=? AND i.generation_policy=?))
+   AND (i.kind!='fact' OR i.ai_approved=0 OR i.generation_policy=?))`, id, now.Unix(), now.Unix(), now.Add(-memeStockTTL).Unix(), daily.MemePolicy, daily.FactPolicy)
 	if err != nil {
 		return false, err
 	}
@@ -537,11 +537,11 @@ func insertAttachmentCandidates(ctx context.Context, tx *sql.Tx, chat int64, kin
 		i := candidate
 		i.ChatID = chat
 		i.Kind = kind
-		if err := i.Validate(); err != nil {
+		if err := validateAttachmentItem(i); err != nil {
 			return 0, err
 		}
-		r, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,ai_approved,source_evidence,ai_provider,generation_policy)
-   VALUES(?,?,?,?,?,?,0,?,?,1,?,?,?)`, chat, kind, i.Text, i.Source, i.Image, i.Key, state, now.Unix(), i.SourceEvidence, i.AIProvider, i.GenerationPolicy)
+		r, e := tx.ExecContext(ctx, `INSERT OR IGNORE INTO items(chat_id,kind,text,source,image,content_key,author_id,state,created_at,ai_approved,source_evidence,ai_provider,generation_policy,ai_model)
+   VALUES(?,?,?,?,?,?,0,?,?,1,?,?,?,?)`, chat, kind, i.Text, i.Source, i.Image, i.Key, state, now.Unix(), i.SourceEvidence, i.AIProvider, i.GenerationPolicy, i.AIModel)
 		if e != nil {
 			return 0, e
 		}
@@ -573,4 +573,11 @@ func finishAttachment(ctx context.Context, tx *sql.Tx, id, item int64, moderatio
 	}
 	_, err = tx.ExecContext(ctx, "UPDATE deliveries SET state='ready',item_id=?,next_attempt=0,fetch_claimed=0,preparation_error='' WHERE id=?", item, id)
 	return err
+}
+
+func validateAttachmentItem(item daily.Item) error {
+	if item.Kind == daily.Meme && item.GenerationPolicy != daily.MemePolicy {
+		return errors.New("obsolete meme policy")
+	}
+	return item.Validate()
 }

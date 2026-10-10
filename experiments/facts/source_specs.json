@@ -1,0 +1,8 @@
+[
+  {"id":"roger", "wiki_title":"Who_Framed_Roger_Rabbit", "display_title":"Кто подставил кролика Роджера (1988)", "anchors":["Clampett's design", "equal", "Eddie Murphy", "budget"]},
+  {"id":"sunshine", "wiki_title":"Eternal_Sunshine_of_the_Spotless_Mind", "display_title":"Вечное сияние чистого разума (2004)", "anchors":["tide", "wheelchairs", "Memento", "18 words"]},
+  {"id":"vertigo", "wiki_title":"Vertigo_(film)", "display_title":"Головокружение (1958)", "anchors":["Darkling", "bell tower", "pregnant", "letter writing"]},
+  {"id":"twilight", "wiki_title":"Twilight_(2008_film)", "display_title":"Сумерки (2008)", "anchors":["avoided sunlight", "chicken and honey", "2007 Sundance", "Ashley Greene"]},
+  {"id":"jurassic", "wiki_title":"Jurassic_Park_(film)", "display_title":"Парк юрского периода (1993)", "anchors":["toilet", "they just wanted me to scream", "animatronic", "budget"]},
+  {"id":"terminator", "wiki_title":"The_Terminator", "display_title":"Терминатор (1984)", "anchors":["Henriksen", "I will be back", "student film", "canine android"]}
+]

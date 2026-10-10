@@ -1,0 +1,106 @@
+{
+  "version": "rewrite-v1",
+  "parent_dataset_sha256": "8ca2a4f5f1ed3dce96696d84be8acba05e382e2a7b9d7a858b6f54a923460143",
+  "sources": [
+    {
+      "id": "sunshine",
+      "title": "Eternal_Sunshine_of_the_Spotless_Mind",
+      "display_title": "Вечное сияние чистого разума (2004)",
+      "url": "https://en.wikipedia.org/w/index.php?oldid=1375098420",
+      "revision": 1375098420,
+      "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "attribution": "Wikipedia contributors; excerpt normalized for whitespace, citation markers removed",
+      "captured_at": "2026-10-08T14:46:14.049587+00:00"
+    },
+    {
+      "id": "terminator",
+      "title": "The_Terminator",
+      "display_title": "Терминатор (1984)",
+      "url": "https://en.wikipedia.org/w/index.php?oldid=1378094823",
+      "revision": 1378094823,
+      "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "attribution": "Wikipedia contributors; excerpt normalized for whitespace, citation markers removed",
+      "captured_at": "2026-10-08T14:46:22.699748+00:00"
+    }
+  ],
+  "passages": [
+    {
+      "id": "sunshine-2",
+      "source_id": "sunshine",
+      "paragraph": "The shoot was challenging for cinematographer Ellen Kuras, due to the difficulty of filming Gondry's vision, which aimed to \"blend location-shoot authenticity with unpredictable flashes of whimsy\". Gondry wanted available light used exclusively for the shoot. Kuras disagreed and worked around this idea by lighting the room instead of the actors and by hiding light bulbs around the set to increase light levels. Another issue the cinematographers encountered was that due to the frequent improvisation, the lack of marks and the few rehearsals completed, the cinematographers often did not know where the actors would be. Two handheld cameras filmed near 360-degree footage at all times, shooting 36,000 feet of film a day to deal with this. Gondry called back to the work of French New Wave director Jean-Luc Godard by filming using wheelchairs as well as using sled and chariot dollies instead of traditional dollies. When using wheelchairs, the shot was not consistently smooth; however, as Kuras liked the aesthetic of the low-angle, wobbly movement, the final film contains the footage.",
+      "excerpt": "The shoot was challenging for cinematographer Ellen Kuras, due to the difficulty of filming Gondry's vision, which aimed to \"blend location-shoot authenticity with unpredictable flashes of whimsy\". Gondry wanted available light used exclusively for the shoot. Kuras disagreed and worked around this idea by lighting the room instead of the actors and by hiding light bulbs around the set to increase light levels. Another issue the cinematographers encountered was that due to the frequent improvisation, the lack of marks and the few rehearsals completed, the cinematographers often did not know where the actors would be. Two handheld cameras filmed near 360-degree footage at all times, shooting 36,000 feet of film a day to deal with this. Gondry called back to the work of French New Wave director Jean-Luc Godard by filming using wheelchairs as well as using sled and chariot dollies instead of traditional dollies. When using wheelchairs, the shot was not consistently smooth; however, as Kuras liked the aesthetic of the low-angle, wobbly movement, the final film contains the footage.",
+      "paragraph_sha256": "7e3837b89e5d51a7db7b4b44c1f6d259cb493df3b9f6f6ce55827aeb400540e2",
+      "editorial_context": {
+        "names": {
+          "Gondry": "Мишель Гондри",
+          "Kuras": "Эллен Курас"
+        },
+        "episode": "Камеру перемещали с помощью инвалидных колясок вместо обычных операторских тележек; низкую точку съёмки и не совсем плавное движение Курас сочла удачными, и эти кадры остались в фильме. Не смешивать это с соседней историей об освещении или импровизации.",
+        "guard": "Источник не говорит об экономии денег, деревянных повозках или отказе от стедикамов."
+      }
+    },
+    {
+      "id": "terminator-1",
+      "source_id": "terminator",
+      "paragraph": "Cameron wanted his pitch for Daly to finalize the deal and had his friend Lance Henriksen show up to the meeting early dressed and acting like the Terminator. Henriksen, wearing a leather jacket, fake cuts on his face, and gold foil on his teeth, kicked open the door to the office and then sat in a chair. Cameron arrived shortly and then relieved the staff from Henriksen's act. Daly was impressed by the screenplay and Cameron's sketches and passion. In late 1982, Daly agreed to back the film with help from HBO and Orion. The Terminator was originally budgeted at $4 million and later raised to $6.5 million. Aside from Hemdale, Pacific Western Productions, Euro Film Funding and Cinema '84 have been credited as production companies after the film's release.",
+      "excerpt": "Cameron wanted his pitch for Daly to finalize the deal and had his friend Lance Henriksen show up to the meeting early dressed and acting like the Terminator. Henriksen, wearing a leather jacket, fake cuts on his face, and gold foil on his teeth, kicked open the door to the office and then sat in a chair. Cameron arrived shortly and then relieved the staff from Henriksen's act. Daly was impressed by the screenplay and Cameron's sketches and passion. In late 1982, Daly agreed to back the film with help from HBO and Orion. The Terminator was originally budgeted at $4 million and later raised to $6.5 million. Aside from Hemdale, Pacific Western Productions, Euro Film Funding and Cinema '84 have been credited as production companies after the film's release.",
+      "paragraph_sha256": "93bf8cf9d1a8de74863ccb70ada0a39290f8b6781f8ba4d88126975cf5a143c9",
+      "editorial_context": {
+        "names": {
+          "Cameron": "Джеймс Кэмерон",
+          "Lance Henriksen": "Лэнс Хенриксен",
+          "Daly": "Джон Дэйли"
+        },
+        "episode": "Хенриксен пришёл раньше Кэмерона на встречу, на которой тот хотел договориться о финансировании. Хенриксен изображал Терминатора: кожаная куртка, нарисованные порезы, золотая фольга на зубах, открыл дверь ударом и сел. Затем пришёл Кэмерон; Дэйли был впечатлён сценарием, эскизами и увлечённостью режиссёра.",
+        "guard": "Не называть Дэйли финансовым директором, не выдумывать прерванную встречу, оружие или испуг персонала. Не приписывать получение денег исключительно этому выступлению."
+      }
+    },
+    {
+      "id": "terminator-3",
+      "source_id": "terminator",
+      "paragraph": "After production finished on The Terminator, some post-production shots were needed. These included scenes showing the Terminator outside Sarah Connor's apartment, Reese being zipped into a body bag, and the Terminator's head being crushed in a press. The final scene where Sarah is driving down a highway was filmed without a permit. Cameron and Hurd convinced an officer who confronted them that they were making a UCLA student film.",
+      "excerpt": "After production finished on The Terminator, some post-production shots were needed. These included scenes showing the Terminator outside Sarah Connor's apartment, Reese being zipped into a body bag, and the Terminator's head being crushed in a press. The final scene where Sarah is driving down a highway was filmed without a permit. Cameron and Hurd convinced an officer who confronted them that they were making a UCLA student film.",
+      "paragraph_sha256": "4c9a5e5090f7058c30710eee98234479d0cd2a4c95a43cd45f5e5f18059d1ab7",
+      "editorial_context": {
+        "names": {
+          "Cameron": "Джеймс Кэмерон",
+          "Hurd": "Хёрд",
+          "Sarah": "Сара Коннор"
+        },
+        "glossary": {
+          "UCLA": "университет в Лос-Анджелесе, University of California, Los Angeles",
+          "student film": "студенческий фильм, учебная работа, а не студийный проект"
+        },
+        "glossary_sources": [
+          {
+            "url": "https://www.ucla.edu/about",
+            "checked_at": "2026-10-08",
+            "supports": "UCLA — университет в Лос-Анджелесе"
+          }
+        ],
+        "episode": "Финал, в котором Сара едет по шоссе, сняли без разрешения. Кэмерон и Хёрд убедили подошедшего полицейского, что снимают студенческий фильм UCLA.",
+        "guard": "Не утверждать, что авторы сами были студентами, что полицейский выдал разрешение, что они избежали штрафа или что университет участвовал в съёмках."
+      }
+    }
+  ],
+  "batches": [
+    {
+      "id": "rewrite-1",
+      "passage_ids": [
+        "sunshine-2"
+      ]
+    },
+    {
+      "id": "rewrite-2",
+      "passage_ids": [
+        "terminator-1"
+      ]
+    },
+    {
+      "id": "rewrite-3",
+      "passage_ids": [
+        "terminator-3"
+      ]
+    }
+  ]
+}

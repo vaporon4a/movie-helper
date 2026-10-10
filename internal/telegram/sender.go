@@ -4,28 +4,40 @@ import (
 	"context"
 	"errors"
 	"html"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
+	"github.com/vaporon4a/movie-helper/internal/feedback"
 )
 
-type Sender struct{ API API }
+type PostRecorder interface {
+	RegisterFeedbackPost(context.Context, feedback.Post) error
+}
+
+type Sender struct {
+	API         API
+	Feedback    PostRecorder
+	Publication string
+	Log         *slog.Logger
+	Now         func() time.Time
+}
 
 func (s Sender) Send(ctx context.Context, chatID int64, item daily.Item) (int, error) {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	sendCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	var message *models.Message
 	var err error
 	if item.Kind == daily.Meme {
-		message, err = s.API.SendPhoto(ctx, &bot.SendPhotoParams{
+		message, err = s.API.SendPhoto(sendCtx, &bot.SendPhotoParams{
 			ChatID: chatID, Photo: &models.InputFileString{Data: item.Image},
 			Caption: memeCaption(item), ParseMode: models.ParseModeHTML,
 		})
 	} else {
-		message, err = s.API.SendMessage(ctx, &bot.SendMessageParams{
+		message, err = s.API.SendMessage(sendCtx, &bot.SendMessageParams{
 			ChatID: chatID, Text: factMessage(item), ParseMode: models.ParseModeHTML,
 			LinkPreviewOptions: disabledLinkPreview(),
 		})
@@ -33,10 +45,34 @@ func (s Sender) Send(ctx context.Context, chatID int64, item daily.Item) (int, e
 	if err != nil {
 		return 0, classify(err)
 	}
-	if message == nil {
+	if message == nil || message.ID <= 0 {
 		return 0, &daily.SendError{Kind: "unknown"}
 	}
+	s.registerFeedback(ctx, chatID, message.ID, item)
 	return message.ID, nil
+}
+
+func (s Sender) registerFeedback(ctx context.Context, chat int64, message int, item daily.Item) {
+	if s.Feedback == nil {
+		return
+	}
+	now, log := s.Now, s.Log
+	if now == nil {
+		now = time.Now
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	publication := s.Publication
+	if publication == "" {
+		publication = feedback.Scheduled
+	}
+	err := s.Feedback.RegisterFeedbackPost(ctx, feedback.Post{ChatID: chat, MessageID: message,
+		Publication: publication, PublishedAt: now(), Item: item})
+	if err != nil {
+		// The Telegram send is confirmed. A statistics failure must never resend it.
+		log.Warn("publication feedback registration failed", "chat_id", chat, "message_id", message, "kind", item.Kind)
+	}
 }
 
 func memeCaption(item daily.Item) string {

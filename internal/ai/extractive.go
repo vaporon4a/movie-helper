@@ -44,11 +44,26 @@ func (s EpisodeSelector) SelectEpisodes(ctx context.Context, episodes []facts.Ep
 	if *result.Index == -1 {
 		return nil, nil
 	}
-	return materializeEpisodes(result, episodes, s.Provider)
+	items, err := materializeEpisodes(result, episodes, s.Provider)
+	for n := range items {
+		items[n].AIModel = generatorModel(s.Generator)
+	}
+	return items, err
 }
+
+type episodeEvidence struct {
+	facts.Episode
+	Selection struct {
+		Interest int `json:"interest"`
+		Clarity  int `json:"clarity"`
+	} `json:"selection"`
+}
+
 func materializeEpisodes(result Selection, episodes []facts.Episode, provider string) ([]daily.Item, error) {
 	accepted := map[int]bool{}
+	reviews := make(map[int]Review, len(result.Reviews))
 	for _, r := range result.Reviews {
+		reviews[*r.Index] = r
 		if r.Reason == reviewAccepted {
 			accepted[*r.Index] = true
 		}
@@ -67,7 +82,9 @@ func materializeEpisodes(result Selection, episodes []facts.Episode, provider st
 			continue
 		}
 		movies[e.Movie.ID] = true
-		audit, err := json.Marshal(e)
+		evidence := episodeEvidence{Episode: e}
+		evidence.Selection.Interest, evidence.Selection.Clarity = reviews[n].Interest, reviews[n].Clarity
+		audit, err := json.Marshal(evidence)
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +134,7 @@ func FactSelectionSchema(count int) map[string]any {
 		}, schemaRequiredKey: []string{"reason", "interest", "clarity"}}
 	}
 	return map[string]any{schemaTypeKey: schemaObject, schemaAdditionalKey: false, schemaPropertiesKey: map[string]any{
-		"index": map[string]any{schemaTypeKey: schemaInteger, schemaEnumKey: indices}, schemaTextKey: map[string]any{schemaTypeKey: schemaString, schemaEnumKey: []string{""}}, schemaEvidenceKey: map[string]any{schemaTypeKey: schemaString, schemaEnumKey: []string{""}},
+		schemaIndexKey: map[string]any{schemaTypeKey: schemaInteger, schemaEnumKey: indices}, schemaTextKey: map[string]any{schemaTypeKey: schemaString, schemaEnumKey: []string{""}}, schemaEvidenceKey: map[string]any{schemaTypeKey: schemaString, schemaEnumKey: []string{""}},
 		"reviews": map[string]any{schemaTypeKey: schemaObject, schemaAdditionalKey: false, schemaPropertiesKey: properties, schemaRequiredKey: keys},
 	}, schemaRequiredKey: []string{"index", schemaTextKey, schemaEvidenceKey, "reviews"}}
 }

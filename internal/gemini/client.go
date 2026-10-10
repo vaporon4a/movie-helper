@@ -57,6 +57,8 @@ type Client struct {
 }
 type Article = ai.Article
 
+func (c *Client) ModelName() string { return c.Model }
+
 func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Part) (ai.Selection, error) {
 	var result ai.Selection
 	body := map[string]any{
@@ -249,7 +251,7 @@ func (c *Client) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Ite
 	return &selected[0], nil
 }
 func (c *Client) SelectMemes(ctx context.Context, items []daily.Item, limit int) ([]daily.Item, error) {
-	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "gemini:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 4}
+	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "gemini:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 2, MaxImages: 4, Log: c.Log}
 	return e.SelectMemes(ctx, items, limit)
 }
 func (c *Client) Fact(ctx context.Context, articles []Article) (*daily.Item, error) {

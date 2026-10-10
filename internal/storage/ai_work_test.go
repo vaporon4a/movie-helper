@@ -68,7 +68,7 @@ func TestSeedAIWorkMaintainsStockAndExpiresMemes(t *testing.T) {
 	}
 
 	old := testNow.Add(-8 * 24 * time.Hour)
-	_, err := store.SaveAIItems(ctx, -1, daily.Meme, []daily.Item{{Kind: daily.Meme, Image: "https://i.redd.it/old.jpg", Key: "old"}}, old)
+	_, err := store.SaveAIItems(ctx, -1, daily.Meme, []daily.Item{{Kind: daily.Meme, GenerationPolicy: daily.MemePolicy, Image: "https://i.redd.it/old.jpg", Key: "old"}}, old)
 	must(t, err)
 	must(t, store.SeedAIWork(ctx, testNow))
 	var state string
@@ -124,7 +124,7 @@ func TestAIStockRejectsStaleMemesAndOldFactPolicy(t *testing.T) {
 		t.Fatal("old fact policy available for preview")
 	}
 
-	oldMeme := daily.Item{Kind: daily.Meme, Image: "https://i.redd.it/stale.jpg", Key: "meme:stale"}
+	oldMeme := daily.Item{Kind: daily.Meme, GenerationPolicy: daily.MemePolicy, Image: "https://i.redd.it/stale.jpg", Key: "meme:stale"}
 	_, err = store.SaveAIItems(ctx, -1, daily.Meme, []daily.Item{oldMeme}, testNow.Add(-8*24*time.Hour))
 	must(t, err)
 	approved, err := store.HasApproved(ctx, -1, daily.Meme, testNow)
@@ -140,7 +140,7 @@ func TestReservedAIMemeCannotBeSentAfterTTL(t *testing.T) {
 	must(t, store.EnsureChat(ctx, -1))
 	must(t, store.SetZone(ctx, 1, -1, "UTC", testNow))
 	must(t, store.SetSchedule(ctx, 2, -1, daily.Meme, "09:00", true, testNow))
-	meme := daily.Item{Kind: daily.Meme, Image: "https://i.redd.it/almost-stale.jpg", Key: "meme:almost-stale"}
+	meme := daily.Item{Kind: daily.Meme, GenerationPolicy: daily.MemePolicy, Image: "https://i.redd.it/almost-stale.jpg", Key: "meme:almost-stale"}
 	_, err := store.SaveAIItems(ctx, -1, daily.Meme, []daily.Item{meme}, testNow.Add(-6*24*time.Hour-23*time.Hour))
 	must(t, err)
 	schedules, err := store.Schedules(ctx, -1)

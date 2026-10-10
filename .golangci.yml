@@ -128,7 +128,7 @@ linters:
       rules:
         domain:
           files:
-          - '**/internal/{aiwork,clubreminder,daily,movieclub,featurevote,facts}/*.go'
+          - '**/internal/{aiwork,clubreminder,daily,movieclub,featurevote,facts,feedback}/*.go'
           - '!$test'
           list-mode: strict
           allow:
@@ -139,6 +139,7 @@ linters:
           - github.com/vaporon4a/movie-helper/internal/facts$
           - github.com/vaporon4a/movie-helper/internal/movieclub$
           - github.com/vaporon4a/movie-helper/internal/featurevote$
+          - github.com/vaporon4a/movie-helper/internal/feedback$
           deny:
           - pkg: database/sql$
             desc: Domain logic uses repository ports, not SQL.

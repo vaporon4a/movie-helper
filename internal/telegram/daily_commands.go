@@ -12,6 +12,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
+	"github.com/vaporon4a/movie-helper/internal/feedback"
 )
 
 func (h *Handler) handleDailyCommand(ctx context.Context, update *models.Update, command, args string) (bool, error) {
@@ -111,7 +112,7 @@ func (h *Handler) preview(ctx context.Context, chatID int64, kind string) error 
 		return errResponseSent
 	}
 	item.Text = "Предпросмотр · " + item.Text
-	if _, err = (Sender{API: h.API}).Send(ctx, chatID, item); err != nil {
+	if _, err = (Sender{API: h.API, Feedback: h.Feedback, Publication: feedback.Preview, Log: h.Log, Now: h.Now}).Send(ctx, chatID, item); err != nil {
 		h.Log.Warn("preview delivery not confirmed", "chat_id", chatID)
 		h.reply(ctx, chatID, "Доставка предпросмотра не подтверждена. Проверьте чат перед повторной командой.")
 	}

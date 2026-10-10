@@ -27,7 +27,7 @@ func (p *flakyProvider) Candidates(_ context.Context, kind string, _ int64) ([]d
 		}
 		return nil, errors.New("upstream 503")
 	}
-	return []daily.Item{{Kind: kind, Text: "Материал", Image: "https://i.redd.it/test.jpg", Source: "https://example.org/source", Key: "retry:" + kind}}, nil
+	return []daily.Item{{Kind: kind, GenerationPolicy: daily.MemePolicy, Text: "Материал", Image: "https://i.redd.it/test.jpg", Source: "https://example.org/source", Key: "retry:" + kind}}, nil
 }
 
 func TestPreparationUsesProviderRetryAfterWithoutBlockingScheduler(t *testing.T) {

@@ -1,0 +1,281 @@
+{
+  "version": "fact-pilot-v1",
+  "sources": [
+    {
+      "id": "roger",
+      "title": "Who_Framed_Roger_Rabbit",
+      "display_title": "Кто подставил кролика Роджера (1988)",
+      "url": "https://en.wikipedia.org/w/index.php?oldid=1379075247",
+      "revision": 1379075247,
+      "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "attribution": "Wikipedia contributors; excerpt normalized for whitespace, citation markers removed",
+      "captured_at": "2026-10-08T14:46:13.078356+00:00"
+    },
+    {
+      "id": "sunshine",
+      "title": "Eternal_Sunshine_of_the_Spotless_Mind",
+      "display_title": "Вечное сияние чистого разума (2004)",
+      "url": "https://en.wikipedia.org/w/index.php?oldid=1375098420",
+      "revision": 1375098420,
+      "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "attribution": "Wikipedia contributors; excerpt normalized for whitespace, citation markers removed",
+      "captured_at": "2026-10-08T14:46:14.049587+00:00"
+    },
+    {
+      "id": "vertigo",
+      "title": "Vertigo_(film)",
+      "display_title": "Головокружение (1958)",
+      "url": "https://en.wikipedia.org/w/index.php?oldid=1374878817",
+      "revision": 1374878817,
+      "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "attribution": "Wikipedia contributors; excerpt normalized for whitespace, citation markers removed",
+      "captured_at": "2026-10-08T14:46:14.950545+00:00"
+    },
+    {
+      "id": "twilight",
+      "title": "Twilight_(2008_film)",
+      "display_title": "Сумерки (2008)",
+      "url": "https://en.wikipedia.org/w/index.php?oldid=1376294693",
+      "revision": 1376294693,
+      "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "attribution": "Wikipedia contributors; excerpt normalized for whitespace, citation markers removed",
+      "captured_at": "2026-10-08T14:46:19.928523+00:00"
+    },
+    {
+      "id": "jurassic",
+      "title": "Jurassic_Park_(film)",
+      "display_title": "Парк юрского периода (1993)",
+      "url": "https://en.wikipedia.org/w/index.php?oldid=1378104290",
+      "revision": 1378104290,
+      "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "attribution": "Wikipedia contributors; excerpt normalized for whitespace, citation markers removed",
+      "captured_at": "2026-10-08T14:47:35.772640+00:00"
+    },
+    {
+      "id": "terminator",
+      "title": "The_Terminator",
+      "display_title": "Терминатор (1984)",
+      "url": "https://en.wikipedia.org/w/index.php?oldid=1378094823",
+      "revision": 1378094823,
+      "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "attribution": "Wikipedia contributors; excerpt normalized for whitespace, citation markers removed",
+      "captured_at": "2026-10-08T14:46:22.699748+00:00"
+    }
+  ],
+  "passages": [
+    {
+      "id": "roger-1",
+      "source_id": "roger",
+      "paragraph": "The film was finally green-lit when the budget decreased to $30 million, which at the time would have still made it the most expensive animated film ever produced. Walt Disney Studios chairman Jeffrey Katzenberg argued that the hybrid of live-action and animation would \"save\" Walt Disney Feature Animation. Spielberg's contract included an extensive amount of creative control and a large percentage of the box-office profits. Disney kept all merchandising rights. Spielberg convinced Warner Bros., Fleischer Studios, Harvey Comics, King Features Syndicate, Felix the Cat Productions, Turner Entertainment Co., and Universal Pictures/Walter Lantz Productions to \"lend\" their characters to appear in the film with (in some cases) stipulations on how those characters were portrayed; for example, Disney's Donald Duck and Warner Bros.' Daffy Duck appear as equally talented dueling pianists, Mickey Mouse and Bugs Bunny also share a scene as skydivers, and Tinker Bell and Porky Pig close the film. Apart from the agreement, and some of the original voice artists reprising their roles, Warner Bros. and the various other companies were not involved in the production of Roger Rabbit. Executives at Warner Bros. were displeased by animators using the Daffy design by Bob Clampett and demanded they use the design by Chuck Jones; in response Zemeckis had separate artists animate Daffy using Jones' design to satisfy Warner Bros., in order to have Clampett's design in the final film. The producers were unable to acquire the rights to use Popeye, Tom and Jerry, Little Lulu, Casper the Friendly Ghost, the Fox and the Crow, the Terrytoons characters, or Rocky and Bullwinkle for appearances from their respective owners (King Features, Turner, Western Publishing, Harvey Comics, Viacom, Screen Gems, and Jay Ward Productions). Other characters like Warner Bros.' Bosko and Junior Bear, Fleischer Studios' Fitz the Dog and Bimbo; Ub Iwerks' Flip the Frog, and Hanna-Barbera's Yakky Doodle were also planned to appear in the film. Despite acquiring the rights to use Betty Boop and Koko the Clown, King Features valued Koko highly, asking for $50,000 for a simple cameo appearance. To get around the high price and legal issues, the animators redesigned Koko to have hair resembling that of Bozo the Clown instead of a hat, and changed his colors at the end of the film. The film was initially planned to not feature cameo appearances of characters created after 1947, with the exception of Wile E. Coyote and the Road Runner, who were Zemeckis' favorite cartoon characters.",
+      "excerpt": "Executives at Warner Bros. were displeased by animators using the Daffy design by Bob Clampett and demanded they use the design by Chuck Jones; in response Zemeckis had separate artists animate Daffy using Jones' design to satisfy Warner Bros., in order to have Clampett's design in the final film. The producers were unable to acquire the rights to use Popeye, Tom and Jerry, Little Lulu, Casper the Friendly Ghost, the Fox and the Crow, the Terrytoons characters, or Rocky and Bullwinkle for appearances from their respective owners (King Features, Turner, Western Publishing, Harvey Comics, Viacom, Screen Gems, and Jay Ward Productions). Other characters like Warner Bros.' Bosko and Junior Bear, Fleischer Studios' Fitz the Dog and Bimbo; Ub Iwerks' Flip the Frog, and Hanna-Barbera's Yakky Doodle were also planned to appear in the film.",
+      "paragraph_sha256": "fb147bc6350179a9c13e36c82b2bb20a3c5a3fa03e9ee9a82165e2f70a36e0b6"
+    },
+    {
+      "id": "roger-2",
+      "source_id": "roger",
+      "paragraph": "The film was finally green-lit when the budget decreased to $30 million, which at the time would have still made it the most expensive animated film ever produced. Walt Disney Studios chairman Jeffrey Katzenberg argued that the hybrid of live-action and animation would \"save\" Walt Disney Feature Animation. Spielberg's contract included an extensive amount of creative control and a large percentage of the box-office profits. Disney kept all merchandising rights. Spielberg convinced Warner Bros., Fleischer Studios, Harvey Comics, King Features Syndicate, Felix the Cat Productions, Turner Entertainment Co., and Universal Pictures/Walter Lantz Productions to \"lend\" their characters to appear in the film with (in some cases) stipulations on how those characters were portrayed; for example, Disney's Donald Duck and Warner Bros.' Daffy Duck appear as equally talented dueling pianists, Mickey Mouse and Bugs Bunny also share a scene as skydivers, and Tinker Bell and Porky Pig close the film. Apart from the agreement, and some of the original voice artists reprising their roles, Warner Bros. and the various other companies were not involved in the production of Roger Rabbit. Executives at Warner Bros. were displeased by animators using the Daffy design by Bob Clampett and demanded they use the design by Chuck Jones; in response Zemeckis had separate artists animate Daffy using Jones' design to satisfy Warner Bros., in order to have Clampett's design in the final film. The producers were unable to acquire the rights to use Popeye, Tom and Jerry, Little Lulu, Casper the Friendly Ghost, the Fox and the Crow, the Terrytoons characters, or Rocky and Bullwinkle for appearances from their respective owners (King Features, Turner, Western Publishing, Harvey Comics, Viacom, Screen Gems, and Jay Ward Productions). Other characters like Warner Bros.' Bosko and Junior Bear, Fleischer Studios' Fitz the Dog and Bimbo; Ub Iwerks' Flip the Frog, and Hanna-Barbera's Yakky Doodle were also planned to appear in the film. Despite acquiring the rights to use Betty Boop and Koko the Clown, King Features valued Koko highly, asking for $50,000 for a simple cameo appearance. To get around the high price and legal issues, the animators redesigned Koko to have hair resembling that of Bozo the Clown instead of a hat, and changed his colors at the end of the film. The film was initially planned to not feature cameo appearances of characters created after 1947, with the exception of Wile E. Coyote and the Road Runner, who were Zemeckis' favorite cartoon characters.",
+      "excerpt": "Disney kept all merchandising rights. Spielberg convinced Warner Bros., Fleischer Studios, Harvey Comics, King Features Syndicate, Felix the Cat Productions, Turner Entertainment Co., and Universal Pictures/Walter Lantz Productions to \"lend\" their characters to appear in the film with (in some cases) stipulations on how those characters were portrayed; for example, Disney's Donald Duck and Warner Bros.' Daffy Duck appear as equally talented dueling pianists, Mickey Mouse and Bugs Bunny also share a scene as skydivers, and Tinker Bell and Porky Pig close the film. Apart from the agreement, and some of the original voice artists reprising their roles, Warner Bros. and the various other companies were not involved in the production of Roger Rabbit.",
+      "paragraph_sha256": "fb147bc6350179a9c13e36c82b2bb20a3c5a3fa03e9ee9a82165e2f70a36e0b6"
+    },
+    {
+      "id": "roger-3",
+      "source_id": "roger",
+      "paragraph": "Harrison Ford was Spielberg's original choice to play Eddie Valiant, but his price was too high. Eddie Murphy rejected the role after misunderstanding the film's \"toon\" concept, a decision he later regretted. In 2025, Murphy elaborated, \"[It] sounded ridiculous to me, and I passed on it. And afterwards, I was like, 'Oh, that's fucking amazing.'\" Likewise, Paul Newman turned down the role, not liking the film's concept. Bill Murray was also considered for the role, but due to his idiosyncratic method of receiving offers for roles, Murray missed out on it. Ed Harris and James Woods auditioned for the part. Ultimately, Bob Hoskins was chosen by Spielberg because of his acting skill and because Spielberg believed he had a hopeful demeanor and he looked like he belonged in that era.",
+      "excerpt": "Harrison Ford was Spielberg's original choice to play Eddie Valiant, but his price was too high. Eddie Murphy rejected the role after misunderstanding the film's \"toon\" concept, a decision he later regretted. In 2025, Murphy elaborated, \"[It] sounded ridiculous to me, and I passed on it. And afterwards, I was like, 'Oh, that's fucking amazing.'\" Likewise, Paul Newman turned down the role, not liking the film's concept.",
+      "paragraph_sha256": "1f9cc485a10e170ad7d7ca1ec2b4d54a3f77ba706b93acab548dbbd21e3eb941"
+    },
+    {
+      "id": "roger-4",
+      "source_id": "roger",
+      "paragraph": "Walt Disney Productions purchased the film rights to Gary K. Wolf's novel Who Censored Roger Rabbit? shortly after its publication in 1981. Ron W. Miller, then president of Disney, saw it as a perfect opportunity to produce a blockbuster. Jeffrey Price and Peter S. Seaman were hired to write the script, penning two drafts. In 1982, Robert Zemeckis offered his services as director, but Disney declined as his two previous films (I Wanna Hold Your Hand and Used Cars) had been box-office bombs. Between 1981 and 1983 Disney developed test footage with Darrell Van Citters as animation director, Paul Reubens voicing Roger Rabbit, Peter Renaday as Eddie Valiant, Russi Taylor as Jessica Rabbit, and Jack Angel as Captain Cleaver. The project was revamped in 1985 by Michael Eisner, the then-new CEO of Disney. Amblin Entertainment, which consisted of Steven Spielberg, Frank Marshall and Kathleen Kennedy, were approached to produce Who Framed Roger Rabbit alongside Disney. The original budget was projected at $50 million, which Disney felt was too expensive.",
+      "excerpt": "Amblin Entertainment, which consisted of Steven Spielberg, Frank Marshall and Kathleen Kennedy, were approached to produce Who Framed Roger Rabbit alongside Disney. The original budget was projected at $50 million, which Disney felt was too expensive.",
+      "paragraph_sha256": "a49fd68ae8828e7711f4dd4d8142aaceb703f5278a8c6973d7dd994a8c11bd6f"
+    },
+    {
+      "id": "sunshine-1",
+      "source_id": "sunshine",
+      "paragraph": "The film used minimal CGI, with many effects accomplished in-camera through forced perspectives, hidden space, spotlighting, unsynchronized sound, split focus and continuity editing. A notable example is the ocean washing away the house in Montauk; the production team accomplished this by building the corner of a house on the beach and allowing the tide to rise. Executing this effect was difficult, as the special team hired to place the set in the water refused due to perceived dangers. In response, Gondry fired the team and had the production team, including the actors and producers, place the set in the water. In retaliation for Gondry's actions, the chief of the union reprimanded Gondry in front of the crew.",
+      "excerpt": "The film used minimal CGI, with many effects accomplished in-camera through forced perspectives, hidden space, spotlighting, unsynchronized sound, split focus and continuity editing. A notable example is the ocean washing away the house in Montauk; the production team accomplished this by building the corner of a house on the beach and allowing the tide to rise. Executing this effect was difficult, as the special team hired to place the set in the water refused due to perceived dangers. In response, Gondry fired the team and had the production team, including the actors and producers, place the set in the water.",
+      "paragraph_sha256": "624ae0faace983f2f45a8420698d0eed33744097c4efdcdba24a681a66a155e2"
+    },
+    {
+      "id": "sunshine-2",
+      "source_id": "sunshine",
+      "paragraph": "The shoot was challenging for cinematographer Ellen Kuras, due to the difficulty of filming Gondry's vision, which aimed to \"blend location-shoot authenticity with unpredictable flashes of whimsy\". Gondry wanted available light used exclusively for the shoot. Kuras disagreed and worked around this idea by lighting the room instead of the actors and by hiding light bulbs around the set to increase light levels. Another issue the cinematographers encountered was that due to the frequent improvisation, the lack of marks and the few rehearsals completed, the cinematographers often did not know where the actors would be. Two handheld cameras filmed near 360-degree footage at all times, shooting 36,000 feet of film a day to deal with this. Gondry called back to the work of French New Wave director Jean-Luc Godard by filming using wheelchairs as well as using sled and chariot dollies instead of traditional dollies. When using wheelchairs, the shot was not consistently smooth; however, as Kuras liked the aesthetic of the low-angle, wobbly movement, the final film contains the footage.",
+      "excerpt": "Two handheld cameras filmed near 360-degree footage at all times, shooting 36,000 feet of film a day to deal with this. Gondry called back to the work of French New Wave director Jean-Luc Godard by filming using wheelchairs as well as using sled and chariot dollies instead of traditional dollies. When using wheelchairs, the shot was not consistently smooth; however, as Kuras liked the aesthetic of the low-angle, wobbly movement, the final film contains the footage.",
+      "paragraph_sha256": "7e3837b89e5d51a7db7b4b44c1f6d259cb493df3b9f6f6ce55827aeb400540e2"
+    },
+    {
+      "id": "sunshine-3",
+      "source_id": "sunshine",
+      "paragraph": "During this time, filmmaker Christopher Nolan released Memento (2000), which similarly deals with memory. Due to the similarities, Kaufman became worried and tried to pull out of the project, but Golin made him complete it. During writing, the pitch's ownership changed several times resulting in Kaufman not having to deal with the studios until the end of the scriptwriting process. The final script made the studios nervous.",
+      "excerpt": "During this time, filmmaker Christopher Nolan released Memento (2000), which similarly deals with memory. Due to the similarities, Kaufman became worried and tried to pull out of the project, but Golin made him complete it. During writing, the pitch's ownership changed several times resulting in Kaufman not having to deal with the studios until the end of the scriptwriting process.",
+      "paragraph_sha256": "d6edf21ce8d2ab460e790c7c9b386157cd00971bfc2447ee479f03d9f565735b"
+    },
+    {
+      "id": "sunshine-4",
+      "source_id": "sunshine",
+      "paragraph": "Kaufman resolved the first problem by making Joel lucid and able to comment on his memories and solved the second by making the memories degrade instead of immediately erasing, with complete erasure occurring at awakening. Kaufman's original name for the screenplay was 18 words long, as he had wanted a title that \"you couldn't possibly fit on a marquee.\" He eventually decided on Eternal Sunshine of the Spotless Mind, a title originating from the 1717 poem Eloisa to Abelard by Alexander Pope. Alain Resnais's Je t'aime, je t'aime (1968) has been suggested as an influence on the film.",
+      "excerpt": "Kaufman resolved the first problem by making Joel lucid and able to comment on his memories and solved the second by making the memories degrade instead of immediately erasing, with complete erasure occurring at awakening. Kaufman's original name for the screenplay was 18 words long, as he had wanted a title that \"you couldn't possibly fit on a marquee.\" He eventually decided on Eternal Sunshine of the Spotless Mind, a title originating from the 1717 poem Eloisa to Abelard by Alexander Pope. Alain Resnais's Je t'aime, je t'aime (1968) has been suggested as an influence on the film.",
+      "paragraph_sha256": "9425ca768ce4cef1403b1d75f3e51a36e0470c95ae8a8b8a207f70e2bb54ec2f"
+    },
+    {
+      "id": "vertigo-1",
+      "source_id": "vertigo",
+      "paragraph": "Three screenwriters were involved in the writing of Vertigo. Hitchcock originally hired playwright Maxwell Anderson to write a screenplay, but rejected his work, which was titled Darkling, I Listen (a quotation from John Keats's 1819 poem \"Ode to a Nightingale\"). According to Charles Barr in his monograph dedicated to Vertigo, \"Anderson was the oldest (at 68) [of the three writers involved], the most celebrated for his stage work, and the least committed to cinema, though he had a joint script credit for Hitchcock's preceding film The Wrong Man. He worked on adapting the novel during Hitchcock's absence abroad, and submitted a treatment in September 1956.\"",
+      "excerpt": "Three screenwriters were involved in the writing of Vertigo. Hitchcock originally hired playwright Maxwell Anderson to write a screenplay, but rejected his work, which was titled Darkling, I Listen (a quotation from John Keats's 1819 poem \"Ode to a Nightingale\"). According to Charles Barr in his monograph dedicated to Vertigo, \"Anderson was the oldest (at 68) [of the three writers involved], the most celebrated for his stage work, and the least committed to cinema, though he had a joint script credit for Hitchcock's preceding film The Wrong Man. He worked on adapting the novel during Hitchcock's absence abroad, and submitted a treatment in September 1956.\"",
+      "paragraph_sha256": "d35e0fd471df830ed8937d075e0340e6b73b1a808f6cf4831ac2ced6e2db80d7"
+    },
+    {
+      "id": "vertigo-2",
+      "source_id": "vertigo",
+      "paragraph": "The scene in which Madeleine falls from the tower was filmed at Mission San Juan Bautista, a Spanish mission in San Juan Bautista, California. Associate producer Herbert Coleman's daughter Judy Lanini suggested the mission to Hitchcock as a filming location. A steeple, added sometime after the mission's original construction and secularization, had been demolished following a fire, so Hitchcock added a bell tower much larger than the one previously at the mission using scale models, matte paintings, and trick photography at Paramount Studios.",
+      "excerpt": "Associate producer Herbert Coleman's daughter Judy Lanini suggested the mission to Hitchcock as a filming location. A steeple, added sometime after the mission's original construction and secularization, had been demolished following a fire, so Hitchcock added a bell tower much larger than the one previously at the mission using scale models, matte paintings, and trick photography at Paramount Studios.",
+      "paragraph_sha256": "a9bdfff5e6363b13a1d608e47cd8e0b1802fb3e4c717b19f9aa9f20be62404c1"
+    },
+    {
+      "id": "vertigo-3",
+      "source_id": "vertigo",
+      "paragraph": "Vera Miles, who was under personal contract to Hitchcock and had appeared both on Alfred Hitchcock Presents and in The Wrong Man, was originally scheduled to play Madeleine, and modeled for an early version of the portrait of Carlotta. Following delays, including Hitchcock becoming ill with gallbladder problems, Miles became pregnant and had to withdraw from the role. The director declined to postpone shooting, and cast Kim Novak as Miles' replacement.",
+      "excerpt": "Vera Miles, who was under personal contract to Hitchcock and had appeared both on Alfred Hitchcock Presents and in The Wrong Man, was originally scheduled to play Madeleine, and modeled for an early version of the portrait of Carlotta. Following delays, including Hitchcock becoming ill with gallbladder problems, Miles became pregnant and had to withdraw from the role. The director declined to postpone shooting, and cast Kim Novak as Miles' replacement.",
+      "paragraph_sha256": "da1e39c4d3d0096e3305c64d14d2a58b7dabca289a588daf754b10611a95f76f"
+    },
+    {
+      "id": "vertigo-4",
+      "source_id": "vertigo",
+      "paragraph": "In the book, Judy's involvement in Madeleine's death was not revealed until the denouement; at the scriptwriting stage, Hitchcock suggested revealing the secret two-thirds of the way through the film so that the audience would understand Judy's dilemma. After the first preview, Hitchcock was unsure whether or not to keep the \"letter writing scene\", though he subsequently decided to remove it. Herbert Coleman, Vertigo's associate producer and a frequent collaborator with Hitchcock, felt the removal was a mistake; however, Hitchcock said to \"Release it just like that.\" James Stewart, acting as mediator, said to Coleman: \"Herbie, you shouldn't get so upset with Hitch. The picture's not that important.\" Hitchcock's decision was supported by screenwriter Joan Harrison, another member of his circle, who felt that the film had been improved. Coleman reluctantly made the necessary edits. When Paramount head Barney Balaban received news of this, he ordered Hitchcock to \"Put the picture back the way it was,\" ensuring that the scene remained in the final cut.",
+      "excerpt": "In the book, Judy's involvement in Madeleine's death was not revealed until the denouement; at the scriptwriting stage, Hitchcock suggested revealing the secret two-thirds of the way through the film so that the audience would understand Judy's dilemma. After the first preview, Hitchcock was unsure whether or not to keep the \"letter writing scene\", though he subsequently decided to remove it. Herbert Coleman, Vertigo's associate producer and a frequent collaborator with Hitchcock, felt the removal was a mistake; however, Hitchcock said to \"Release it just like that.\" James Stewart, acting as mediator, said to Coleman: \"Herbie, you shouldn't get so upset with Hitch. The picture's not that important.\" Hitchcock's decision was supported by screenwriter Joan Harrison, another member of his circle, who felt that the film had been improved.",
+      "paragraph_sha256": "5b9518d0be617b7cfb9abb1f44261fa057dac32070b1c1b304db8f3bdf518a25"
+    },
+    {
+      "id": "twilight-1",
+      "source_id": "twilight",
+      "paragraph": "Principal photography started on March 7, 2008, and ended on April 21, the film was completed by May 2, 2008. Similar to her directorial debut Thirteen, Hardwicke opted for an extensive use of hand-held cinematography to make the film \"feel real\". Meyer visited the production set three times and was consulted on different aspects of the story; she also has a brief cameo in the film. Cast members who portrayed vampires avoided sunlight to make their skin pale, though makeup was also applied for that effect, and wore contact lenses: \"We did the golden color because the Cullens have those golden eyes. And then, when we're hungry, we have to pop the black ones in,\" Facinelli explained. They also participated in rehearsals with a dance choreographer and observed the physicality of different panthera to make their bodily movements more elegant.",
+      "excerpt": "Meyer visited the production set three times and was consulted on different aspects of the story; she also has a brief cameo in the film. Cast members who portrayed vampires avoided sunlight to make their skin pale, though makeup was also applied for that effect, and wore contact lenses: \"We did the golden color because the Cullens have those golden eyes. And then, when we're hungry, we have to pop the black ones in,\" Facinelli explained. They also participated in rehearsals with a dance choreographer and observed the physicality of different panthera to make their bodily movements more elegant.",
+      "paragraph_sha256": "12bcfc521876439573580896aa66d359b5e9a58602144950a212d24feec16d7c"
+    },
+    {
+      "id": "twilight-2",
+      "source_id": "twilight",
+      "paragraph": "Scenes were filmed primarily in Portland, Oregon, including at the Cullen House, a striking glass-and-wood residence. Stunt work was done mainly by the cast. The fight sequence between Gigandet and Pattinson's characters in a ballet studio, which was filmed during the first week of production, involved a substantial amount of wire work because the vampires in the story have superhuman strength and speed. Gigandet incorporated mixed martial arts fighting moves in this sequence, which involved chicken and honey as substitutes for flesh. Bella, the protagonist, is unconscious during these events, and since the novel is told from her point of view, such action sequences are illustrative and unique to the film. Pattinson noted that maintaining one's center of gravity is difficult when doing wire work \"because you have to really fight against it as well as letting it do what it needs to do.\" Lefèvre found the experience disorienting since the forward motion was out of her control.",
+      "excerpt": "The fight sequence between Gigandet and Pattinson's characters in a ballet studio, which was filmed during the first week of production, involved a substantial amount of wire work because the vampires in the story have superhuman strength and speed. Gigandet incorporated mixed martial arts fighting moves in this sequence, which involved chicken and honey as substitutes for flesh. Bella, the protagonist, is unconscious during these events, and since the novel is told from her point of view, such action sequences are illustrative and unique to the film. Pattinson noted that maintaining one's center of gravity is difficult when doing wire work \"because you have to really fight against it as well as letting it do what it needs to do.\" Lefèvre found the experience disorienting since the forward motion was out of her control.",
+      "paragraph_sha256": "f20a6f60840a1050279912efd8d00df9abc6442d3e0248cd27a10756cdc3d354"
+    },
+    {
+      "id": "twilight-3",
+      "source_id": "twilight",
+      "paragraph": "Before even having the rights to Twilight, on the 2007 Sundance Film Festival, Feig talked with director Catherine Hardwicke, of whom he was a fan, about working with Summit Entertainment and sent her five scripts of films the studio was developing, including Mark Lord's draft of Twilight for MTV Films. Hardwicke did not like any of the scripts, but ended up curious about Twilight. She bought a copy of the novel and realized the script she had read had very little to do with the source material, which she soon began envisioning as a film. Following Summit's acquisition of the rights, Hardwicke was set to direct the film and Melissa Rosenberg was hired to write the script in mid-2007.",
+      "excerpt": "Before even having the rights to Twilight, on the 2007 Sundance Film Festival, Feig talked with director Catherine Hardwicke, of whom he was a fan, about working with Summit Entertainment and sent her five scripts of films the studio was developing, including Mark Lord's draft of Twilight for MTV Films. Hardwicke did not like any of the scripts, but ended up curious about Twilight. She bought a copy of the novel and realized the script she had read had very little to do with the source material, which she soon began envisioning as a film.",
+      "paragraph_sha256": "7832bf03ab0e74f54920ed8ec4b58163bd23ba3381e66e2f6e516a5b60a274c9"
+    },
+    {
+      "id": "twilight-4",
+      "source_id": "twilight",
+      "paragraph": "Peter Facinelli was chosen to play Carlisle Cullen, though he was not the first choice by Summit, revealing, \"Hardwicke liked me, but there was another actor that the studio was pushing for.\" For unknown reasons, that actor was not able to play the part and Facinelli was selected in his place. Elizabeth Reaser was hired as Esme Cullen, despite only knowing in the audition that the film was based on a novel. Jackson Rathbone, who was in the final mix for Edward, was cast as Jasper Hale. The choice of Ashley Greene to portray Alice Cullen was the subject of fan criticism due to Greene being 7 inches (18 cm) taller than her character as described in the novel. Meyer stated previously that Rachael Leigh Cook resembled her vision of Alice. Nikki Reed was cast as Rosalie Hale. Reed had previously worked with Hardwicke on Thirteen, which they wrote together, and Lords of Dogtown. Reed commented, \"I don't want to say it's a coincidence, because we do work well together, and we have a great history. I think we make good work, but it's more that the people that hire [Hardwicke] to direct a film of theirs [have] most likely seen her other work.\" After an open casting call, Taylor Lautner was cast as Jacob Black. Kellan Lutz was in Africa shooting the miniseries Generation Kill when the auditions for the character of Emmett Cullen were conducted. The role had already been cast by the time that pre-production ended in December 2007, but the actor who had been selected \"fell through\"; Lutz subsequently auditioned and was flown to Oregon, where Hardwicke personally chose him. Rachelle Lefevre was interested in pursuing a role in the film because Hardwicke was attached to the project as director; there was also \"the potential to explore a character, hopefully, over three films\"; and she wanted to portray a vampire. She \"thought that vampires were basically the best metaphor for human anxiety and questions about being alive.\" Christian Serratos initially auditioned for Jessica Stanley, but she \"fell totally in love with Angela\" after reading the novels and successfully took advantage of a later opportunity to audition for Angela Weber. The role of Jessica Stanley went to Anna Kendrick, who got the part after two mix-and-match auditions with various actors.",
+      "excerpt": "Jackson Rathbone, who was in the final mix for Edward, was cast as Jasper Hale. The choice of Ashley Greene to portray Alice Cullen was the subject of fan criticism due to Greene being 7 inches (18 cm) taller than her character as described in the novel. Meyer stated previously that Rachael Leigh Cook resembled her vision of Alice. Nikki Reed was cast as Rosalie Hale.",
+      "paragraph_sha256": "f30ceb953e68efda41588f3b60d504afb17abdbf6f15db4ee9ab483da831c386"
+    },
+    {
+      "id": "jurassic-1",
+      "source_id": "jurassic",
+      "paragraph": "Several characters were modified for the film. Hammond, who was originally a ruthless and greedy businessman in the novel, was rewritten to be sympathetic, as Spielberg related to the character's obsession with showmanship. The ages of Tim and Lex were switched; Spielberg did this because he wanted to work with the younger Joseph Mazzello, and it allowed him to introduce the subplot of Lex's adolescent crush on Grant. For the film, Lex would also take on Tim's interest in computers. In another change, Grant and Sattler are made a couple for the film, adding subtle romance. Koepp changed Grant's relationship with the children, making him initially hostile to them to allow for more character development. This is partly reflected through his relationship with Sattler, who wants them to have children of their own. Following Malcolm's reinsertion into the script, Ed Regis, the park's public relations chief, was cut to avoid overcrowding the film. Regis's cowardly traits, as well as his intended death by being eaten by the T. rex on a toilet, were transferred to Donald Gennaro. Several other characters were reduced to one scene each, including Henry Wu, Dr. Harding, and Dodgson. The name of InGen's corporate rival and Dodgson's employer, Biosyn, is also omitted and was eventually featured in Jurassic World Dominion.",
+      "excerpt": "Regis's cowardly traits, as well as his intended death by being eaten by the T. rex on a toilet, were transferred to Donald Gennaro. Several other characters were reduced to one scene each, including Henry Wu, Dr. Harding, and Dodgson.",
+      "paragraph_sha256": "b9d90c996be0eeabfa6c42c6382563fddf08bd1ad91f3866dd85e17310e17616"
+    },
+    {
+      "id": "jurassic-2",
+      "source_id": "jurassic",
+      "paragraph": "Ariana Richards, who plays Lex Murphy, said: \"I was called into a casting office, and they just wanted me to scream. I heard later on that Steven had watched a few girls on tape that day, and I was the only one who ended up waking his sleeping wife off the couch, and she came running through the hallway to see if the kids were all right.\" Christina Ricci also auditioned to play Lex. Joseph Mazzello had screen-tested for a role in Hook, but was deemed too young. Spielberg promised him they would work together on a future film, subsequently casting him for the role of Tim.",
+      "excerpt": "Ariana Richards, who plays Lex Murphy, said: \"I was called into a casting office, and they just wanted me to scream. I heard later on that Steven had watched a few girls on tape that day, and I was the only one who ended up waking his sleeping wife off the couch, and she came running through the hallway to see if the kids were all right.\" Christina Ricci also auditioned to play Lex. Joseph Mazzello had screen-tested for a role in Hook, but was deemed too young.",
+      "paragraph_sha256": "b749507dcc69094625659996fa9313209b7a1b768e977a6a8a2c71dfa79bc5e9"
+    },
+    {
+      "id": "jurassic-3",
+      "source_id": "jurassic",
+      "paragraph": "Universal lacked a stage large enough to accommodate the T. rex breakout set, which was instead filmed on Stage 16 at Warner Bros. Studios, located nearby. Filming began there on October 27, 1992, with the stage decorated to match the Hawaii footage. The sequence is set at night during a storm, and the stage included rain machines and mud, making the shoot wet and messy for the cast and crew. Spielberg anticipated that the sequence could be the most difficult of the film, due to the rain machines and the logistics of using a life-sized T. rex animatronic. Complications arose when the T. rex began to shake and quiver from extra weight, as the dinosaur's foam rubber skin had absorbed a significant amount of the rainwater. Crew members had to dry the model with shammies between takes. The animatronic was so heavy that it was effectively impossible to move, so when the T. rex was supposed to move within the scene, the crew instead shifted the whole set around the animatronic to give the appearance that the T. rex was in a different place.",
+      "excerpt": "Spielberg anticipated that the sequence could be the most difficult of the film, due to the rain machines and the logistics of using a life-sized T. rex animatronic. Complications arose when the T. rex began to shake and quiver from extra weight, as the dinosaur's foam rubber skin had absorbed a significant amount of the rainwater.",
+      "paragraph_sha256": "ffdba952a27ea9a4a8b639d84de4803c1c803cd0dfc94b015f8d1d8bfd9d9d17"
+    },
+    {
+      "id": "jurassic-4",
+      "source_id": "jurassic",
+      "paragraph": "It eventually became clear to Spielberg that Jurassic Park would require more time in development, in order to determine the effects needed to create the dinosaurs. He shifted focus to his film Hook, while continuing to monitor progress on Jurassic Park, including script revisions. The art department went on an eight-month hiatus from Jurassic Park to work on Death Becomes Her, another Universal film. After completing Hook, Spielberg wanted Schindler's List to be his next film. Sid Sheinberg, president of Music Corporation of America (Universal's parent company at the time) gave the greenlight to Schindler's List on the condition that Spielberg make Jurassic Park first. Set designs began to be finalized in January 1992; a hotel was among locations at the fictional park that would be cut from the film. The film's budget is disputed; some sources place it at $63 million, while others, including Spielberg, have stated that the budget was $56 million.",
+      "excerpt": "Set designs began to be finalized in January 1992; a hotel was among locations at the fictional park that would be cut from the film. The film's budget is disputed; some sources place it at $63 million, while others, including Spielberg, have stated that the budget was $56 million.",
+      "paragraph_sha256": "805121a6dfb0003bdee6fcc9e4e65aec1ed221c158efb767704d7f0817292f65"
+    },
+    {
+      "id": "terminator-1",
+      "source_id": "terminator",
+      "paragraph": "Cameron wanted his pitch for Daly to finalize the deal and had his friend Lance Henriksen show up to the meeting early dressed and acting like the Terminator. Henriksen, wearing a leather jacket, fake cuts on his face, and gold foil on his teeth, kicked open the door to the office and then sat in a chair. Cameron arrived shortly and then relieved the staff from Henriksen's act. Daly was impressed by the screenplay and Cameron's sketches and passion. In late 1982, Daly agreed to back the film with help from HBO and Orion. The Terminator was originally budgeted at $4 million and later raised to $6.5 million. Aside from Hemdale, Pacific Western Productions, Euro Film Funding and Cinema '84 have been credited as production companies after the film's release.",
+      "excerpt": "Cameron wanted his pitch for Daly to finalize the deal and had his friend Lance Henriksen show up to the meeting early dressed and acting like the Terminator. Henriksen, wearing a leather jacket, fake cuts on his face, and gold foil on his teeth, kicked open the door to the office and then sat in a chair. Cameron arrived shortly and then relieved the staff from Henriksen's act.",
+      "paragraph_sha256": "93bf8cf9d1a8de74863ccb70ada0a39290f8b6781f8ba4d88126975cf5a143c9"
+    },
+    {
+      "id": "terminator-2",
+      "source_id": "terminator",
+      "paragraph": "Schwarzenegger tried to have the iconic line \"I'll be back\" changed as he had difficulty pronouncing the word I'll. Cameron refused to change the line to \"I will be back\", so Schwarzenegger worked to say the line as written the best he could. He would later say the line in numerous films throughout his career.",
+      "excerpt": "Schwarzenegger tried to have the iconic line \"I'll be back\" changed as he had difficulty pronouncing the word I'll. Cameron refused to change the line to \"I will be back\", so Schwarzenegger worked to say the line as written the best he could. He would later say the line in numerous films throughout his career.",
+      "paragraph_sha256": "dc1409bcbf68031ff3c3ad4919ba700a1c91d609db0191271008062dbea6a11a"
+    },
+    {
+      "id": "terminator-3",
+      "source_id": "terminator",
+      "paragraph": "After production finished on The Terminator, some post-production shots were needed. These included scenes showing the Terminator outside Sarah Connor's apartment, Reese being zipped into a body bag, and the Terminator's head being crushed in a press. The final scene where Sarah is driving down a highway was filmed without a permit. Cameron and Hurd convinced an officer who confronted them that they were making a UCLA student film.",
+      "excerpt": "The final scene where Sarah is driving down a highway was filmed without a permit. Cameron and Hurd convinced an officer who confronted them that they were making a UCLA student film.",
+      "paragraph_sha256": "4c9a5e5090f7058c30710eee98234479d0cd2a4c95a43cd45f5e5f18059d1ab7"
+    },
+    {
+      "id": "terminator-4",
+      "source_id": "terminator",
+      "paragraph": "There was limited interference from Orion Pictures. Two suggestions Orion put forward included the addition of a canine android for Reese, which Cameron refused, and to strengthen the love interest between Sarah and Reese, which Cameron accepted. To create the Terminator's look, Winston and Cameron passed sketches back and forth, eventually deciding on a design nearly identical to Cameron's original drawing in Rome. Winston had a team of seven artists work for six months to create a Terminator puppet; it was first molded in clay, then plaster reinforced with steel ribbing. These pieces were then sanded, painted and then chrome-plated. Winston sculpted reproductions of Schwarzenegger's face in several poses out of silicone, clay and plaster.",
+      "excerpt": "There was limited interference from Orion Pictures. Two suggestions Orion put forward included the addition of a canine android for Reese, which Cameron refused, and to strengthen the love interest between Sarah and Reese, which Cameron accepted. To create the Terminator's look, Winston and Cameron passed sketches back and forth, eventually deciding on a design nearly identical to Cameron's original drawing in Rome. Winston had a team of seven artists work for six months to create a Terminator puppet; it was first molded in clay, then plaster reinforced with steel ribbing.",
+      "paragraph_sha256": "9b1d49c6d1a83361c58938a9fca4b0c471e08234f91895de6d26b1c35cc35aa4"
+    }
+  ],
+  "batches": [
+    {
+      "id": "batch-1",
+      "passage_ids": [
+        "roger-1",
+        "sunshine-1",
+        "vertigo-1",
+        "twilight-1",
+        "jurassic-1",
+        "terminator-1"
+      ]
+    },
+    {
+      "id": "batch-2",
+      "passage_ids": [
+        "roger-2",
+        "sunshine-2",
+        "vertigo-2",
+        "twilight-2",
+        "jurassic-2",
+        "terminator-2"
+      ]
+    },
+    {
+      "id": "batch-3",
+      "passage_ids": [
+        "roger-3",
+        "sunshine-3",
+        "vertigo-3",
+        "twilight-3",
+        "jurassic-3",
+        "terminator-3"
+      ]
+    },
+    {
+      "id": "batch-4",
+      "passage_ids": [
+        "roger-4",
+        "sunshine-4",
+        "vertigo-4",
+        "twilight-4",
+        "jurassic-4",
+        "terminator-4"
+      ]
+    }
+  ]
+}

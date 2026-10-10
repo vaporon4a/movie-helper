@@ -53,6 +53,8 @@ type Client struct {
 	Wait                func(context.Context, time.Duration) error
 }
 
+func (c *Client) ModelName() string { return c.Model }
+
 func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Part) (ai.Selection, error) {
 	var result ai.Selection
 	if err := ctx.Err(); err != nil {
@@ -68,7 +70,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 		}
 	}
 	body := map[string]any{
-		"model": c.Model, "reasoning_effort": "none", "max_completion_tokens": c.completionLimit(),
+		"model": c.Model, "reasoning_effort": "none", "max_completion_tokens": c.requestCompletionLimit(parts),
 		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{
 			"name": "content_selection", "strict": true, "schema": ai.SelectionSchema(parts),
 		}},
@@ -268,9 +270,9 @@ func (c *Client) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Ite
 	return &selected[0], nil
 }
 func (c *Client) SelectMemes(ctx context.Context, items []daily.Item, limit int) ([]daily.Item, error) {
-	// Qwen accepts three images per request. Reviewing one candidate from each
-	// default source together stays within the free per-minute token allowance.
-	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 1, MaxImages: 3}
+	// Vision observations need output headroom. Two images keep the larger
+	// review contract within the provider's per-minute token window.
+	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "groq:" + c.Model + ":" + ai.MemeReviewVersion, Now: c.Now, MaxBatches: 1, MaxImages: 2, Log: c.Log}
 	return e.SelectMemes(ctx, items, limit)
 }
 func (c *Client) Fact(ctx context.Context, articles []ai.Article) (*daily.Item, error) {
@@ -283,4 +285,13 @@ func (c *Client) completionLimit() int {
 		return c.MaxCompletionTokens
 	}
 	return 768
+}
+
+func (c *Client) requestCompletionLimit(parts []ai.Part) int {
+	for _, part := range parts {
+		if part.Inline != nil {
+			return max(c.completionLimit(), 2048)
+		}
+	}
+	return c.completionLimit()
 }

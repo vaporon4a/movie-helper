@@ -241,7 +241,7 @@ func TestMovieTasteSettingsHistoryAndCandidateSnapshot(t *testing.T) {
 	}
 	selection := movieclub.Selection{
 		Mode: movieclub.PersonalizationOn, PolicyVersion: movieclub.RankingPolicyV1,
-		Movies:     []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 201, Title: "Result", Year: 2005, Genres: []int64{35}}, RoundID: roundID, Page: 1, Position: 0, Relation: "similar", PolicyVersion: movieclub.RankingPolicyV1}},
+		Movies:     []movieclub.Recommendation{{ID: 201, Title: "Result", Year: 2005, Genres: []int64{35}, RoundID: roundID, Page: 1, Position: 0, Relation: "similar", PolicyVersion: movieclub.RankingPolicyV1}},
 		Candidates: []movieclub.RankingCandidate{{RoundID: roundID, TMDBID: 201, SourceBucket: "similar", Movie: movieclub.Movie{ID: 201, Year: 2005, Genres: []int64{35}}, LegacyPosition: 1, AdaptivePosition: 0, PolicyVersion: movieclub.RankingPolicyV1, SelectedMode: "adaptive"}},
 	}
 	must(t, store.SaveMovieSelection(ctx, roundID, "One", selection))

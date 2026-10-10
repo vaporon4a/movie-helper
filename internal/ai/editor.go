@@ -84,7 +84,7 @@ func (c *Editor) Fact(ctx context.Context, articles []Article) (*daily.Item, err
 		return nil, &ValidationError{Reason: reason}
 	}
 	a := articles[articleIndex]
-	provider := strings.SplitN(c.Scope, ":", 2)[0]
+	provider, _, _ := strings.Cut(c.Scope, ":")
 	item := &daily.Item{
 		Kind: daily.Fact, Text: strings.TrimSpace(reviewed.Text) + "\n\n" + a.Attribution,
 		Source: a.URL, Key: a.Key, SourceEvidence: draft.Evidence,
@@ -241,7 +241,7 @@ func validateFactScript(trimmed string) string {
 			return "fact_unexpected_script"
 		}
 	}
-	for _, word := range strings.Fields(trimmed) {
+	for word := range strings.FieldsSeq(trimmed) {
 		if mixedFactWord(word) {
 			return "fact_mixed_script"
 		}

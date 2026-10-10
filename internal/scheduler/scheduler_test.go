@@ -67,7 +67,7 @@ func (p *provider) Candidates(_ context.Context, kind string, _ int64) ([]daily.
 	if kind != daily.Meme {
 		return nil, nil
 	}
-	return []daily.Item{{Kind: daily.Meme, Text: "Мем", Image: "https://i.redd.it/test.jpg", Source: "https://redd.it/test", Key: "reddit:test"}}, nil
+	return []daily.Item{{Kind: daily.Meme, GenerationPolicy: daily.MemePolicy, Text: "Мем", Image: "https://i.redd.it/test.jpg", Source: "https://redd.it/test", Key: "reddit:test"}}, nil
 }
 
 func TestModerationWaitsForApproval(t *testing.T) {

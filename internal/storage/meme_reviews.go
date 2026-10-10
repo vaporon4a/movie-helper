@@ -21,3 +21,15 @@ func (s *Store) RejectMeme(ctx context.Context, scope, key string, now time.Time
 		return err
 	})
 }
+
+// Reserve is kept for audit, never counted as publishable stock.
+func (s *Store) RejectMemeReview(ctx context.Context, scope, key, decision, assessment string, now time.Time) error {
+	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM meme_rejections WHERE expires_at<=?`, now.Unix()); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO meme_rejections(scope,source_key,expires_at,decision,assessment) VALUES(?,?,?,?,?)
+ ON CONFLICT(scope,source_key) DO UPDATE SET expires_at=excluded.expires_at,decision=excluded.decision,assessment=excluded.assessment`, scope, key, now.Add(24*time.Hour).Unix(), decision, assessment)
+		return err
+	})
+}

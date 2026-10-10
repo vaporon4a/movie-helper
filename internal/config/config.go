@@ -15,6 +15,7 @@ var defaultFactTitles string
 
 type Config struct {
 	GeminiKey, GeminiModel string
+	GeminiMemeModel        string
 	GeminiDailyLimit       int
 	GroqKey, GroqModel     string
 	GroqDailyLimit         int
@@ -105,6 +106,13 @@ func (c *Config) readProviders(get func(string) string) error {
 	}
 	if !regexp.MustCompile(`^[a-zA-Z0-9._-]+$`).MatchString(c.GeminiModel) {
 		return errors.New("invalid GEMINI_MODEL")
+	}
+	c.GeminiMemeModel = get("GEMINI_MEME_MODEL")
+	if c.GeminiMemeModel == "" {
+		c.GeminiMemeModel = "gemini-3.5-flash-lite"
+	}
+	if !regexp.MustCompile(`^[a-zA-Z0-9._-]+$`).MatchString(c.GeminiMemeModel) {
+		return errors.New("invalid GEMINI_MEME_MODEL")
 	}
 	c.GeminiDailyLimit = 20
 	if raw := get("GEMINI_DAILY_REQUEST_LIMIT"); raw != "" {

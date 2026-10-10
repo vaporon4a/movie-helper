@@ -350,7 +350,7 @@ func TestFeatureSenderFallsBackAboveTelegramPollLimit(t *testing.T) {
 	api := &fakeAPI{}
 	sender := FeatureSender{API: api, Username: "film_bot"}
 	round := featurevote.Round{ChatID: -1, ClosesAt: time.Now().Add(time.Hour).Unix()}
-	for i := 0; i < featurevote.NativePollMaxOptions+1; i++ {
+	for i := range featurevote.NativePollMaxOptions + 1 {
 		round.Options = append(round.Options, featurevote.Option{IdeaID: int64(i + 1), Title: fmt.Sprintf("Идея номер %d для голосования", i+1)})
 	}
 	opened, err := sender.OpenRound(context.Background(), round, "ideas_large")
@@ -519,7 +519,7 @@ func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
 	}
 	movies := make([]movieclub.Recommendation, 10)
 	for i := range movies {
-		movies[i] = movieclub.Recommendation{Movie: movieclub.Movie{ID: int64(i + 1), Title: fmt.Sprintf("Фильм %d", i+1), PosterPath: fmt.Sprintf("/%d.jpg", i+1), Rating: 7}}
+		movies[i] = movieclub.Recommendation{ID: int64(i + 1), Title: fmt.Sprintf("Фильм %d", i+1), PosterPath: fmt.Sprintf("/%d.jpg", i+1), Rating: 7}
 	}
 	if _, err = sender.SendSummary(context.Background(), -1, movieclub.Summary{Feature: movieclub.Genre, Winner: "Ужасы", Movies: movies, Total: 20}, 7, true); err != nil {
 		t.Fatal(err)
@@ -538,8 +538,8 @@ func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
 
 func TestSelectionSummaryUsesFeatureCopy(t *testing.T) {
 	summary := movieclub.Summary{Feature: movieclub.Reference, Winner: "Матрица (1999)", Movies: []movieclub.Recommendation{
-		{Movie: movieclub.Movie{ID: 1, Title: "Похожий", Rating: 8}, Relation: "similar"},
-		{Movie: movieclub.Movie{ID: 2, Title: "Режиссёрский", Rating: 7}, Relation: "director"},
+		{ID: 1, Title: "Похожий", Rating: 8, Relation: "similar"},
+		{ID: 2, Title: "Режиссёрский", Rating: 7, Relation: "director"},
 	}}
 	got := selectionSummary(summary, false)
 	if !strings.HasPrefix(got, "🎬 <b>Фильм-ориентир: Матрица (1999)</b>") || !strings.Contains(got, "Похожи по настроению") || !strings.Contains(got, "Другие фильмы режиссёра") {
@@ -555,7 +555,7 @@ func TestReferenceSummaryUsesWinnerPosterAndBoundedCaption(t *testing.T) {
 	}
 	summary := movieclub.Summary{
 		Feature: movieclub.Reference, Winner: "Матрица (1999)", Hero: movieclub.Movie{PosterPath: "/matrix.jpg"},
-		Movies: []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 1, Title: "Тёмный город", Rating: 7.3}, Relation: "similar"}}, Total: 1,
+		Movies: []movieclub.Recommendation{{ID: 1, Title: "Тёмный город", Rating: 7.3, Relation: "similar"}}, Total: 1,
 	}
 	if _, err = sender.SendSummary(context.Background(), -1, summary, 7, false); err != nil {
 		t.Fatal(err)
@@ -578,7 +578,7 @@ func TestReferenceSummaryFallsBackToTextWhenTelegramRejectsPoster(t *testing.T) 
 	}
 	summary := movieclub.Summary{
 		Feature: movieclub.Reference, Winner: "Матрица (1999)", Hero: movieclub.Movie{PosterPath: "/matrix.jpg"},
-		Movies: []movieclub.Recommendation{{Movie: movieclub.Movie{ID: 1, Title: "Тёмный город", Rating: 7.3}, Relation: "similar"}}, Total: 1,
+		Movies: []movieclub.Recommendation{{ID: 1, Title: "Тёмный город", Rating: 7.3, Relation: "similar"}}, Total: 1,
 	}
 	if _, err = sender.SendSummary(context.Background(), -1, summary, 7, false); err != nil {
 		t.Fatal(err)
@@ -601,7 +601,7 @@ func TestReferencePlainSummaryAlwaysFitsTelegramCaption(t *testing.T) {
 	movies := make([]movieclub.Recommendation, 10)
 	for i := range movies {
 		movies[i] = movieclub.Recommendation{
-			Movie:    movieclub.Movie{ID: int64(i + 1), Title: strings.Repeat("Очень длинное название & ", 20), Year: 2000 + i, Rating: 7.5},
+			ID: int64(i + 1), Title: strings.Repeat("Очень длинное название & ", 20), Year: 2000 + i, Rating: 7.5,
 			Relation: "similar",
 		}
 	}
@@ -639,9 +639,8 @@ func TestMovieMoreEditsOriginalSummaryWithoutSendingAgain(t *testing.T) {
 	h, api := handler(t)
 	movies := make([]movieclub.Recommendation, 20)
 	for i := range movies {
-		movies[i] = movieclub.Recommendation{Movie: movieclub.Movie{
-			ID: int64(i + 1), Title: fmt.Sprintf("Фильм <%d> & друзья", i+1), Year: 1980 + i, Rating: 7.1,
-		}}
+		movies[i] = movieclub.Recommendation{
+			ID: int64(i + 1), Title: fmt.Sprintf("Фильм <%d> & друзья", i+1), Year: 1980 + i, Rating: 7.1}
 	}
 	stub := &movieClubStub{summary: movieclub.Summary{Feature: movieclub.Genre, Winner: "Ужасы & мистика", Movies: movies, Total: 20}}
 	h.MovieClub = stub
@@ -676,7 +675,7 @@ func TestMovieMoreEditsOriginalSummaryWithoutSendingAgain(t *testing.T) {
 func TestSelectionSummaryKeepsTelegramMessageBounded(t *testing.T) {
 	movies := make([]movieclub.Recommendation, 20)
 	for i := range movies {
-		movies[i] = movieclub.Recommendation{Movie: movieclub.Movie{ID: int64(i + 1), Title: strings.Repeat("&", 300), Year: 2000 + i, Rating: 8}}
+		movies[i] = movieclub.Recommendation{ID: int64(i + 1), Title: strings.Repeat("&", 300), Year: 2000 + i, Rating: 8}
 	}
 	text := selectionSummary(movieclub.Summary{Feature: movieclub.Genre, Winner: "Драма", Movies: movies, Total: 20}, false)
 	if len([]rune(text)) > 4096 {

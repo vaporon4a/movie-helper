@@ -10,6 +10,7 @@ import (
 )
 
 const Meme = "meme"
+const MemePolicy = "meme-v4"
 const Fact = "fact"
 const FactPolicy = "fact-extractive-ru-v1"
 const WikipediaExtractiveAttribution = "Wikipedia: исходный русский текст, отобрано AI. CC BY-SA 4.0: " + WikipediaLicenseURL
@@ -26,9 +27,9 @@ var ErrDuplicate = errors.New("operation already processed")
 var ErrConflict = errors.New("item unavailable or state changed")
 
 type Item struct {
-	ID, ChatID, AuthorID                                 int64
-	Kind, Text, Source, Image, AnalysisImage, Key, State string
-	SourceEvidence, AIProvider, GenerationPolicy         string
+	ID, ChatID, AuthorID                                  int64
+	Kind, Text, Source, Image, AnalysisImage, Key, State  string
+	SourceEvidence, AIProvider, AIModel, GenerationPolicy string
 }
 
 type Schedule struct {

@@ -24,12 +24,19 @@ func (r reviewCache) RejectMeme(_ context.Context, scope, key string, _ time.Tim
 	return nil
 }
 
+func assessment(humor, clarity, originality int) *MemeAssessment {
+	return &MemeAssessment{JokeType: "visual", Observation: "Подпись и картинка", Punchline: "Неожиданный поворот", Humor: humor, Clarity: clarity, Originality: originality}
+}
 func decision(reason string) Selection {
 	n := -1
 	if reason == "accepted" {
 		n = 0
+		reason = "eligible"
 	}
-	return Selection{Index: &n, Reviews: []Review{{Index: new(0), Reason: reason, Detail: "Краткая причина"}}}
+	return Selection{Index: &n, Reviews: []Review{{Index: new(0), Reason: reason, Meme: assessment(4, 4, 3)}}}
+}
+func (r reviewCache) RejectMemeReview(ctx context.Context, scope, key, decision, audit string, now time.Time) error {
+	return r.RejectMeme(ctx, scope, key, now)
 }
 
 func TestMemeBatchesCacheAndFailures(t *testing.T) {
@@ -52,7 +59,7 @@ func TestMemeBatchesCacheAndFailures(t *testing.T) {
 	}
 	c.Generator = generatorFunc(func(context.Context, string, []Part) (Selection, error) { calls++; return decision("accepted"), nil })
 	got, err = c.SelectMeme(context.Background(), items)
-	if err != nil || got == nil || *got != items[2] || calls != 3 || len(fetched) != 3 || fetched[2] != "/c.png" {
+	if err != nil || got == nil || got.Key != items[2].Key || calls != 3 || len(fetched) != 3 || fetched[2] != "/c.png" {
 		t.Fatal(got, err, calls, fetched)
 	}
 	// Provider failures must not poison the rejection cache or retry a batch.
@@ -81,12 +88,12 @@ func TestMemeReviewValidationFailsClosed(t *testing.T) {
 		{Index: new(-1), Reviews: []Review{{Index: new(0), Reason: "invented", Detail: "ok"}}},
 		{Index: new(-1), Reviews: []Review{{Index: nil, Reason: "not_meme", Detail: "ok"}}},
 	} {
-		if validateReviews(s, 1) == nil {
+		if ValidateMemeSelection(s, 1) == nil {
 			t.Fatal("invalid review accepted", s)
 		}
 	}
 	s := Selection{Index: new(-1), Reviews: []Review{{Index: new(0), Reason: "not_meme", Detail: "ok"}, {Index: new(0), Reason: "not_meme", Detail: "ok"}}}
-	if validateReviews(s, 2) == nil {
+	if ValidateMemeSelection(s, 2) == nil {
 		t.Fatal("duplicate index accepted")
 	}
 }
@@ -108,9 +115,9 @@ func TestSelectMemesReturnsChosenFirstAndKeepsOtherAccepted(t *testing.T) {
 		Generator: generatorFunc(func(context.Context, string, []Part) (Selection, error) {
 			selected := 1
 			return Selection{Index: &selected, Reviews: []Review{
-				{Index: new(0), Reason: "accepted", Detail: "подходит"},
-				{Index: new(1), Reason: "accepted", Detail: "лучший"},
-				{Index: new(2), Reason: "low_humor", Detail: "слабая шутка"},
+				{Index: new(0), Reason: "eligible", Meme: assessment(4, 4, 3)},
+				{Index: new(1), Reason: "eligible", Meme: assessment(5, 4, 3)},
+				{Index: new(2), Reason: "eligible", Meme: assessment(2, 4, 2)},
 			}}, nil
 		}),
 	}

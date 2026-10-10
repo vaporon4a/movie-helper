@@ -2,19 +2,20 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/vaporon4a/movie-helper/internal/daily"
 )
 
 // Version the scope when the selection policy changes. Only public-source
 // rejections are shared across chats; chat publication history stays separate.
-const MemeReviewVersion = "meme-v3"
+const MemeReviewVersion = daily.MemePolicy
 
 const schemaTypeKey = "type"
 
@@ -22,18 +23,17 @@ const memeImageScope = "image:" + MemeReviewVersion
 
 type Review struct {
 	Interest, Clarity int
-	Index             *int   `json:"index"`
-	Reason            string `json:"reason"`
-	Detail            string `json:"detail"`
+	Index             *int            `json:"index"`
+	Reason            string          `json:"reason"`
+	Detail            string          `json:"detail"`
+	Meme              *MemeAssessment `json:"assessment,omitempty"`
 }
 
 type ReviewCache interface {
 	MemeRejected(context.Context, string, string, time.Time) (bool, error)
 	RejectMeme(context.Context, string, string, time.Time) error
+	RejectMemeReview(context.Context, string, string, string, string, time.Time) error
 }
-
-const memeInstruction = `Ты редактор утренней рубрики для русскоязычного дружеского киноклуба. Оцени сами картинки, включая текст на них. Отметь accepted у каждого понятного без дополнительного контекста смешного мема, лучше о кино или повседневной жизни, и выбери лучший из них. Исключи рекламу, политическую агитацию, порнографию, жестокость, унижение групп людей, спойлеры и посты-вопросы без шутки. Не выбирай мем только за заголовок.
-Верни JSON с полями index, text, evidence, reviews. index — номер лучшего принятого кандидата с нуля или -1, если ни один не подходит. text и evidence — пустые строки. reviews — объект с ОДНОЙ записью для КАЖДОГО кандидата: ключ — его номер строкой ("0", "1" и так далее), значение — объект с полями reason и detail. Не используй массив и не повторяй записи. reason: accepted (подходит), unreadable_text (текст картинки не удаётся прочитать), context_required (непонятно без внешнего контекста), not_meme (нет шутки), unsuitable (нарушает перечисленные ограничения), low_humor (понятно, но не смешно). detail — краткая конкретная причина по-русски, до 100 символов. У выбранного кандидата reason обязан быть accepted. Можно отметить accepted несколько кандидатов; index должен указывать на лучший. Если есть accepted, выбери одного из них; -1 допустим только когда все отклонены.`
 
 func (c *Editor) SelectMeme(ctx context.Context, items []daily.Item) (*daily.Item, error) {
 	items, err := c.SelectMemes(ctx, items, 1)
@@ -102,7 +102,7 @@ func (c *Editor) memeSession() memeReviewSession {
 }
 func (m memeReviewSession) collect(ctx context.Context, items []daily.Item, next int) ([]daily.Item, []Part, int, error) {
 	choices := make([]daily.Item, 0, m.editor.MaxImages)
-	parts := []Part{{Text: "Оцени пронумерованные мемы, отметь все подходящие и выбери лучший."}}
+	parts := []Part{{Text: "Опиши каждую картинку и её шутку, затем оцени качество по заданной шкале."}}
 	for next < len(items) && len(choices) < m.editor.MaxImages {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, next, err
@@ -172,30 +172,72 @@ func (m memeReviewSession) loadImage(ctx context.Context, item daily.Item) (*Inl
 	}
 	return media, err
 }
+
+type memeAudit struct {
+	Policy     string          `json:"policy"`
+	Decision   string          `json:"decision"`
+	Reason     string          `json:"reason"`
+	Assessment *MemeAssessment `json:"assessment"`
+}
+
+func auditMeme(r Review) (string, error) {
+	data, err := json.Marshal(memeAudit{Policy: MemeReviewVersion, Decision: MemeDecision(r), Reason: r.Reason, Assessment: r.Meme})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
 func (m memeReviewSession) saveReviews(ctx context.Context, result Selection, choices []daily.Item, batch int) error {
 	for _, review := range result.Reviews {
 		item := choices[*review.Index]
-		m.log.Info("meme reviewed", "scope", m.editor.Scope, "source", item.Key, "batch", batch, "reason", review.Reason, "detail", review.Detail)
-		if review.Reason != reviewAccepted && m.editor.Reviews != nil {
-			if err := m.editor.Reviews.RejectMeme(ctx, m.editor.Scope, item.Key, m.now()); err != nil {
-				return errors.New("cannot save meme rejection")
+		if !validMemeExplanation(review) {
+			m.log.Warn("meme explanation rejected", "scope", m.editor.Scope, "source", item.Key, "reason", "invalid_explanation", "policy", MemeReviewVersion)
+			continue
+		}
+		decision := MemeDecision(review)
+		m.log.Info("meme reviewed", "scope", m.editor.Scope, "source", item.Key, "batch", batch,
+			"reason", review.Reason, "decision", decision, "joke_type", review.Meme.JokeType, "humor", review.Meme.Humor,
+			"clarity", review.Meme.Clarity, "originality", review.Meme.Originality, "policy", MemeReviewVersion)
+		if decision != "publish" && m.editor.Reviews != nil {
+			audit, err := auditMeme(review)
+			if err != nil {
+				return err
+			}
+			if err = m.editor.Reviews.RejectMemeReview(ctx, m.editor.Scope, item.Key, decision, audit, m.now()); err != nil {
+				return errors.New("cannot save meme review")
 			}
 		}
 	}
 	return nil
 }
-func acceptedMemes(result Selection, choices []daily.Item) []daily.Item {
-	accepted := make([]daily.Item, 0, len(choices))
-	if *result.Index >= 0 {
-		accepted = append(accepted, choices[*result.Index])
-	}
-	for _, review := range result.Reviews {
-		if review.Reason == reviewAccepted && *review.Index != *result.Index {
-			accepted = append(accepted, choices[*review.Index])
+func acceptedMemes(result Selection, choices []daily.Item) ([]daily.Item, error) {
+	reviews := make([]Review, 0, len(result.Reviews))
+	for _, r := range result.Reviews {
+		if MemeDecision(r) == "publish" {
+			reviews = append(reviews, r)
 		}
 	}
-	return accepted
+	sort.Slice(reviews, func(i, j int) bool {
+		a, b := memeScore(reviews[i]), memeScore(reviews[j])
+		if a == b {
+			return *reviews[i].Index < *reviews[j].Index
+		}
+		return a > b
+	})
+	accepted := make([]daily.Item, 0, len(reviews))
+	for _, r := range reviews {
+		item := choices[*r.Index]
+		audit, err := auditMeme(r)
+		if err != nil {
+			return nil, err
+		}
+		item.GenerationPolicy = MemeReviewVersion
+		item.SourceEvidence = audit
+		accepted = append(accepted, item)
+	}
+	return accepted, nil
 }
+func memeScore(r Review) int { return 4*r.Meme.Humor + 2*r.Meme.Clarity + r.Meme.Originality }
 
 func imageFailureErrorCode(err error) string {
 	if failure, ok := errors.AsType[*imageFailureError](err); ok {
@@ -204,26 +246,28 @@ func imageFailureErrorCode(err error) string {
 	return "image_processing_failed"
 }
 
-func validateReviews(s Selection, count int) error {
-	if s.Index == nil || *s.Index < -1 || *s.Index >= count || len(s.Reviews) != count {
+// ValidateMemeSelection verifies the complete structural contract before any candidate is used.
+func ValidateMemeSelection(s Selection, count int) error {
+	if s.Index == nil || *s.Index < -1 || *s.Index >= count || len(s.Reviews) != count || s.Text != "" || s.Evidence != "" {
 		return &ValidationError{Reason: "meme_review_count_or_index"}
 	}
 	seen := make(map[int]bool, count)
-	accepted := make(map[int]bool, count)
+	eligible := make(map[int]bool, count)
 	for _, r := range s.Reviews {
-		if r.Index == nil || *r.Index < 0 || *r.Index >= count || seen[*r.Index] || strings.TrimSpace(r.Detail) == "" || utf8.RuneCountInString(r.Detail) > 160 {
+		if r.Index == nil || *r.Index < 0 || *r.Index >= count || seen[*r.Index] || r.Detail != "" {
 			return &ValidationError{Reason: "meme_review_fields"}
 		}
-		seen[*r.Index] = true
-		switch r.Reason {
-		case reviewAccepted:
-			accepted[*r.Index] = true
-		case "unreadable_text", "context_required", "not_meme", "unsuitable", "low_humor":
-		default:
-			return &ValidationError{Reason: "meme_review_reason"}
+		if err := validateMemeAssessment(r); err != nil {
+			return err
 		}
+		seen[*r.Index] = true
+		eligible[*r.Index] = r.Reason == reviewEligible
 	}
-	if (*s.Index == -1 && len(accepted) != 0) || (*s.Index >= 0 && !accepted[*s.Index]) {
+	anyEligible := false
+	for _, value := range eligible {
+		anyEligible = anyEligible || value
+	}
+	if (*s.Index == -1 && anyEligible) || (*s.Index >= 0 && !eligible[*s.Index]) {
 		return &ValidationError{Reason: "meme_review_contradiction"}
 	}
 	return nil
@@ -237,7 +281,7 @@ func SelectionSchema(parts []Part) map[string]any {
 			return FactSelectionSchema(part.FactCandidates)
 		}
 	}
-	properties := map[string]any{"index": map[string]any{schemaTypeKey: schemaInteger}, schemaTextKey: map[string]any{schemaTypeKey: schemaString}, schemaEvidenceKey: map[string]any{schemaTypeKey: schemaString}}
+	properties := map[string]any{schemaIndexKey: map[string]any{schemaTypeKey: schemaInteger}, schemaTextKey: map[string]any{schemaTypeKey: schemaString}, schemaEvidenceKey: map[string]any{schemaTypeKey: schemaString}}
 	required := []string{"index", schemaTextKey, schemaEvidenceKey}
 	count := 0
 	for _, p := range parts {
@@ -246,30 +290,14 @@ func SelectionSchema(parts []Part) map[string]any {
 		}
 	}
 	if count > 0 {
-		reviews := map[string]any{}
-		keys := make([]string, 0, count)
-		indexes := []int{-1}
-		for n := 0; n < count; n++ {
-			key := fmt.Sprint(n)
-			keys = append(keys, key)
-			indexes = append(indexes, n)
-			reviews[key] = map[string]any{
-				schemaTypeKey: schemaObject, schemaAdditionalKey: false,
-				schemaPropertiesKey: map[string]any{
-					"reason": map[string]any{schemaTypeKey: schemaString, schemaEnumKey: []string{reviewAccepted, "unreadable_text", "context_required", "not_meme", "unsuitable", "low_humor"}},
-					"detail": map[string]any{schemaTypeKey: schemaString},
-				}, schemaRequiredKey: []string{"reason", "detail"},
-			}
-		}
-		properties["index"] = map[string]any{schemaTypeKey: schemaInteger, schemaEnumKey: indexes}
-		properties["reviews"] = map[string]any{schemaTypeKey: schemaObject, schemaAdditionalKey: false, schemaPropertiesKey: reviews, schemaRequiredKey: keys}
-		required = append(required, "reviews")
+		return memeSelectionSchema(count)
 	}
+
 	return map[string]any{schemaTypeKey: schemaObject, schemaAdditionalKey: false, schemaPropertiesKey: properties, schemaRequiredKey: required}
 }
 
 func (m memeReviewSession) selectBatch(ctx context.Context, choices []daily.Item, parts []Part, batch int, approved []daily.Item) ([]daily.Item, bool, error) {
-	result, err := m.editor.Generator.Generate(ctx, memeInstruction, parts)
+	result, err := m.editor.Generator.Generate(ctx, MemeReviewInstruction, parts)
 	if err != nil {
 		m.log.Warn("meme reserve refill failed", "scope", m.editor.Scope, "reason", "generator_failed")
 		if len(approved) > 0 {
@@ -277,12 +305,21 @@ func (m memeReviewSession) selectBatch(ctx context.Context, choices []daily.Item
 		}
 		return nil, true, err
 	}
-	if err = validateReviews(result, len(choices)); err != nil {
+	if err = ValidateMemeSelection(result, len(choices)); err != nil {
 		return nil, true, err
 	}
 	if err = m.saveReviews(ctx, result, choices, batch); err != nil {
 		return nil, true, err
 	}
-	approved = append(approved, acceptedMemes(result, choices)...)
+	selected, err := acceptedMemes(result, choices)
+	if err != nil {
+		return nil, true, err
+	}
+	provider, _, _ := strings.Cut(m.editor.Scope, ":")
+	for n := range selected {
+		selected[n].AIProvider = provider
+		selected[n].AIModel = generatorModel(m.editor.Generator)
+	}
+	approved = append(approved, selected...)
 	return approved, false, nil
 }
