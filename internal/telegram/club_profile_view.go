@@ -262,7 +262,7 @@ func sessionLabel(state, reason string) string {
 func reviewReason(reason string) string {
 	switch reason {
 	case "deadline":
-		return "прошло 28 дней"
+		return "истёк срок обсуждения"
 	case "question_budget":
 		return "достигнут предел вопросов"
 	case "two_empty_batches":
@@ -287,8 +287,8 @@ func (v clubProfileView) nextResearchText(s clubprofile.ReviewSession) string {
 	if next.IsZero() {
 		return "Автоматическое обсуждение не запланировано: расписание выключено или нет свободного исследовательского слота. /movie_schedule"
 	}
-	if !next.Before(s.FinishBefore) || (s.State == "queued" && !next.Before(s.StartBefore)) {
-		return "Ближайший слот позже срока актуальности просмотра. Изменить расписание: /movie_schedule"
+	if !s.FinishBefore.IsZero() && !next.Before(s.FinishBefore) {
+		return "Ближайший слот позже срока обсуждения: 28 дней с первого вопроса. Изменить расписание: /movie_schedule"
 	}
 	loc, err := time.LoadLocation(zone)
 	if err != nil {

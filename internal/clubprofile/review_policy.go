@@ -7,6 +7,9 @@ import (
 
 const reviewPartial = "partial"
 
+// ReviewWindow starts with the first confirmed question, not the viewing date.
+const ReviewWindow = 28 * 24 * time.Hour
+
 type ReviewDecision struct {
 	State, Reason string
 	Next          []Aspect
@@ -32,10 +35,8 @@ func nextReviewDecision(d ReviewDecision, s ReviewSession, polls []Poll, attempt
 	switch {
 	case d.Coverage.Sufficient:
 		d.State, d.Reason = "completed_sufficient", "coverage_met"
-	case !now.Before(s.FinishBefore):
+	case !s.FinishBefore.IsZero() && !now.Before(s.FinishBefore):
 		d.State, d.Reason = reviewPartial, "deadline"
-	case count == 0 && !now.Before(s.StartBefore):
-		d.State, d.Reason = "expired", "start_deadline"
 	case unknown:
 		d.State, d.Reason = "blocked", "delivery_or_result_unknown"
 	case unresolved:

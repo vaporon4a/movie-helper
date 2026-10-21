@@ -154,10 +154,11 @@ type WatchEvent struct {
 }
 
 type ReviewSession struct {
-	ID, ChatID, WatchID       int64
-	Plan                      ReviewPlan
-	State, Reason             string
-	StartBefore, FinishBefore time.Time
+	ID, ChatID, WatchID int64
+	Plan                ReviewPlan
+	State, Reason       string
+	// FinishBefore is unset until the first confirmed publication.
+	FinishBefore time.Time
 }
 
 type CleanupJob struct {

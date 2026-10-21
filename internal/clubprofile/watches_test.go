@@ -21,7 +21,7 @@ func TestWatchInputIdentityAndCalendarDates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, _, fresh := ReviewDeadlines(in, now); fresh {
+		if FreshForReview(in, now) {
 			t.Fatal("historical survey")
 		}
 	}
@@ -29,7 +29,7 @@ func TestWatchInputIdentityAndCalendarDates(t *testing.T) {
 
 func TestReviewStopsWithoutCallingPartialComplete(t *testing.T) {
 	now := time.Now()
-	s := ReviewSession{State: "researching", Plan: DefaultReviewPlan(), StartBefore: now.Add(24 * time.Hour), FinishBefore: now.Add(28 * 24 * time.Hour)}
+	s := ReviewSession{State: "researching", Plan: DefaultReviewPlan(), FinishBefore: now.Add(28 * 24 * time.Hour)}
 	polls := make([]Poll, 0, 4)
 	for i, a := range []Aspect{Overall, Pace, Engagement, Characters} {
 		q, _ := ReviewQuestion(a, "X")

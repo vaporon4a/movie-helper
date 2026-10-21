@@ -113,18 +113,18 @@ func (f Film) Label() string {
 	return f.Title
 }
 
-func ReviewDeadlines(in WatchInput, now time.Time) (time.Time, time.Time, bool) {
+// FreshForReview controls enrollment only; time spent in the queue is unlimited.
+func FreshForReview(in WatchInput, now time.Time) bool {
 	if in.Precision != "day" {
-		return time.Time{}, time.Time{}, false
+		return false
 	}
 	loc, err := time.LoadLocation(in.Zone)
 	if err != nil {
-		return time.Time{}, time.Time{}, false
+		return false
 	}
 	d, err := time.ParseInLocation(time.DateOnly, in.Date, loc)
 	if err != nil || d.After(now) {
-		return time.Time{}, time.Time{}, false
+		return false
 	}
-	start, finish := d.AddDate(0, 0, 14), d.AddDate(0, 0, 28)
-	return start, finish, now.Before(start)
+	return now.Before(d.AddDate(0, 0, 14))
 }

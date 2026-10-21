@@ -65,6 +65,9 @@ func TestResearchBatchSlotsAndCompleteSeries(t *testing.T) {
 	must(t, s.EnsureChat(ctx, chat))
 	must(t, s.SetZone(ctx, 700, chat, "UTC", now.Add(-time.Hour)))
 	d := addProfileWatch(t, s, chat, 701, "2026-10-18", now)
+	// Even after waiting for several months, the entire five-question flow works.
+	now = now.AddDate(0, 0, 91)
+	must(t, s.AdvanceProfileReviews(ctx, now))
 	schedules := []clubprofile.Schedule{{ChatID: chat, Topic: clubprofile.Genre, Weekday: 1, Clock: "09:00", Enabled: true, Effective: now.Add(-time.Hour)}, {ChatID: chat, Topic: clubprofile.Reference, Weekday: 1, Clock: "12:00", Enabled: true, Effective: now.Add(-time.Hour)}, {ChatID: chat, Topic: clubprofile.Genre, Weekday: 3, Clock: "09:00", Enabled: true, Effective: now.Add(-time.Hour)}, {ChatID: chat, Topic: clubprofile.Reference, Weekday: 3, Clock: "12:00", Enabled: true, Effective: now.Add(-time.Hour)}}
 	for i, sc := range schedules {
 		must(t, s.SetProfileSchedule(ctx, int64(710+i), sc))

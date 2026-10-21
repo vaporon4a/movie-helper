@@ -77,3 +77,23 @@ func TestProfileTransportKeepsCompleteStopSnapshot(t *testing.T) {
 		t.Fatal(r)
 	}
 }
+
+func TestQueuedWatchCardDoesNotShowFalseDeadline(t *testing.T) {
+	now := time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)
+	session := clubprofile.ReviewSession{ID: 1, WatchID: 1, State: "queued"}
+	v := clubProfileView{now: now, sessions: []clubprofile.ReviewSession{session}, schedules: []clubprofile.Schedule{
+		{ID: 1, Topic: clubprofile.Genre, Weekday: 1, Clock: "09:00", Zone: "UTC", Enabled: true},
+		{ID: 2, Topic: clubprofile.Reference, Weekday: 1, Clock: "12:00", Zone: "UTC", Enabled: true},
+		{ID: 3, Topic: clubprofile.Genre, Weekday: 3, Clock: "09:00", Zone: "UTC", Enabled: true},
+		{ID: 4, Topic: clubprofile.Reference, Weekday: 3, Clock: "12:00", Zone: "UTC", Enabled: true},
+	}}
+	text := v.nextResearchText(session)
+	if !strings.Contains(text, "19.10 09:00") || strings.Contains(text, "позже срока") {
+		t.Fatal("unset deadline hides next slot", text)
+	}
+	session.State = "researching"
+	session.FinishBefore = now.Add(30 * time.Minute)
+	if text = v.nextResearchText(session); !strings.Contains(text, "28 дней с первого вопроса") {
+		t.Fatal("started discussion deadline not explained", text)
+	}
+}

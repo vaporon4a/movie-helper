@@ -110,8 +110,17 @@ func (s *Store) OpenProfilePoll(ctx context.Context, id int64, pollID string, me
 	if pollID == "" || messageID <= 0 {
 		return clubprofile.ErrInvalid
 	}
-	r, e := s.db.ExecContext(ctx, `UPDATE club_profile_polls SET state='open',delivery_counted=1,telegram_poll_id=?,message_id=?,opened_at=?,closes_at=?+duration,error_code='' WHERE id=? AND state='creating'`, pollID, messageID, now.Unix(), now.Unix(), id)
-	return profileChanged(r, e)
+	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
+		r, err := tx.ExecContext(ctx, `UPDATE club_profile_polls SET state='open',delivery_counted=1,telegram_poll_id=?,message_id=?,opened_at=?,closes_at=?+duration,error_code='' WHERE id=? AND state='creating'`, pollID, messageID, now.Unix(), now.Unix(), id)
+		if err = profileChanged(r, err); err != nil {
+			return err
+		}
+		// A receipt and the discussion clock must survive or roll back together.
+		// Later questions cannot move the first publication's deadline.
+		_, err = tx.ExecContext(ctx, `UPDATE club_review_sessions SET finish_before=?
+ WHERE id=(SELECT session_id FROM club_profile_polls WHERE id=?) AND finish_before=0`, now.Add(clubprofile.ReviewWindow).Unix(), id)
+		return err
+	})
 }
 
 func profileChanged(r sql.Result, err error) error {

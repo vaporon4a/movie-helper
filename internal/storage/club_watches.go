@@ -54,7 +54,7 @@ func saveProfileWatch(ctx context.Context, tx *sql.Tx, d clubprofile.WatchDraft,
 	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
 	}
-	start, finish, fresh := clubprofile.ReviewDeadlines(d.Input, now)
+	fresh := clubprofile.FreshForReview(d.Input, now)
 	mode := "retrospective"
 	if fresh {
 		mode = "fresh"
@@ -72,12 +72,12 @@ func saveProfileWatch(ctx context.Context, tx *sql.Tx, d clubprofile.WatchDraft,
 		return 0, err
 	}
 	if fresh {
-		err = createReviewSession(ctx, tx, w, start, finish, now)
+		err = createReviewSession(ctx, tx, w, now)
 	}
 	return id, err
 }
 
-func createReviewSession(ctx context.Context, tx *sql.Tx, w clubprofile.WatchEvent, start, finish, now time.Time) error {
+func createReviewSession(ctx context.Context, tx *sql.Tx, w clubprofile.WatchEvent, now time.Time) error {
 	var enabled bool
 	if err := tx.QueryRowContext(ctx, "SELECT COALESCE((SELECT auto_review FROM club_profile_settings WHERE chat_id=?),1)", w.ChatID).Scan(&enabled); err != nil {
 		return err
@@ -89,7 +89,9 @@ func createReviewSession(ctx context.Context, tx *sql.Tx, w clubprofile.WatchEve
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO club_review_sessions(chat_id,watch_id,plan_json,state,start_before,finish_before,created_at) VALUES(?,?,?,'queued',?,?,?)`, w.ChatID, w.ID, plan, start.Unix(), finish.Unix(), now.Unix())
+	// start_before is retained only for compatibility with the existing DB schema.
+	// The sole active clock is finish_before, set when Telegram confirms a send.
+	_, err = tx.ExecContext(ctx, `INSERT INTO club_review_sessions(chat_id,watch_id,plan_json,state,start_before,finish_before,created_at) VALUES(?,?,?,'queued',0,0,?)`, w.ChatID, w.ID, plan, now.Unix())
 	return err
 }
 
@@ -131,17 +133,19 @@ func (s *Store) ProfileWatches(ctx context.Context, chat int64) ([]clubprofile.W
 func scanReviewSession(row interface{ Scan(...any) error }) (clubprofile.ReviewSession, error) {
 	var s clubprofile.ReviewSession
 	var raw string
-	var start, finish int64
-	err := row.Scan(&s.ID, &s.ChatID, &s.WatchID, &raw, &s.State, &s.Reason, &start, &finish)
+	var finish int64
+	err := row.Scan(&s.ID, &s.ChatID, &s.WatchID, &raw, &s.State, &s.Reason, &finish)
 	if err != nil {
 		return s, err
 	}
 	err = json.Unmarshal([]byte(raw), &s.Plan)
-	s.StartBefore, s.FinishBefore = time.Unix(start, 0), time.Unix(finish, 0)
+	if finish != 0 {
+		s.FinishBefore = time.Unix(finish, 0)
+	}
 	return s, err
 }
 
-const reviewSessionColumns = `id,chat_id,watch_id,plan_json,state,reason,start_before,finish_before`
+const reviewSessionColumns = `id,chat_id,watch_id,plan_json,state,reason,finish_before`
 
 func (s *Store) ProfileSessions(ctx context.Context, chat int64) ([]clubprofile.ReviewSession, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT "+reviewSessionColumns+" FROM club_review_sessions WHERE (?=0 OR chat_id=?) ORDER BY id", chat, chat)

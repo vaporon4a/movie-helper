@@ -116,6 +116,9 @@ func (c *Coordinator) open(ctx context.Context, p Poll, now time.Time) error {
 		return errors.Join(err, c.service.polls.DeferProfilePoll(persist, p.ID, Creating, Unknown, now, "receipt_not_saved"))
 	}
 	c.service.log.InfoContext(ctx, "profile poll opened", "poll_id", p.ID, "chat_id", p.ChatID, "options", len(p.Question.Options))
+	if p.SessionID != 0 {
+		c.service.log.DebugContext(ctx, "[FIX:review-clock] research publication confirmed", "session_id", p.SessionID, "poll_id", p.ID)
+	}
 	return nil
 }
 
