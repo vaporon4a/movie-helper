@@ -9,9 +9,9 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/vaporon4a/movie-helper/internal/clubprofile"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/featurevote"
-	"github.com/vaporon4a/movie-helper/internal/movieclub"
 )
 
 var errMissingDependency = errors.New("telegram handler dependencies are required")
@@ -49,7 +49,7 @@ func (h *Handler) Handle(ctx context.Context, _ *bot.Bot, update *models.Update)
 	case update.MyChatMember != nil:
 		h.handleMembership(ctx, update.MyChatMember)
 	case update.Poll != nil:
-		h.handlePoll(ctx, update.Poll)
+		h.handleProfilePoll(ctx, update)
 	case update.CallbackQuery != nil:
 		h.callback(ctx, update)
 	case update.Message != nil:
@@ -63,28 +63,6 @@ func (h *Handler) handleMembership(ctx context.Context, member *models.ChatMembe
 		if err := h.Daily.Suspend(ctx, member.Chat.ID); err != nil {
 			h.Log.Error("could not suspend chat", "chat_id", member.Chat.ID)
 		}
-	}
-}
-
-func (h *Handler) handlePoll(ctx context.Context, poll *models.Poll) {
-	if !poll.IsClosed {
-		return
-	}
-	votes := make([]int, len(poll.Options))
-	for i, option := range poll.Options {
-		votes[i] = option.VoterCount
-	}
-	handled := false
-	if h.MovieClub != nil {
-		err := h.MovieClub.PollClosed(ctx, poll.ID, votes)
-		handled = err == nil || errors.Is(err, movieclub.ErrConflict)
-	}
-	if h.Features != nil {
-		err := h.Features.PollClosed(ctx, poll.ID, votes)
-		handled = handled || err == nil || errors.Is(err, featurevote.ErrConflict)
-	}
-	if !handled {
-		h.Log.Warn("closed poll update not applied")
 	}
 }
 
@@ -107,7 +85,7 @@ func (h *Handler) handleMessage(ctx context.Context, update *models.Update) {
 
 	handled, err := h.handleClubCommand(ctx, update, command, args)
 	if !handled {
-		handled, err = h.handleMovieCommand(ctx, update, command, args)
+		handled, err = h.handleProfileCommand(ctx, update, command, args)
 	}
 	if !handled {
 		handled, err = h.handleFeatureCommand(ctx, update, command, args)
@@ -200,7 +178,7 @@ func (h *Handler) finishCommand(ctx context.Context, chatID int64, command strin
 		h.reply(ctx, chatID, "Готово. Изменения расписания действуют со следующего будущего времени публикации.")
 		return
 	}
-	if errors.Is(err, daily.ErrDuplicate) || errors.Is(err, movieclub.ErrDuplicate) {
+	if errors.Is(err, daily.ErrDuplicate) || errors.Is(err, clubprofile.ErrDuplicate) {
 		h.reply(ctx, chatID, "Уже обработано или такой материал уже есть.")
 		return
 	}
@@ -222,10 +200,6 @@ func (h *Handler) finishCommand(ctx context.Context, chatID int64, command strin
 	}
 	if errors.Is(err, featurevote.ErrConflict) {
 		h.reply(ctx, chatID, "Действие недоступно в текущем состоянии. Возможно, идея уже участвует в открытом голосовании.")
-		return
-	}
-	if errors.Is(err, movieclub.ErrActiveRound) {
-		h.reply(ctx, chatID, "В этом чате уже идёт киноопрос или публикуется его результат.")
 		return
 	}
 	h.Log.Warn("command not applied", "command", command, "chat_id", chatID)

@@ -269,7 +269,7 @@ func (s *Store) SaveAIItems(ctx context.Context, chat int64, kind string, candid
 		}
 		state := approvedState
 		if moderation {
-			state = "pending"
+			state = pendingState
 		}
 		for _, candidate := range candidates {
 			if err := validateAIItem(chat, kind, candidate); err != nil {

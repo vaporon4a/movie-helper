@@ -211,7 +211,7 @@ func attachClubText(ctx context.Context, tx *sql.Tx, d *clubreminder.Delivery, n
 func (s *Store) FinishClub(ctx context.Context, d clubreminder.Delivery, state string, message int, next time.Time, code string, now time.Time) error {
 	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, "UPDATE club_reminder_deliveries SET state=?,message_id=?,next_attempt=?,error_code=? WHERE id=? AND state='sending'", state, message, next.Unix(), code, d.ID)
-		if err = changed(result, err); err != nil {
+		if err = changedClubDelivery(result, err); err != nil {
 			return err
 		}
 		if state == clubreminder.Sent && d.Text.ID != 0 {
@@ -247,7 +247,7 @@ func (s *Store) ResolveClub(ctx context.Context, op, chat, id int64, action stri
 		}
 
 		result, err := tx.ExecContext(ctx, "UPDATE club_reminder_deliveries SET state=?,next_attempt=?,error_code='' WHERE id=? AND state='unknown'", target, now.Unix(), id)
-		if err = changed(result, err); err != nil {
+		if err = changedClubDelivery(result, err); err != nil {
 			return err
 		}
 		if target == clubreminder.Sent || target == cancelledState {
@@ -298,4 +298,18 @@ func (s *Store) ClubFallbackCount(ctx context.Context, chat int64, intent string
 	var count int
 	err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM club_reminder_deliveries WHERE chat_id=? AND intent=? AND text_snapshot!=''", chat, intent).Scan(&count)
 	return count, err
+}
+
+func changedClubDelivery(result sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return daily.ErrConflict
+	}
+	return nil
 }

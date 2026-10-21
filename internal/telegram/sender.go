@@ -144,3 +144,7 @@ func classify(err error) error {
 	}
 	return &daily.SendError{Kind: "unknown"}
 }
+
+func disabledLinkPreview() *models.LinkPreviewOptions {
+	return &models.LinkPreviewOptions{IsDisabled: new(true)}
+}

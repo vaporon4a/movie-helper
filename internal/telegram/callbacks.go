@@ -25,11 +25,11 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 		return
 	}
 	_, _ = h.API.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{CallbackQueryID: query.ID})
-	if raw, ok := strings.CutPrefix(query.Data, "movie_more:"); ok {
-		h.movieMore(ctx, message, raw)
+	if h.profileCallback(ctx, update.ID, query.Data, message) {
 		return
 	}
-	if h.tasteResetCallback(ctx, update.ID, query.Data, message) {
+	if retiredMovieCallback(query.Data) {
+		h.reply(ctx, message.Chat.ID, "Подборки отключены; фильмы теперь выбираем в чате. История голосований сохранена: /movie_profile")
 		return
 	}
 	action, raw, ok := strings.Cut(query.Data, ":")
@@ -48,37 +48,6 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 	h.reply(ctx, message.Chat.ID, "Решение сохранено.")
 }
 
-func (h *Handler) tasteResetCallback(ctx context.Context, operationID int64, data string, message *models.Message) bool {
-	action, ok := strings.CutPrefix(data, "movie_taste_reset:")
-	if !ok || h.MovieClub == nil {
-		return false
-	}
-	text := "Сброс профиля отменён."
-	if action == "confirm" {
-		if err := h.MovieClub.ResetTaste(ctx, operationID, message.Chat.ID); err != nil {
-			h.reply(ctx, message.Chat.ID, "Не удалось сбросить профиль. Попробуйте ещё раз.")
-			return true
-		}
-		text = "Профиль вкусов сброшен. Новые голосования начнут формировать его заново."
-	} else if action != "cancel" {
-		return true
-	}
-	_, _ = h.API.EditMessageText(ctx, &bot.EditMessageTextParams{ChatID: message.Chat.ID, MessageID: message.ID, Text: text,
-		ReplyMarkup: &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{}}})
-	return true
-}
-
-func (h *Handler) movieMore(ctx context.Context, message *models.Message, rawRoundID string) {
-	roundID, err := strconv.ParseInt(rawRoundID, 10, 64)
-	if err != nil || h.MovieClub == nil {
-		return
-	}
-	summary, err := h.MovieClub.More(ctx, message.Chat.ID, roundID)
-	if err != nil {
-		h.reply(ctx, message.Chat.ID, "Дополнительная подборка уже отправлена или сейчас недоступна.")
-		return
-	}
-	if _, err = h.API.EditMessageText(ctx, selectionSummaryEdit(message.Chat.ID, message.ID, summary)); err != nil {
-		h.reply(ctx, message.Chat.ID, "Фильмы отправлены, но список не обновился. Нажмите кнопку ещё раз.")
-	}
+func retiredMovieCallback(data string) bool {
+	return strings.HasPrefix(data, "movie_more:") || strings.HasPrefix(data, "movie_taste_reset:")
 }

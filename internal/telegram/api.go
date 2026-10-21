@@ -8,11 +8,11 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/vaporon4a/movie-helper/internal/clubprofile"
 	"github.com/vaporon4a/movie-helper/internal/clubreminder"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/featurevote"
 	"github.com/vaporon4a/movie-helper/internal/feedback"
-	"github.com/vaporon4a/movie-helper/internal/movieclub"
 )
 
 // API is used only to assemble narrower consumer ports.
@@ -30,7 +30,6 @@ type MessageAPI interface {
 
 type PhotoAPI interface {
 	SendPhoto(context.Context, *bot.SendPhotoParams) (*models.Message, error)
-	SendMediaGroup(context.Context, *bot.SendMediaGroupParams) ([]*models.Message, error)
 }
 
 type PollAPI interface {
@@ -72,32 +71,6 @@ type DailyApplication interface {
 	Candidates(context.Context, string, int64) ([]daily.Item, error)
 	Stocks(context.Context, int64, time.Time) ([]daily.Stock, error)
 	RequestRefill(context.Context, int64, string, time.Time) error
-}
-
-// MovieClub is used only to assemble narrower consumer ports.
-type MovieClub interface {
-	MoviePollApplication
-	MovieResultApplication
-	MovieTasteApplication
-}
-
-type MoviePollApplication interface {
-	Start(context.Context, movieclub.Feature, int64, int64, time.Duration) (int64, error)
-	SetSchedule(context.Context, movieclub.Feature, int64, int64, int, string, bool) error
-	PauseSchedules(context.Context, movieclub.Feature, int64, int64) error
-	Settings(context.Context, int64) (movieclub.SettingsView, error)
-	PollClosed(context.Context, string, []int) error
-}
-
-type MovieResultApplication interface {
-	More(context.Context, int64, int64) (movieclub.Summary, error)
-	Resolve(context.Context, int64, int64, int64, movieclub.ResolveAction) error
-}
-
-type MovieTasteApplication interface {
-	SetPersonalization(context.Context, int64, int64, movieclub.PersonalizationMode) error
-	Taste(context.Context, int64) (movieclub.PreferenceSettings, movieclub.ChatTasteProfile, error)
-	ResetTaste(context.Context, int64, int64) error
 }
 
 // FeatureVotes is used only to assemble narrower consumer ports.
@@ -142,16 +115,36 @@ type FeedbackRecorder interface {
 }
 
 type Handler struct {
-	Feedback  FeedbackRecorder
-	Club      ClubReminders
-	API       API
-	MovieClub MovieClub
-	Features  FeatureVotes
-	Daily     DailyApplication
-	Allowed   map[int64]bool
-	Username  string
-	Log       *slog.Logger
-	Now       func() time.Time
+	Profile  ProfileApplication
+	Watches  WatchApplication
+	Feedback FeedbackRecorder
+	Club     ClubReminders
+	API      API
+	Features FeatureVotes
+	Daily    DailyApplication
+	Allowed  map[int64]bool
+	Username string
+	Log      *slog.Logger
+	Now      func() time.Time
+}
+
+type ProfileApplication interface {
+	Start(context.Context, clubprofile.Topic, int64, int64, time.Duration) (int64, error)
+	SetSchedule(context.Context, int64, clubprofile.Schedule) error
+	PauseSchedules(context.Context, int64, int64, clubprofile.Topic) error
+	Settings(context.Context, int64) ([]clubprofile.Schedule, []clubprofile.Poll, error)
+	PollClosed(context.Context, clubprofile.PollResult) error
+	Resolve(context.Context, int64, int64, int64, string) error
+	Status(context.Context, int64) (clubprofile.ProfileStatus, error)
+}
+
+type WatchApplication interface {
+	WatchCardApplication
+	Add(context.Context, int64, int64, string) (clubprofile.WatchDraft, error)
+	Choose(context.Context, int64, int64, int64) (clubprofile.WatchDraft, error)
+	History(context.Context, int64) ([]clubprofile.WatchEvent, []clubprofile.ReviewSession, error)
+	Change(context.Context, int64, int64, int64, string, string) error
+	AutoReview(context.Context, int64, int64, bool) error
 }
 
 func NewHandler(api API, dailyApp DailyApplication, allowed map[int64]bool, username string, log *slog.Logger, now func() time.Time) (*Handler, error) {
@@ -165,4 +158,10 @@ func NewHandler(api API, dailyApp DailyApplication, allowed map[int64]bool, user
 		now = time.Now
 	}
 	return &Handler{API: api, Daily: dailyApp, Allowed: allowed, Username: username, Log: log, Now: now}, nil
+}
+
+type WatchCardApplication interface {
+	BindMessage(context.Context, int64, int64, int) error
+	ClaimMessage(context.Context, int64, int64) (bool, error)
+	RetryMessage(context.Context, int64, int64, time.Duration) error
 }

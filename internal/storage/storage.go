@@ -110,7 +110,7 @@ func (s *Store) SetZone(ctx context.Context, op, chat int64, zone string, now ti
 		if _, err := tx.ExecContext(ctx, "UPDATE schedules SET effective=? WHERE chat_id=?", now.Unix(), chat); err != nil {
 			return err
 		}
-		if err := updateMovieZone(ctx, tx, chat, now); err != nil {
+		if err := updateProfileZone(ctx, tx, chat, now); err != nil {
 			return err
 		}
 		if err := updateFeatureZone(ctx, tx, chat, now); err != nil {
@@ -118,18 +118,6 @@ func (s *Store) SetZone(ctx context.Context, op, chat int64, zone string, now ti
 		}
 		return updateClubZone(ctx, tx, chat, now)
 	})
-}
-
-func updateMovieZone(ctx context.Context, tx *sql.Tx, chat int64, now time.Time) error {
-	exists, err := tableExists(ctx, tx, "movie_poll_schedules")
-	if err != nil || !exists {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, "UPDATE movie_rounds SET state='cancelled',error_code='timezone_changed' WHERE chat_id=? AND state='planned'", chat); err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, "UPDATE movie_poll_schedules SET effective=? WHERE chat_id=?", now.Unix(), chat)
-	return err
 }
 
 func updateFeatureZone(ctx context.Context, tx *sql.Tx, chat int64, now time.Time) error {
@@ -178,7 +166,7 @@ func (s *Store) Suspend(ctx context.Context, chat int64) error {
 		if err := suspendClub(ctx, tx, chat, time.Now()); err != nil {
 			return err
 		}
-		if err := disableMovieSchedules(ctx, tx, chat); err != nil {
+		if err := suspendProfile(ctx, tx, chat); err != nil {
 			return err
 		}
 		if err := disableFeatureSchedules(ctx, tx, chat); err != nil {
@@ -187,15 +175,6 @@ func (s *Store) Suspend(ctx context.Context, chat int64) error {
 		_, err := tx.ExecContext(ctx, "UPDATE chats SET active=0 WHERE chat_id=?", chat)
 		return err
 	})
-}
-
-func disableMovieSchedules(ctx context.Context, tx *sql.Tx, chat int64) error {
-	exists, err := tableExists(ctx, tx, "movie_poll_schedules")
-	if err != nil || !exists {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, "UPDATE movie_poll_schedules SET enabled=0 WHERE chat_id=?", chat)
-	return err
 }
 
 func disableFeatureSchedules(ctx context.Context, tx *sql.Tx, chat int64) error {
@@ -238,7 +217,7 @@ func (s *Store) SetModeration(ctx context.Context, op, chat int64, enabled bool,
 		}
 		// AI approval survives mode changes, but cannot substitute for a human
 		// approval while moderation is enabled. Human submissions stay untouched.
-		from, to := "pending", approvedState
+		from, to := pendingState, approvedState
 		if enabled {
 			from, to = approvedState, "pending"
 		}

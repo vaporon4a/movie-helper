@@ -56,7 +56,7 @@ func run() error {
 }
 func diagnosticMovies(ctx context.Context, client *tmdb.Client, id int64) ([]facts.Movie, error) {
 	if id > 0 {
-		details, err := client.Details(ctx, id)
+		details, err := client.FilmIdentity(ctx, id)
 		if err != nil {
 			return nil, err
 		}

@@ -10,7 +10,6 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/clubreminder"
-	"github.com/vaporon4a/movie-helper/internal/movieclub"
 )
 
 type ClubSender struct{ API API }
@@ -81,7 +80,7 @@ func (h *Handler) setClubSchedule(ctx context.Context, op, chat int64, args stri
 		h.reply(ctx, chat, "Формат: /club_schedule fri 2 19:00\nДень: mon..sun, неделя: 1..4 или last. Время — для напоминаний. Сначала задайте /timezone.")
 		return errResponseSent
 	}
-	weekday, ok := movieclub.ParseWeekday(fields[0])
+	weekday, ok := parseWeekday(fields[0])
 	ordinal, err := strconv.Atoi(fields[1])
 	if fields[1] == "last" {
 		ordinal, err = 5, nil
@@ -108,9 +107,9 @@ func clubSettingsText(settings clubreminder.Settings, now time.Time) string {
 	if settings.Ordinal == 5 {
 		ordinal = "последняя"
 	}
-	state := "выключено"
+	state := scheduleDisabledText
 	if settings.Enabled {
-		state = "включено"
+		state = scheduleEnabledText
 	}
 	lines := []string{"🍿 Напоминания о выборе фильма", fmt.Sprintf("Встреча: %s неделя · %s", ordinal, []string{"вс", "пн", "вт", "ср", "чт", "пт", "сб"}[settings.Weekday]), fmt.Sprintf("Напоминания: +10 и +17 дней · %s · %s · %s", settings.Clock, settings.Zone, state), fmt.Sprintf("Готовых текстов: %d/%d · случайный тон", settings.Stock, clubreminder.Target), "Если AI недоступен, используется запасной текст."}
 	if settings.LastAIError != "" {

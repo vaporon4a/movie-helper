@@ -17,6 +17,7 @@ import (
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/ai"
 	"github.com/vaporon4a/movie-helper/internal/aiwork"
+	"github.com/vaporon4a/movie-helper/internal/clubprofile"
 	"github.com/vaporon4a/movie-helper/internal/clubreminder"
 	"github.com/vaporon4a/movie-helper/internal/config"
 	"github.com/vaporon4a/movie-helper/internal/content"
@@ -27,7 +28,6 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
 	"github.com/vaporon4a/movie-helper/internal/meme"
-	"github.com/vaporon4a/movie-helper/internal/movieclub"
 	"github.com/vaporon4a/movie-helper/internal/scheduler"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 	"github.com/vaporon4a/movie-helper/internal/telegram"
@@ -107,7 +107,7 @@ func run() error {
 	if err = startFeatureVoting(ctx, store, b, handler, cfg.Chats, log, &workers); err != nil {
 		return err
 	}
-	if err = startMovieClub(ctx, cfg, store, b, handler, log, redirect, &workers); err != nil {
+	if err = startClubProfile(ctx, cfg, store, b, handler, log, &workers); err != nil {
 		return err
 	}
 	log.Info("bot started", "allowed_chats", len(cfg.Chats), "ai_result_mode", cfg.AIResultMode, "gemini_model", cfg.GeminiModel, "gemini_meme_model", cfg.GeminiMemeModel, "gemini_enabled", cfg.GeminiKey != "", "groq_model", cfg.GroqModel, "groq_enabled", cfg.GroqKey != "", "tmdb_enabled", cfg.TMDBToken != "")
@@ -182,42 +182,30 @@ func startFeatureVoting(ctx context.Context, store *storage.Store, api telegram.
 	return nil
 }
 
-func startMovieClub(ctx context.Context, cfg config.Config, store *storage.Store, api telegram.API, handler *telegram.Handler, log *slog.Logger, redirect func(*http.Request, []*http.Request) error, workers *sync.WaitGroup) error {
-	if cfg.TMDBToken == "" {
-		log.Warn("movie polls disabled: TMDB_API_TOKEN is missing")
-		return nil
-	}
-	tmdbClient := &tmdb.Client{HTTP: &http.Client{Timeout: 15 * time.Second, CheckRedirect: redirect}, BaseURL: "https://api.themoviedb.org/3", Token: cfg.TMDBToken, Log: log}
-	loadCtx, loadCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer loadCancel()
-	if err := tmdbClient.LoadConfiguration(loadCtx); err != nil {
-		log.Warn("tmdb image configuration unavailable; using default image host")
-	}
-	movieSender, err := telegram.NewMovieSender(api, tmdbClient.PosterURL, log)
+func startClubProfile(ctx context.Context, cfg config.Config, store *storage.Store, api *bot.Bot, handler *telegram.Handler, log *slog.Logger, workers *sync.WaitGroup) error {
+	sender, err := telegram.NewProfileSender(api, log, time.Now)
 	if err != nil {
 		return err
 	}
-	genreScenario, err := movieclub.NewGenreScenario(tmdbClient, store)
+	service, err := clubprofile.NewService(store, clubprofile.ProfileQuestions{History: store}, cfg.Chats, log, time.Now)
 	if err != nil {
 		return err
 	}
-	referenceScenario, err := movieclub.NewReferenceScenario(tmdbClient, store)
-	if err != nil {
-		return err
-	}
-	scenarios, err := movieclub.NewScenarioSet(genreScenario, referenceScenario)
-	if err != nil {
-		return err
-	}
-	handler.MovieClub, err = movieclub.NewService(store, movieSender, scenarios, log, time.Now)
-	if err != nil {
-		return err
-	}
-	coordinator, err := movieclub.NewCoordinator(store, movieSender, scenarios, cfg.Chats, log, time.Now)
+	handler.Profile = service
+	coordinator, err := clubprofile.NewCoordinator(service, sender)
 	if err != nil {
 		return err
 	}
 	workers.Go(func() { coordinator.Run(ctx) })
+	catalog := &tmdb.Client{HTTP: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, BaseURL: "https://api.themoviedb.org/3", Token: cfg.TMDBToken, Log: log}
+	watches, err := clubprofile.NewWatchService(store, catalog, cfg.Chats, log, time.Now)
+	if err != nil {
+		return err
+	}
+	handler.Watches = watches
+	workers.Go(func() { watches.Run(ctx, handler) })
+	cleanup := clubprofile.CleanupWorker{Store: store, Transport: telegram.ProfileCleaner{API: api}, Allowed: cfg.Chats, Log: log, Now: time.Now}
+	workers.Go(func() { cleanup.Run(ctx) })
 	return nil
 }
 
@@ -249,7 +237,10 @@ func recoverBotState(ctx context.Context, store *storage.Store) error {
 	if err = store.RecoverClub(ctx); err != nil {
 		return errors.New("cannot recover club reminders")
 	}
-	if err = store.RecoverMovieRounds(ctx); err != nil {
+	if err = store.MigrateClubProfile(ctx, time.Now()); err != nil {
+		return errors.New("cannot migrate movie poll evidence")
+	}
+	if err = store.RecoverProfilePolls(ctx, time.Now()); err != nil {
 		return errors.New("cannot recover movie poll state")
 	}
 	if err = store.RecoverFeatureRounds(ctx); err != nil {

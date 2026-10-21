@@ -276,9 +276,9 @@ func featureSettingsText(view featurevote.SettingsView) string {
 	if !view.Configured {
 		lines = append(lines, "Расписание выключено")
 	} else {
-		state := "выключено"
+		state := scheduleDisabledText
 		if view.Schedule.Enabled {
-			state = "включено"
+			state = scheduleEnabledText
 		}
 		lines = append(lines, fmt.Sprintf("Расписание: %s %s · %s · %s", featurevote.WeekdayName(view.Schedule.Weekday), view.Schedule.Clock, view.Schedule.Zone, state))
 	}

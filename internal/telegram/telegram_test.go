@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,20 +15,18 @@ import (
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/featurevote"
-	"github.com/vaporon4a/movie-helper/internal/movieclub"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 )
 
 type fakeAPI struct {
-	messages    []*bot.SendMessageParams
-	edits       []*bot.EditMessageTextParams
-	photos      []*bot.SendPhotoParams
-	polls       []*bot.SendPollParams
-	stops       []*bot.StopPollParams
-	mediaGroups []*bot.SendMediaGroupParams
-	errorSend   error
-	photoErr    error
-	stopResult  *models.Poll
+	messages   []*bot.SendMessageParams
+	edits      []*bot.EditMessageTextParams
+	photos     []*bot.SendPhotoParams
+	polls      []*bot.SendPollParams
+	stops      []*bot.StopPollParams
+	errorSend  error
+	photoErr   error
+	stopResult *models.Poll
 }
 
 type testDailyApp struct {
@@ -37,42 +34,6 @@ type testDailyApp struct {
 	store    *storage.Store
 	provider daily.Provider
 }
-
-type movieClubStub struct {
-	summary       movieclub.Summary
-	err           error
-	chat, roundID int64
-	calls         int
-}
-
-func (*movieClubStub) Start(context.Context, movieclub.Feature, int64, int64, time.Duration) (int64, error) {
-	return 0, nil
-}
-func (*movieClubStub) SetSchedule(context.Context, movieclub.Feature, int64, int64, int, string, bool) error {
-	return nil
-}
-func (*movieClubStub) PauseSchedules(context.Context, movieclub.Feature, int64, int64) error {
-	return nil
-}
-func (*movieClubStub) Settings(context.Context, int64) (movieclub.SettingsView, error) {
-	return movieclub.SettingsView{}, nil
-}
-func (*movieClubStub) PollClosed(context.Context, string, []int) error { return nil }
-func (s *movieClubStub) More(_ context.Context, chat, roundID int64) (movieclub.Summary, error) {
-	s.calls++
-	s.chat, s.roundID = chat, roundID
-	return s.summary, s.err
-}
-func (*movieClubStub) Resolve(context.Context, int64, int64, int64, movieclub.ResolveAction) error {
-	return nil
-}
-func (*movieClubStub) SetPersonalization(context.Context, int64, int64, movieclub.PersonalizationMode) error {
-	return nil
-}
-func (*movieClubStub) Taste(context.Context, int64) (movieclub.PreferenceSettings, movieclub.ChatTasteProfile, error) {
-	return movieclub.PreferenceSettings{Mode: movieclub.PersonalizationShadow, PolicyVersion: movieclub.RankingPolicyV1}, movieclub.ChatTasteProfile{}, nil
-}
-func (*movieClubStub) ResetTaste(context.Context, int64, int64) error { return nil }
 
 func (a *testDailyApp) Candidates(ctx context.Context, kind string, chatID int64) ([]daily.Item, error) {
 	if a.provider == nil {
@@ -106,14 +67,6 @@ func (a *fakeAPI) StopPoll(_ context.Context, p *bot.StopPollParams) (*models.Po
 		return a.stopResult, a.errorSend
 	}
 	return &models.Poll{}, a.errorSend
-}
-func (a *fakeAPI) SendMediaGroup(_ context.Context, p *bot.SendMediaGroupParams) ([]*models.Message, error) {
-	a.mediaGroups = append(a.mediaGroups, p)
-	messages := make([]*models.Message, len(p.Media))
-	for i := range messages {
-		messages[i] = &models.Message{ID: 99 + i}
-	}
-	return messages, a.errorSend
 }
 func (a *fakeAPI) AnswerCallbackQuery(context.Context, *bot.AnswerCallbackQueryParams) (bool, error) {
 	return true, nil
@@ -406,277 +359,6 @@ func TestSenderAndErrors(t *testing.T) {
 		}
 	}
 }
-
-func TestMovieCommandsCreateIsolatedRoundAndSchedule(t *testing.T) {
-	h, api := handler(t)
-	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	h.Now = func() time.Time { return now }
-	store := appOf(t, h).store
-	scenario, err := movieclub.NewGenreScenario(testCatalog{}, store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sender, err := NewMovieSender(api, testCatalog{}.PosterURL, h.Log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scenarios, err := movieclub.NewScenarioSet(scenario)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.MovieClub, err = movieclub.NewService(store, sender, scenarios, h.Log, h.Now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	h.Handle(ctx, nil, update(100, -1, 42, "/timezone UTC"))
-	h.Handle(ctx, nil, update(103, -1, 42, "/movie_personalization on"))
-	preference, err := store.MoviePreferenceSettings(ctx, -1, h.Now())
-	if err != nil || preference.Mode != movieclub.PersonalizationOn {
-		t.Fatalf("preference=%#v err=%v", preference, err)
-	}
-	h.Handle(ctx, nil, update(104, -1, 42, "/movie_taste"))
-	if len(api.messages) == 0 || !strings.Contains(api.messages[len(api.messages)-1].Text, "Профиль киноклуба") {
-		t.Fatalf("taste response=%#v", api.messages)
-	}
-	h.Handle(ctx, nil, update(105, -1, 42, "/movie_taste_reset"))
-	resetMessage := api.messages[len(api.messages)-1]
-	resetKeyboard, ok := resetMessage.ReplyMarkup.(*models.InlineKeyboardMarkup)
-	if !ok || resetKeyboard.InlineKeyboard[0][0].CallbackData != "movie_taste_reset:confirm" {
-		t.Fatalf("reset keyboard=%#v", resetMessage.ReplyMarkup)
-	}
-	resetUpdate := &models.Update{ID: 106, CallbackQuery: &models.CallbackQuery{ID: "taste-reset", From: models.User{ID: 42},
-		Data: "movie_taste_reset:confirm", Message: models.MaybeInaccessibleMessage{Message: &models.Message{ID: 77, Chat: models.Chat{ID: -1}}}}}
-	h.Handle(ctx, nil, resetUpdate)
-	preference, err = store.MoviePreferenceSettings(ctx, -1, h.Now())
-	if err != nil || preference.EffectiveFrom != h.Now().Unix() {
-		t.Fatalf("reset preference=%#v err=%v", preference, err)
-	}
-	h.Handle(ctx, nil, resetUpdate)
-	if preferenceAfterReplay, replayErr := store.MoviePreferenceSettings(ctx, -1, h.Now()); replayErr != nil || preferenceAfterReplay.EffectiveFrom != preference.EffectiveFrom {
-		t.Fatalf("reset replay changed state: %#v err=%v", preferenceAfterReplay, replayErr)
-	}
-	h.Handle(ctx, nil, update(101, -1, 42, "/movie_schedule genre wed 19:00"))
-	schedules, err := store.MovieSchedules(ctx, -1)
-	if err != nil || len(schedules) != 1 || schedules[0].Weekday != int(time.Wednesday) {
-		t.Fatalf("schedules = %#v, %v", schedules, err)
-	}
-	h.Handle(ctx, nil, update(102, -1, 42, "/genre_poll 10m"))
-	rounds, err := store.LatestMovieRounds(ctx, -1)
-	if err != nil || len(rounds) != 1 || rounds[0].State != movieclub.StatePlanned {
-		t.Fatalf("rounds = %#v, %v", rounds, err)
-	}
-	// Replayed Telegram update must not start a second poll.
-	h.Handle(ctx, nil, update(102, -1, 42, "/genre_poll 10m"))
-	rounds, _ = store.LatestMovieRounds(ctx, -1)
-	if len(rounds) != 1 {
-		t.Fatalf("replay created rounds: %#v", rounds)
-	}
-	if other, _ := store.LatestMovieRounds(ctx, -2); len(other) != 0 {
-		t.Fatalf("round crossed chat: %#v", other)
-	}
-}
-
-func TestMovieSenderUsesAnonymousPollAndTenItemAlbum(t *testing.T) {
-	api := &fakeAPI{}
-	sender, err := NewMovieSender(api, testCatalog{}.PosterURL, slog.Default())
-	if err != nil {
-		t.Fatal(err)
-	}
-	labels := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
-	if _, _, err = sender.OpenPoll(context.Background(), -1, movieclub.Genre, labels); err != nil {
-		t.Fatal(err)
-	}
-	if len(api.polls) != 1 || api.polls[0].IsAnonymous == nil || !*api.polls[0].IsAnonymous || !api.polls[0].AllowsRevoting {
-		t.Fatalf("poll = %#v", api.polls)
-	}
-	if api.polls[0].Question != "Какой жанр выбираем для следующего киновечера?" {
-		t.Fatalf("genre question = %q", api.polls[0].Question)
-	}
-	if api.polls[0].CloseDate != 0 {
-		t.Fatalf("poll has Telegram auto-close %d; coordinator must own closing", api.polls[0].CloseDate)
-	}
-	if _, _, err = sender.OpenPoll(context.Background(), -1, movieclub.Reference, labels); err != nil {
-		t.Fatal(err)
-	}
-	if api.polls[1].Question != "Какой фильм взять за ориентир для следующей подборки?" {
-		t.Fatalf("reference question = %q", api.polls[1].Question)
-	}
-	movies := make([]movieclub.Recommendation, 10)
-	for i := range movies {
-		movies[i] = movieclub.Recommendation{ID: int64(i + 1), Title: fmt.Sprintf("Фильм %d", i+1), PosterPath: fmt.Sprintf("/%d.jpg", i+1), Rating: 7}
-	}
-	if _, err = sender.SendSummary(context.Background(), -1, movieclub.Summary{Feature: movieclub.Genre, Winner: "Ужасы", Movies: movies, Total: 20}, 7, true); err != nil {
-		t.Fatal(err)
-	}
-	if len(api.messages) != 1 || api.messages[0].ParseMode != models.ParseModeHTML ||
-		!strings.Contains(api.messages[0].Text, "10 из 20 фильмов") || api.messages[0].ReplyMarkup == nil {
-		t.Fatalf("summary message=%#v", api.messages)
-	}
-	if _, err := sender.SendMovies(context.Background(), -1, movies); err != nil {
-		t.Fatal(err)
-	}
-	if len(api.mediaGroups) != 1 || len(api.mediaGroups[0].Media) != 10 {
-		t.Fatalf("media groups = %#v", api.mediaGroups)
-	}
-}
-
-func TestSelectionSummaryUsesFeatureCopy(t *testing.T) {
-	summary := movieclub.Summary{Feature: movieclub.Reference, Winner: "Матрица (1999)", Movies: []movieclub.Recommendation{
-		{ID: 1, Title: "Похожий", Rating: 8, Relation: "similar"},
-		{ID: 2, Title: "Режиссёрский", Rating: 7, Relation: "director"},
-	}}
-	got := selectionSummary(summary, false)
-	if !strings.HasPrefix(got, "🎬 <b>Фильм-ориентир: Матрица (1999)</b>") || !strings.Contains(got, "Похожи по настроению") || !strings.Contains(got, "Другие фильмы режиссёра") {
-		t.Fatalf("summary = %q", got)
-	}
-}
-
-func TestReferenceSummaryUsesWinnerPosterAndBoundedCaption(t *testing.T) {
-	api := &fakeAPI{}
-	sender, err := NewMovieSender(api, testCatalog{}.PosterURL, slog.Default())
-	if err != nil {
-		t.Fatal(err)
-	}
-	summary := movieclub.Summary{
-		Feature: movieclub.Reference, Winner: "Матрица (1999)", Hero: movieclub.Movie{PosterPath: "/matrix.jpg"},
-		Movies: []movieclub.Recommendation{{ID: 1, Title: "Тёмный город", Rating: 7.3, Relation: "similar"}}, Total: 1,
-	}
-	if _, err = sender.SendSummary(context.Background(), -1, summary, 7, false); err != nil {
-		t.Fatal(err)
-	}
-	if len(api.photos) != 1 || len(api.messages) != 0 || api.photos[0].ParseMode != "" || len([]rune(api.photos[0].Caption)) > 1024 {
-		t.Fatalf("photos=%#v messages=%#v", api.photos, api.messages)
-	}
-	if api.photos[0].ReplyMarkup != nil {
-		t.Fatalf("unexpected reply markup without second page: %#v", api.photos[0].ReplyMarkup)
-	}
-}
-
-func TestReferenceSummaryFallsBackToTextWhenTelegramRejectsPoster(t *testing.T) {
-	api := &fakeAPI{photoErr: fmt.Errorf("%w, failed to get HTTP URL content", bot.ErrorBadRequest)}
-	var logs bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&logs, nil))
-	sender, err := NewMovieSender(api, testCatalog{}.PosterURL, log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	summary := movieclub.Summary{
-		Feature: movieclub.Reference, Winner: "Матрица (1999)", Hero: movieclub.Movie{PosterPath: "/matrix.jpg"},
-		Movies: []movieclub.Recommendation{{ID: 1, Title: "Тёмный город", Rating: 7.3, Relation: "similar"}}, Total: 1,
-	}
-	if _, err = sender.SendSummary(context.Background(), -1, summary, 7, false); err != nil {
-		t.Fatal(err)
-	}
-	if len(api.photos) != 1 || len(api.messages) != 1 || !strings.Contains(api.messages[0].Text, "Фильм-ориентир") {
-		t.Fatalf("photos=%#v messages=%#v", api.photos, api.messages)
-	}
-	if api.messages[0].ParseMode != "" {
-		t.Fatalf("fallback parse mode=%q", api.messages[0].ParseMode)
-	}
-	if api.messages[0].ReplyMarkup != nil {
-		t.Fatalf("unexpected fallback reply markup without second page: %#v", api.messages[0].ReplyMarkup)
-	}
-	if got := logs.String(); !strings.Contains(got, "operation=winner_poster") || !strings.Contains(got, "reason=photo_url_fetch") || !strings.Contains(got, "telegram movie delivery fallback") {
-		t.Fatalf("logs=%q", got)
-	}
-}
-
-func TestReferencePlainSummaryAlwaysFitsTelegramCaption(t *testing.T) {
-	movies := make([]movieclub.Recommendation, 10)
-	for i := range movies {
-		movies[i] = movieclub.Recommendation{
-			ID: int64(i + 1), Title: strings.Repeat("Очень длинное название & ", 20), Year: 2000 + i, Rating: 7.5,
-			Relation: "similar",
-		}
-	}
-	text := referenceSummaryPlain(movieclub.Summary{Feature: movieclub.Reference, Winner: strings.Repeat("Матрица ", 50), Movies: movies, Total: 10}, 1024)
-	if len([]rune(text)) > 1024 || strings.ContainsAny(text, "<>") {
-		t.Fatalf("caption runes=%d text=%q", len([]rune(text)), text)
-	}
-}
-
-func TestMovieResolveReportsRetryInsteadOfScheduleChange(t *testing.T) {
-	h, api := handler(t)
-	h.MovieClub = &movieClubStub{}
-	h.Handle(context.Background(), nil, update(700, -1, 42, "/movie_resolve 6 retry"))
-	if len(api.messages) == 0 || api.messages[len(api.messages)-1].Text != "Опрос или подборка #6 возвращены в очередь. Если это пропущенный опрос, он откроется на 24 часа." {
-		t.Fatalf("messages=%#v", api.messages)
-	}
-}
-
-func TestMovieSettingsShowsTimezoneParallelRoundsAndRecovery(t *testing.T) {
-	text := movieSettingsText(movieclub.SettingsView{
-		Schedules: []movieclub.Schedule{{Feature: movieclub.Genre, Weekday: int(time.Monday), Clock: "09:00", Zone: "Asia/Novosibirsk", Enabled: true}},
-		Rounds: []movieclub.Round{
-			{ID: 7, Feature: movieclub.Genre, State: movieclub.StateOpen, ClosesAt: 100},
-			{ID: 8, Feature: movieclub.Reference, State: movieclub.StateCancelled, ErrorCode: "active_round"},
-		},
-	})
-	for _, want := range []string{"Часовой пояс: Asia/Novosibirsk", "Раунд #7", "Раунд #8", "/movie_resolve 8 retry"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("settings missing %q: %s", want, text)
-		}
-	}
-}
-
-func TestMovieMoreEditsOriginalSummaryWithoutSendingAgain(t *testing.T) {
-	h, api := handler(t)
-	movies := make([]movieclub.Recommendation, 20)
-	for i := range movies {
-		movies[i] = movieclub.Recommendation{
-			ID: int64(i + 1), Title: fmt.Sprintf("Фильм <%d> & друзья", i+1), Year: 1980 + i, Rating: 7.1}
-	}
-	stub := &movieClubStub{summary: movieclub.Summary{Feature: movieclub.Genre, Winner: "Ужасы & мистика", Movies: movies, Total: 20}}
-	h.MovieClub = stub
-	message := &models.Message{ID: 321, Chat: models.Chat{ID: -1}}
-	h.Handle(context.Background(), nil, &models.Update{CallbackQuery: &models.CallbackQuery{
-		ID: "more", From: models.User{ID: 7}, Data: "movie_more:42", Message: models.MaybeInaccessibleMessage{Message: message},
-	}})
-	if stub.calls != 1 || stub.chat != -1 || stub.roundID != 42 {
-		t.Fatalf("more calls=%d chat=%d round=%d", stub.calls, stub.chat, stub.roundID)
-	}
-	if len(api.edits) != 1 {
-		t.Fatalf("edits=%d", len(api.edits))
-	}
-	edit := api.edits[0]
-	if edit.MessageID != 321 || edit.ChatID != int64(-1) || edit.ParseMode != models.ParseModeHTML {
-		t.Fatalf("edit=%#v", edit)
-	}
-	if edit.LinkPreviewOptions == nil || edit.LinkPreviewOptions.IsDisabled == nil || !*edit.LinkPreviewOptions.IsDisabled {
-		t.Fatal("link preview is enabled")
-	}
-	keyboard, ok := edit.ReplyMarkup.(*models.InlineKeyboardMarkup)
-	if !ok || len(keyboard.InlineKeyboard) != 0 {
-		t.Fatalf("reply markup=%#v", edit.ReplyMarkup)
-	}
-	if !strings.Contains(edit.Text, "20 фильмов разных эпох") || !strings.Contains(edit.Text, "20. ") ||
-		!strings.Contains(edit.Text, "Ужасы &amp; мистика") || strings.Contains(edit.Text, "Фильм <1>") ||
-		!strings.Contains(edit.Text, `href="https://www.themoviedb.org/movie/1"`) {
-		t.Fatalf("edited text=%q", edit.Text)
-	}
-}
-
-func TestSelectionSummaryKeepsTelegramMessageBounded(t *testing.T) {
-	movies := make([]movieclub.Recommendation, 20)
-	for i := range movies {
-		movies[i] = movieclub.Recommendation{ID: int64(i + 1), Title: strings.Repeat("&", 300), Year: 2000 + i, Rating: 8}
-	}
-	text := selectionSummary(movieclub.Summary{Feature: movieclub.Genre, Winner: "Драма", Movies: movies, Total: 20}, false)
-	if len([]rune(text)) > 4096 {
-		t.Fatalf("summary length=%d", len([]rune(text)))
-	}
-	if !strings.Contains(text, "…") {
-		t.Fatal("long titles were not shortened")
-	}
-}
-
-type testCatalog struct{}
-
-func (testCatalog) Discover(context.Context, movieclub.DiscoverQuery) ([]movieclub.Movie, error) {
-	return nil, nil
-}
-func (testCatalog) PosterURL(path string) string { return "https://img.example" + path }
 
 func TestBootstrapAllowsIDButNoGroupMutations(t *testing.T) {
 	h, api := handler(t)
