@@ -20,7 +20,6 @@ type API interface {
 	MessageAPI
 	PhotoAPI
 	PollAPI
-	AdminAPI
 }
 
 type MessageAPI interface {
@@ -37,10 +36,6 @@ type PhotoAPI interface {
 type PollAPI interface {
 	SendPoll(context.Context, *bot.SendPollParams) (*models.Message, error)
 	StopPoll(context.Context, *bot.StopPollParams) (*models.Poll, error)
-}
-
-type AdminAPI interface {
-	GetChatAdministrators(context.Context, *bot.GetChatAdministratorsParams) ([]models.ChatMember, error)
 }
 
 // DailyRepository is used only to assemble narrower consumer ports.
@@ -116,7 +111,7 @@ type FeatureIdeaApplication interface {
 	Add(context.Context, int64, int64, int64, string) (featurevote.Idea, error)
 	Mine(context.Context, int64, int64) ([]featurevote.Idea, error)
 	Backlog(context.Context, int64) ([]featurevote.Idea, error)
-	ChangeState(context.Context, int64, int64, int64, int64, featurevote.IdeaState, bool) error
+	ChangeState(context.Context, int64, int64, int64, featurevote.IdeaState) error
 }
 
 type FeatureScheduleApplication interface {

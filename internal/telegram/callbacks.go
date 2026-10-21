@@ -29,10 +29,6 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 		h.movieMore(ctx, message, raw)
 		return
 	}
-	if !h.admin(ctx, message.Chat.ID, query.From.ID) {
-		h.reply(ctx, message.Chat.ID, "Одобрять материалы может администратор чата.")
-		return
-	}
 	if h.tasteResetCallback(ctx, update.ID, query.Data, message) {
 		return
 	}

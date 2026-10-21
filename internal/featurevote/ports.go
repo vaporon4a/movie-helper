@@ -16,7 +16,7 @@ type IdeaRepository interface {
 	AddFeature(context.Context, int64, int64, int64, string, string, time.Time) (Idea, error)
 	AuthorFeatures(context.Context, int64, int64) ([]Idea, error)
 	FeatureBacklog(context.Context, int64) ([]Idea, error)
-	ChangeFeatureState(context.Context, int64, int64, int64, int64, IdeaState, bool, time.Time) error
+	ChangeFeatureState(context.Context, int64, int64, int64, IdeaState, time.Time) error
 }
 
 type ServiceScheduleRepository interface {

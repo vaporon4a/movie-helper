@@ -104,10 +104,6 @@ func (h *Handler) handleMessage(ctx context.Context, update *models.Update) {
 		}
 		return
 	}
-	if requiresAdmin(command) && !h.admin(ctx, message.Chat.ID, message.From.ID) {
-		h.reply(ctx, message.Chat.ID, "Нужны подтверждённые права администратора чата.")
-		return
-	}
 
 	handled, err := h.handleClubCommand(ctx, update, command, args)
 	if !handled {
@@ -166,8 +162,8 @@ func (h *Handler) handlePrivate(ctx context.Context, message *models.Message, co
 		h.reply(ctx, chatID, help)
 	case "/about":
 		h.reply(ctx, chatID, about)
-	case "/help_admin":
-		h.reply(ctx, chatID, helpAdmin)
+	case "/help_manage", "/help_admin":
+		h.reply(ctx, chatID, helpManage)
 	}
 }
 
@@ -186,23 +182,14 @@ func (h *Handler) handleReference(ctx context.Context, chatID int64, command str
 	switch command {
 	case "/start", "/help":
 		h.reply(ctx, chatID, help)
-	case "/help_admin":
-		h.reply(ctx, chatID, helpAdmin)
+	case "/help_manage", "/help_admin":
+		h.reply(ctx, chatID, helpManage)
 	case "/about":
 		h.reply(ctx, chatID, about)
 	default:
 		return false
 	}
 	return true
-}
-
-func requiresAdmin(command string) bool {
-	switch command {
-	case "/club_settings", "/suggest_meme", "/suggest_fact", "/settings", "/idea", "/feature", "/my_ideas", "/idea_cancel":
-		return false
-	default:
-		return true
-	}
 }
 
 func (h *Handler) finishCommand(ctx context.Context, chatID int64, command string, err error) {

@@ -44,7 +44,7 @@ func (h *Handler) handleFeatureCommand(ctx context.Context, update *models.Updat
 			h.reply(ctx, chatID, "Формат: /idea_cancel ID")
 			return true, errResponseSent
 		}
-		err = h.Features.ChangeState(ctx, update.ID, chatID, id, update.Message.From.ID, featurevote.IdeaRemoved, false)
+		err = h.Features.ChangeState(ctx, update.ID, chatID, id, featurevote.IdeaRemoved)
 		if err == nil {
 			h.reply(ctx, chatID, fmt.Sprintf("Идея #%d отозвана.", id))
 			return true, errResponseSent
@@ -167,7 +167,7 @@ func (h *Handler) changeFeatureState(ctx context.Context, update *models.Update,
 	case "/idea_restore":
 		state = featurevote.IdeaActive
 	}
-	if err = h.Features.ChangeState(ctx, update.ID, update.Message.Chat.ID, id, update.Message.From.ID, state, true); err != nil {
+	if err = h.Features.ChangeState(ctx, update.ID, update.Message.Chat.ID, id, state); err != nil {
 		return err
 	}
 	message := "исключена из голосований"

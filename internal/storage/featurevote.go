@@ -82,15 +82,11 @@ func scanFeatureIdeas(rows *sql.Rows) ([]featurevote.Idea, error) {
 	return ideas, rows.Err()
 }
 
-func (s *Store) ChangeFeatureState(ctx context.Context, op, chat, id, actor int64, state featurevote.IdeaState, admin bool, now time.Time) error {
+func (s *Store) ChangeFeatureState(ctx context.Context, op, chat, id int64, state featurevote.IdeaState, now time.Time) error {
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		var author int64
-		var current featurevote.IdeaState
-		if err := tx.QueryRowContext(ctx, "SELECT author_id,state FROM feature_requests WHERE id=? AND chat_id=?", id, chat).Scan(&author, &current); err != nil {
+		var existing int64
+		if err := tx.QueryRowContext(ctx, "SELECT id FROM feature_requests WHERE id=? AND chat_id=?", id, chat).Scan(&existing); err != nil {
 			return err
-		}
-		if !admin && (author != actor || current != featurevote.IdeaActive || state != featurevote.IdeaRemoved) {
-			return featurevote.ErrConflict
 		}
 		var inRound int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM feature_round_options o JOIN feature_rounds r ON r.id=o.round_id

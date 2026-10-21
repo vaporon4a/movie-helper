@@ -21,15 +21,15 @@ import (
 )
 
 type fakeAPI struct {
-	messages            []*bot.SendMessageParams
-	edits               []*bot.EditMessageTextParams
-	photos              []*bot.SendPhotoParams
-	polls               []*bot.SendPollParams
-	stops               []*bot.StopPollParams
-	mediaGroups         []*bot.SendMediaGroupParams
-	adminErr, errorSend error
-	photoErr            error
-	stopResult          *models.Poll
+	messages    []*bot.SendMessageParams
+	edits       []*bot.EditMessageTextParams
+	photos      []*bot.SendPhotoParams
+	polls       []*bot.SendPollParams
+	stops       []*bot.StopPollParams
+	mediaGroups []*bot.SendMediaGroupParams
+	errorSend   error
+	photoErr    error
+	stopResult  *models.Poll
 }
 
 type testDailyApp struct {
@@ -115,9 +115,6 @@ func (a *fakeAPI) SendMediaGroup(_ context.Context, p *bot.SendMediaGroupParams)
 	}
 	return messages, a.errorSend
 }
-func (a *fakeAPI) GetChatAdministrators(context.Context, *bot.GetChatAdministratorsParams) ([]models.ChatMember, error) {
-	return []models.ChatMember{{Type: models.ChatMemberTypeOwner, Owner: &models.ChatMemberOwner{User: &models.User{ID: 42}}}}, a.adminErr
-}
 func (a *fakeAPI) AnswerCallbackQuery(context.Context, *bot.AnswerCallbackQueryParams) (bool, error) {
 	return true, nil
 }
@@ -164,28 +161,16 @@ func TestAuthorizationChatIsolationAndReplay(t *testing.T) {
 	if len(q) != 1 {
 		t.Fatal("duplicate update added item")
 	}
-	h.Handle(ctx, nil, update(2, -1, 7, fmt.Sprintf("/approve %d", id)))
+	// Чужая запись остаётся доступной только внутри её чата.
+	h.Handle(ctx, nil, update(3, -2, 8, fmt.Sprintf("/approve %d", id)))
 	item, _ := h.Daily.Item(ctx, -1, id)
-	if item.State != "pending" {
-		t.Fatal("nonadmin approved")
-	}
-	// Even an administrator cannot approve an ID belonging to another chat.
-	h.Handle(ctx, nil, update(3, -2, 42, fmt.Sprintf("/approve %d", id)))
-	item, _ = h.Daily.Item(ctx, -1, id)
 	if item.State != "pending" {
 		t.Fatal("cross-chat approval")
 	}
-	a.adminErr = errors.New("unavailable")
-	h.Handle(ctx, nil, update(4, -1, 42, fmt.Sprintf("/approve %d", id)))
-	item, _ = h.Daily.Item(ctx, -1, id)
-	if item.State != "pending" {
-		t.Fatal("permissions fail open")
-	}
-	a.adminErr = nil
-	h.Handle(ctx, nil, update(5, -1, 42, fmt.Sprintf("/approve %d", id)))
+	h.Handle(ctx, nil, update(4, -1, 8, fmt.Sprintf("/approve %d", id)))
 	item, _ = h.Daily.Item(ctx, -1, id)
 	if item.State != "approved" {
-		t.Fatal("admin cannot approve")
+		t.Fatal("participant cannot approve another member's item")
 	}
 	before := len(a.messages)
 	h.Handle(ctx, nil, update(6, -3, 42, "/suggest_fact text | https://example.org/fact"))
@@ -213,7 +198,7 @@ func TestFeatureIdeaForceReplyAndParticipantCommands(t *testing.T) {
 	if got := api.messages[len(api.messages)-1].Text; !strings.Contains(got, "#1") || !strings.Contains(got, "Добавить общий список") {
 		t.Fatalf("ideas=%q", got)
 	}
-	h.Handle(ctx, nil, update(803, -1, 7, "/idea_cancel 1"))
+	h.Handle(ctx, nil, update(803, -1, 8, "/idea_cancel 1"))
 	ideas, err := h.Features.Mine(ctx, -1, 7)
 	if err != nil || len(ideas) != 0 {
 		t.Fatalf("ideas=%#v err=%v", ideas, err)
@@ -358,7 +343,7 @@ func TestFeatureSenderFallsBackAboveTelegramPollLimit(t *testing.T) {
 		t.Fatalf("opened=%#v messages=%d polls=%d err=%v", opened, len(api.messages), len(api.polls), err)
 	}
 }
-func TestCallbackScopeAndAnonymousAdmin(t *testing.T) {
+func TestCallbackScopeAndSenderIdentity(t *testing.T) {
 	h, _ := handler(t)
 	ctx := context.Background()
 	h.Handle(ctx, nil, update(1, -1, 7, "/suggest_fact Текст | https://example.org"))
@@ -376,7 +361,7 @@ func TestCallbackScopeAndAnonymousAdmin(t *testing.T) {
 	if item.State != "pending" {
 		t.Fatal("anonymous approval")
 	}
-	h.Handle(ctx, nil, &models.Update{ID: 4, CallbackQuery: &models.CallbackQuery{ID: "q2", From: models.User{ID: 42}, Data: fmt.Sprintf("approve:%d", id), Message: models.MaybeInaccessibleMessage{Message: &models.Message{Chat: models.Chat{ID: -1}}}}})
+	h.Handle(ctx, nil, &models.Update{ID: 4, CallbackQuery: &models.CallbackQuery{ID: "q2", From: models.User{ID: 8}, Data: fmt.Sprintf("approve:%d", id), Message: models.MaybeInaccessibleMessage{Message: &models.Message{Chat: models.Chat{ID: -1}}}}})
 	item, _ = h.Daily.Item(ctx, -1, id)
 	if item.State != "approved" {
 		t.Fatal("valid callback not applied")
@@ -716,17 +701,9 @@ func TestModerationCommandPermissionsAndSettings(t *testing.T) {
 	ctx := context.Background()
 	h.Handle(ctx, nil, update(1, -1, 7, "/moderation on"))
 	rows, err := h.Daily.Schedules(ctx, -1)
-	if err != nil || rows[0].Moderation {
-		t.Fatal("nonadmin changed mode", err)
+	if err != nil || !rows[0].Moderation {
+		t.Fatal("participant cannot change mode", err)
 	}
-	a.adminErr = errors.New("offline")
-	h.Handle(ctx, nil, update(2, -1, 42, "/moderation on"))
-	rows, _ = h.Daily.Schedules(ctx, -1)
-	if rows[0].Moderation {
-		t.Fatal("admin lookup failed open")
-	}
-	a.adminErr = nil
-	h.Handle(ctx, nil, update(3, -1, 42, "/moderation on"))
 	h.Handle(ctx, nil, update(4, -1, 7, "/settings"))
 	if !strings.Contains(a.messages[len(a.messages)-1].Text, "Ручное одобрение включено") {
 		t.Fatal("settings omitted moderation")
@@ -765,19 +742,13 @@ func TestPreviewUsesGeminiProviderWithoutQueueOrSchedule(t *testing.T) {
 	p := &previewProvider{}
 	appOf(t, h).provider = p
 	ctx := context.Background()
-	for _, cmd := range []string{"/preview meme", "/preview fact"} {
-		h.Handle(ctx, nil, update(1, -1, 7, cmd))
-	}
-	if p.calls != 0 {
-		t.Fatal("nonadmin spent API budget")
-	}
 	h.Handle(ctx, nil, update(2, -3, 42, "/preview meme"))
 	h.Handle(ctx, nil, update(3, -1, 42, "/preview invalid"))
 	if p.calls != 0 {
 		t.Fatal("invalid or unallowed preview fetched content")
 	}
-	h.Handle(ctx, nil, update(4, -1, 42, "/preview meme"))
-	h.Handle(ctx, nil, update(5, -1, 42, "/preview fact"))
+	h.Handle(ctx, nil, update(4, -1, 7, "/preview meme"))
+	h.Handle(ctx, nil, update(5, -1, 8, "/preview fact"))
 	if p.calls != 2 || len(a.photos) != 1 || !strings.Contains(a.photos[0].Caption, "предпросмотр") || !strings.Contains(a.messages[len(a.messages)-1].Text, "предпросмотр") {
 		t.Fatal("preview not delivered")
 	}

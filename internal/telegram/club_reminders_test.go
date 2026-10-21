@@ -16,8 +16,8 @@ func TestClubCommandsAuthorizationReplayAndPreview(t *testing.T) {
 	h.Handle(ctx, nil, update(100, -1, 42, "/timezone Europe/Moscow"))
 	h.Handle(ctx, nil, update(1, -1, 7, "/club_schedule fri 2 19:00"))
 	settings, err := store.ClubSettings(ctx, -1, h.Now())
-	if err != nil || settings.Enabled {
-		t.Fatal("non-admin changed schedule", settings, err)
+	if err != nil || !settings.Enabled {
+		t.Fatal("participant cannot change schedule", settings, err)
 	}
 	h.Handle(ctx, nil, update(2, -1, 42, "/club_schedule fri 2 19:00"))
 	settings, err = store.ClubSettings(ctx, -1, h.Now())
@@ -44,8 +44,8 @@ func TestClubCommandsAuthorizationReplayAndPreview(t *testing.T) {
 	}
 	h.Handle(ctx, nil, update(4, -1, 7, "/club_pause"))
 	settings, err = store.ClubSettings(ctx, -1, h.Now())
-	if err != nil || !settings.Enabled {
-		t.Fatal("non-admin paused", err)
+	if err != nil || settings.Enabled {
+		t.Fatal("participant cannot pause", err)
 	}
 	h.Handle(ctx, nil, update(5, -1, 42, "/club_pause"))
 	settings, err = store.ClubSettings(ctx, -1, h.Now())

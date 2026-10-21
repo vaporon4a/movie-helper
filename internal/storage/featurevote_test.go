@@ -36,7 +36,7 @@ func openFeatureRound(t *testing.T, store *Store, token string, ideas []featurev
 	return id
 }
 
-func TestFeatureIdeasRateLimitDedupAndOwnership(t *testing.T) {
+func TestFeatureIdeasRateLimitDedupAndChatIsolation(t *testing.T) {
 	store := testStore(t)
 	setup(t, store, -1)
 	first := addFeature(t, store, 1, 7, "Первая достаточно длинная идея для нашего бота", "one")
@@ -49,10 +49,11 @@ func TestFeatureIdeasRateLimitDedupAndOwnership(t *testing.T) {
 	if _, err := store.AddFeature(context.Background(), 22, -1, 8, "Повтор первой идеи с тем же хэшем", "one", testNow); !errors.Is(err, featurevote.ErrDuplicate) {
 		t.Fatalf("duplicate error=%v", err)
 	}
-	if err := store.ChangeFeatureState(context.Background(), 23, -1, first.ID, 8, featurevote.IdeaRemoved, false, testNow); !errors.Is(err, featurevote.ErrConflict) {
-		t.Fatalf("foreign author removed idea: %v", err)
+	setup(t, store, -2)
+	if err := store.ChangeFeatureState(context.Background(), 23, -2, first.ID, featurevote.IdeaRemoved, testNow); err == nil {
+		t.Fatal("cross-chat removal")
 	}
-	must(t, store.ChangeFeatureState(context.Background(), 24, -1, first.ID, 7, featurevote.IdeaRemoved, false, testNow))
+	must(t, store.ChangeFeatureState(context.Background(), 24, -1, first.ID, featurevote.IdeaRemoved, testNow))
 }
 
 func TestFeatureVoteWinnerMovesOnlyWinnerToBacklog(t *testing.T) {

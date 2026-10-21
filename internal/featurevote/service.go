@@ -55,11 +55,11 @@ func (s *Service) Backlog(ctx context.Context, chatID int64) ([]Idea, error) {
 	return s.ideaRepository.FeatureBacklog(ctx, chatID)
 }
 
-func (s *Service) ChangeState(ctx context.Context, operationID, chatID, ideaID, actorID int64, state IdeaState, admin bool) error {
+func (s *Service) ChangeState(ctx context.Context, operationID, chatID, ideaID int64, state IdeaState) error {
 	if state != IdeaActive && state != IdeaImplemented && state != IdeaRemoved {
 		return ErrConflict
 	}
-	return s.ideaRepository.ChangeFeatureState(ctx, operationID, chatID, ideaID, actorID, state, admin, s.now())
+	return s.ideaRepository.ChangeFeatureState(ctx, operationID, chatID, ideaID, state, s.now())
 }
 
 func (s *Service) SetSchedule(ctx context.Context, operationID, chatID int64, weekday int, clock string) error {
