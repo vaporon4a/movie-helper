@@ -92,7 +92,10 @@ func createReviewSession(ctx context.Context, tx *sql.Tx, w clubprofile.WatchEve
 	// start_before is retained only for compatibility with the existing DB schema.
 	// The sole active clock is finish_before, set when Telegram confirms a send.
 	_, err = tx.ExecContext(ctx, `INSERT INTO club_review_sessions(chat_id,watch_id,plan_json,state,start_before,finish_before,created_at) VALUES(?,?,?,'queued',0,0,?)`, w.ChatID, w.ID, plan, now.Unix())
-	return err
+	if err != nil {
+		return err
+	}
+	return enrollResearch(ctx, tx, w, now)
 }
 
 const watchColumns = `w.id,w.chat_id,w.tmdb_id,COALESCE(w.watched_date,''),w.date_precision,w.zone,w.mode,w.state,w.revision,f.title,f.original_title,COALESCE(f.release_year,0),f.metadata_json,f.source,f.fetched_at`

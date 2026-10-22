@@ -276,6 +276,11 @@ func ValidateMemeSelection(s Selection, count int) error {
 // Facts retain their existing schema. Vision additionally requires a complete,
 // validated per-image decision, so a bare index cannot silently approve a meme.
 func SelectionSchema(parts []Part) map[string]any {
+	for _, p := range parts {
+		if p.ResponseSchema != nil {
+			return p.ResponseSchema
+		}
+	}
 	for _, part := range parts {
 		if part.FactCandidates > 0 {
 			return FactSelectionSchema(part.FactCandidates)

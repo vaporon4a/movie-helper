@@ -1,0 +1,554 @@
+[
+  {
+    "id": "pilot-g-12101-q1",
+    "film": {
+      "tmdb_id": 12101,
+      "title": "Зеленый сойлент"
+    },
+    "question": "Насколько вам было интересно следить за расследованием детектива Торна?",
+    "options": [
+      {
+        "key": "very_interested",
+        "label": "Очень интересно",
+        "substantive": true,
+        "ordinal_rank": 1,
+        "bucket": "positive"
+      },
+      {
+        "key": "interested",
+        "label": "Скорее интересно",
+        "substantive": true,
+        "ordinal_rank": 2,
+        "bucket": "positive"
+      },
+      {
+        "key": "neutral",
+        "label": "Нейтрально",
+        "substantive": true,
+        "ordinal_rank": 3,
+        "bucket": "neutral"
+      },
+      {
+        "key": "uninterested",
+        "label": "Скорее неинтересно",
+        "substantive": true,
+        "ordinal_rank": 4,
+        "bucket": "negative"
+      },
+      {
+        "key": "very_uninterested",
+        "label": "Совсем неинтересно",
+        "substantive": true,
+        "ordinal_rank": 5,
+        "bucket": "negative"
+      },
+      {
+        "key": "cannot_rate",
+        "label": "Не могу оценить",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      },
+      {
+        "key": "not_watched",
+        "label": "Не смотрел(а)",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      }
+    ],
+    "descriptor": {
+      "target_id": "narrative.investigation",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "comparison_family_id": "investigation_interest_v1",
+      "question_contract_version": "question-v2",
+      "taxonomy_version": "film-targets-v1",
+      "comparison_registry_version": "comparison-v1-draft",
+      "wording_policy_version": "pilot-g-original"
+    }
+  },
+  {
+    "id": "pilot-g-12101-q2",
+    "film": {
+      "tmdb_id": 12101,
+      "title": "Зеленый сойлент"
+    },
+    "question": "Насколько убедительно представлена идея «зелёного сойлента» как питательного продукта?",
+    "options": [
+      {
+        "key": "fully_credible",
+        "label": "Полностью убедительно",
+        "substantive": true,
+        "ordinal_rank": 1,
+        "bucket": "credible"
+      },
+      {
+        "key": "mostly_credible",
+        "label": "Скорее убедительно",
+        "substantive": true,
+        "ordinal_rank": 2,
+        "bucket": "credible"
+      },
+      {
+        "key": "partly_credible",
+        "label": "Отчасти убедительно",
+        "substantive": true,
+        "ordinal_rank": 3,
+        "bucket": "partial"
+      },
+      {
+        "key": "mostly_not_credible",
+        "label": "Скорее неубедительно",
+        "substantive": true,
+        "ordinal_rank": 4,
+        "bucket": "not_credible"
+      },
+      {
+        "key": "not_credible",
+        "label": "Совсем неубедительно",
+        "substantive": true,
+        "ordinal_rank": 5,
+        "bucket": "not_credible"
+      },
+      {
+        "key": "cannot_rate",
+        "label": "Не могу оценить",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      },
+      {
+        "key": "not_watched",
+        "label": "Не смотрел(а)",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      }
+    ],
+    "descriptor": {
+      "target_id": "world.food_supply",
+      "measurement_id": "credibility",
+      "scale_id": "credibility-5-v1",
+      "comparison_family_id": "synthetic_food_credibility_v1",
+      "question_contract_version": "question-v2",
+      "taxonomy_version": "film-targets-v1",
+      "comparison_registry_version": "comparison-v1-draft",
+      "wording_policy_version": "pilot-g-original"
+    }
+  },
+  {
+    "id": "pilot-g-12101-q3",
+    "film": {
+      "tmdb_id": 12101,
+      "title": "Зеленый сойлент"
+    },
+    "question": "Как вам атмосфера переполненного Нью‑Йорка 2022 года?",
+    "options": [
+      {
+        "key": "very_positive",
+        "label": "Очень понравилось",
+        "substantive": true,
+        "ordinal_rank": 1,
+        "bucket": "positive"
+      },
+      {
+        "key": "positive",
+        "label": "Скорее понравилось",
+        "substantive": true,
+        "ordinal_rank": 2,
+        "bucket": "positive"
+      },
+      {
+        "key": "neutral",
+        "label": "Нейтрально",
+        "substantive": true,
+        "ordinal_rank": 3,
+        "bucket": "neutral"
+      },
+      {
+        "key": "negative",
+        "label": "Скорее не понравилось",
+        "substantive": true,
+        "ordinal_rank": 4,
+        "bucket": "negative"
+      },
+      {
+        "key": "very_negative",
+        "label": "Совсем не понравилось",
+        "substantive": true,
+        "ordinal_rank": 5,
+        "bucket": "negative"
+      },
+      {
+        "key": "cannot_rate",
+        "label": "Не могу оценить",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      },
+      {
+        "key": "not_watched",
+        "label": "Не смотрел(а)",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      }
+    ],
+    "descriptor": {
+      "target_id": "style.atmosphere",
+      "measurement_id": "enjoyment",
+      "scale_id": "enjoyment-5-v2",
+      "comparison_family_id": "crowded_city_atmosphere_enjoyment_v1",
+      "question_contract_version": "question-v2",
+      "taxonomy_version": "film-targets-v1",
+      "comparison_registry_version": "comparison-v1-draft",
+      "wording_policy_version": "pilot-g-original"
+    }
+  },
+  {
+    "id": "pilot-g-12101-q4",
+    "film": {
+      "tmdb_id": 12101,
+      "title": "Зеленый сойлент"
+    },
+    "question": "Насколько убедительно изображён глобальный кризис из‑за перенаселения и загрязнения?",
+    "options": [
+      {
+        "key": "fully_credible",
+        "label": "Полностью убедительно",
+        "substantive": true,
+        "ordinal_rank": 1,
+        "bucket": "credible"
+      },
+      {
+        "key": "mostly_credible",
+        "label": "Скорее убедительно",
+        "substantive": true,
+        "ordinal_rank": 2,
+        "bucket": "credible"
+      },
+      {
+        "key": "partly_credible",
+        "label": "Отчасти убедительно",
+        "substantive": true,
+        "ordinal_rank": 3,
+        "bucket": "partial"
+      },
+      {
+        "key": "mostly_not_credible",
+        "label": "Скорее неубедительно",
+        "substantive": true,
+        "ordinal_rank": 4,
+        "bucket": "not_credible"
+      },
+      {
+        "key": "not_credible",
+        "label": "Совсем неубедительно",
+        "substantive": true,
+        "ordinal_rank": 5,
+        "bucket": "not_credible"
+      },
+      {
+        "key": "cannot_rate",
+        "label": "Не могу оценить",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      },
+      {
+        "key": "not_watched",
+        "label": "Не смотрел(а)",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      }
+    ],
+    "descriptor": {
+      "target_id": "world.environmental_crisis",
+      "measurement_id": "credibility",
+      "scale_id": "credibility-5-v1",
+      "comparison_family_id": "environmental_crisis_credibility_v1",
+      "question_contract_version": "question-v2",
+      "taxonomy_version": "film-targets-v1",
+      "comparison_registry_version": "comparison-v1-draft",
+      "wording_policy_version": "pilot-g-original"
+    }
+  },
+  {
+    "id": "pilot-g-152601-q1",
+    "film": {
+      "tmdb_id": 152601,
+      "title": "Она"
+    },
+    "question": "Насколько вам было интересно, как Саманта проявляет эмоциональную глубину в отношениях с Теодором?",
+    "options": [
+      {
+        "key": "very_interested",
+        "label": "Очень интересно",
+        "substantive": true,
+        "ordinal_rank": 1,
+        "bucket": "positive"
+      },
+      {
+        "key": "interested",
+        "label": "Скорее интересно",
+        "substantive": true,
+        "ordinal_rank": 2,
+        "bucket": "positive"
+      },
+      {
+        "key": "neutral",
+        "label": "Нейтрально",
+        "substantive": true,
+        "ordinal_rank": 3,
+        "bucket": "neutral"
+      },
+      {
+        "key": "uninterested",
+        "label": "Скорее неинтересно",
+        "substantive": true,
+        "ordinal_rank": 4,
+        "bucket": "negative"
+      },
+      {
+        "key": "very_uninterested",
+        "label": "Совсем неинтересно",
+        "substantive": true,
+        "ordinal_rank": 5,
+        "bucket": "negative"
+      },
+      {
+        "key": "cannot_rate",
+        "label": "Не могу оценить",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      },
+      {
+        "key": "not_watched",
+        "label": "Не смотрел(а)",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      }
+    ],
+    "descriptor": {
+      "target_id": "characters.emotional_portrayal",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "comparison_family_id": "ai_companion_emotions_interest_v1",
+      "question_contract_version": "question-v2",
+      "taxonomy_version": "film-targets-v1",
+      "comparison_registry_version": "comparison-v1-draft",
+      "wording_policy_version": "pilot-g-original"
+    }
+  },
+  {
+    "id": "pilot-g-152601-q2",
+    "film": {
+      "tmdb_id": 152601,
+      "title": "Она"
+    },
+    "question": "Насколько убедительно показана романтическая связь между человеком и операционной системой?",
+    "options": [
+      {
+        "key": "fully_credible",
+        "label": "Полностью убедительно",
+        "substantive": true,
+        "ordinal_rank": 1,
+        "bucket": "credible"
+      },
+      {
+        "key": "mostly_credible",
+        "label": "Скорее убедительно",
+        "substantive": true,
+        "ordinal_rank": 2,
+        "bucket": "credible"
+      },
+      {
+        "key": "partly_credible",
+        "label": "Отчасти убедительно",
+        "substantive": true,
+        "ordinal_rank": 3,
+        "bucket": "partial"
+      },
+      {
+        "key": "mostly_not_credible",
+        "label": "Скорее неубедительно",
+        "substantive": true,
+        "ordinal_rank": 4,
+        "bucket": "not_credible"
+      },
+      {
+        "key": "not_credible",
+        "label": "Совсем неубедительно",
+        "substantive": true,
+        "ordinal_rank": 5,
+        "bucket": "not_credible"
+      },
+      {
+        "key": "cannot_rate",
+        "label": "Не могу оценить",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      },
+      {
+        "key": "not_watched",
+        "label": "Не смотрел(а)",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      }
+    ],
+    "descriptor": {
+      "target_id": "narrative.relationships",
+      "measurement_id": "credibility",
+      "scale_id": "credibility-5-v1",
+      "comparison_family_id": "human_ai_romance_credibility_v1",
+      "question_contract_version": "question-v2",
+      "taxonomy_version": "film-targets-v1",
+      "comparison_registry_version": "comparison-v1-draft",
+      "wording_policy_version": "pilot-g-original"
+    }
+  },
+  {
+    "id": "pilot-g-152601-q3",
+    "film": {
+      "tmdb_id": 152601,
+      "title": "Она"
+    },
+    "question": "Как вам юмор, который демонстрирует Саманта в диалогах с Теодором?",
+    "options": [
+      {
+        "key": "very_positive",
+        "label": "Очень понравилось",
+        "substantive": true,
+        "ordinal_rank": 1,
+        "bucket": "positive"
+      },
+      {
+        "key": "positive",
+        "label": "Скорее понравилось",
+        "substantive": true,
+        "ordinal_rank": 2,
+        "bucket": "positive"
+      },
+      {
+        "key": "neutral",
+        "label": "Нейтрально",
+        "substantive": true,
+        "ordinal_rank": 3,
+        "bucket": "neutral"
+      },
+      {
+        "key": "negative",
+        "label": "Скорее не понравилось",
+        "substantive": true,
+        "ordinal_rank": 4,
+        "bucket": "negative"
+      },
+      {
+        "key": "very_negative",
+        "label": "Совсем не понравилось",
+        "substantive": true,
+        "ordinal_rank": 5,
+        "bucket": "negative"
+      },
+      {
+        "key": "cannot_rate",
+        "label": "Не могу оценить",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      },
+      {
+        "key": "not_watched",
+        "label": "Не смотрел(а)",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      }
+    ],
+    "descriptor": {
+      "target_id": "style.humor",
+      "measurement_id": "enjoyment",
+      "scale_id": "enjoyment-5-v2",
+      "comparison_family_id": "character_dialogue_humor_enjoyment_v1",
+      "question_contract_version": "question-v2",
+      "taxonomy_version": "film-targets-v1",
+      "comparison_registry_version": "comparison-v1-draft",
+      "wording_policy_version": "pilot-g-original"
+    }
+  },
+  {
+    "id": "pilot-g-152601-q4",
+    "film": {
+      "tmdb_id": 152601,
+      "title": "Она"
+    },
+    "question": "Насколько вам было интересно, как изображено общество, где письма пишут специальные организации?",
+    "options": [
+      {
+        "key": "very_interested",
+        "label": "Очень интересно",
+        "substantive": true,
+        "ordinal_rank": 1,
+        "bucket": "positive"
+      },
+      {
+        "key": "interested",
+        "label": "Скорее интересно",
+        "substantive": true,
+        "ordinal_rank": 2,
+        "bucket": "positive"
+      },
+      {
+        "key": "neutral",
+        "label": "Нейтрально",
+        "substantive": true,
+        "ordinal_rank": 3,
+        "bucket": "neutral"
+      },
+      {
+        "key": "uninterested",
+        "label": "Скорее неинтересно",
+        "substantive": true,
+        "ordinal_rank": 4,
+        "bucket": "negative"
+      },
+      {
+        "key": "very_uninterested",
+        "label": "Совсем неинтересно",
+        "substantive": true,
+        "ordinal_rank": 5,
+        "bucket": "negative"
+      },
+      {
+        "key": "cannot_rate",
+        "label": "Не могу оценить",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      },
+      {
+        "key": "not_watched",
+        "label": "Не смотрел(а)",
+        "substantive": false,
+        "ordinal_rank": null,
+        "bucket": "skip"
+      }
+    ],
+    "descriptor": {
+      "target_id": "world.everyday_life",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "comparison_family_id": "outsourced_personal_letters_interest_v1",
+      "question_contract_version": "question-v2",
+      "taxonomy_version": "film-targets-v1",
+      "comparison_registry_version": "comparison-v1-draft",
+      "wording_policy_version": "pilot-g-original"
+    }
+  }
+]

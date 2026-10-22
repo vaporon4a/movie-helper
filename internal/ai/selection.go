@@ -22,10 +22,11 @@ func (e *RejectionError) Error() string { return "AI rejected candidate: " + e.S
 // reviews array allowed a strict-schema model to repeat one review many times.
 func (s *Selection) UnmarshalJSON(data []byte) error {
 	var wire struct {
-		Index    *int   `json:"index"`
-		Text     string `json:"text"`
-		Evidence string `json:"evidence"`
-		Reviews  map[string]struct {
+		Structured json.RawMessage `json:"structured"`
+		Index      *int            `json:"index"`
+		Text       string          `json:"text"`
+		Evidence   string          `json:"evidence"`
+		Reviews    map[string]struct {
 			Meme     *MemeAssessment `json:"assessment"`
 			Interest int             `json:"interest"`
 			Clarity  int             `json:"clarity"`
@@ -36,7 +37,7 @@ func (s *Selection) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return errors.New("invalid selection object")
 	}
-	*s = Selection{Index: wire.Index, Text: wire.Text, Evidence: wire.Evidence}
+	*s = Selection{Structured: wire.Structured, Index: wire.Index, Text: wire.Text, Evidence: wire.Evidence}
 	for key, r := range wire.Reviews {
 		n, err := strconv.Atoi(key)
 		if err != nil || n < 0 || strconv.Itoa(n) != key {

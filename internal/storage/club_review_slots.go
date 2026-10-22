@@ -113,13 +113,18 @@ func researchSlotQuestions(ctx context.Context, tx *sql.Tx, sc clubprofile.Sched
 	if err != nil {
 		return 0, nil, err
 	}
-	d := clubprofile.ReviewProgress(session, polls, now)
-	if len(d.Next) == 0 {
-		return 0, nil, nil
-	}
 	used, err := researchDayUsed(ctx, tx, sc.ChatID, sc.Zone, slot)
 	if err != nil || used {
 		return 0, nil, err
+	}
+	if len(polls) == 0 {
+		if err = freezeResearchPlan(ctx, tx, &session); err != nil {
+			return 0, nil, err
+		}
+	}
+	d := clubprofile.ReviewProgress(session, polls, now)
+	if len(d.Next) == 0 {
+		return 0, nil, nil
 	}
 	var title string
 	if err = tx.QueryRowContext(ctx, "SELECT f.title FROM club_watches w JOIN club_films f ON f.tmdb_id=w.tmdb_id WHERE w.id=? AND w.state='active'", session.WatchID).Scan(&title); err != nil {
@@ -127,7 +132,7 @@ func researchSlotQuestions(ctx context.Context, tx *sql.Tx, sc clubprofile.Sched
 	}
 	questions := make([]clubprofile.Question, 0, len(d.Next))
 	for _, aspect := range d.Next {
-		q, e := clubprofile.ReviewQuestion(aspect, title)
+		q, e := session.Plan.QuestionFor(aspect, title)
 		if e != nil {
 			return 0, nil, e
 		}

@@ -14,6 +14,7 @@ import (
 var defaultFactTitles string
 
 type Config struct {
+	FilmResearchChats      map[int64]bool
 	GeminiKey, GeminiModel string
 	GeminiMemeModel        string
 	GeminiDailyLimit       int
@@ -25,6 +26,9 @@ type Config struct {
 	Chats                  map[int64]bool
 	Subreddits             []string
 	AIResultMode           string
+	FilmResearchMode       string
+	ResearchGroqModel      string
+	ResearchGeminiModel    string
 	Level                  slog.Level
 }
 
@@ -82,12 +86,22 @@ func (c *Config) readMemes(get func(string) string) error {
 }
 
 func (c *Config) readRuntime(get func(string) string) error {
+	c.FilmResearchMode = strings.TrimSpace(get("FILM_RESEARCH_MODE"))
+	if c.FilmResearchMode == "" {
+		c.FilmResearchMode = "off"
+	}
+	if c.FilmResearchMode != "off" && c.FilmResearchMode != "shadow" && c.FilmResearchMode != "on" {
+		return errors.New("FILM_RESEARCH_MODE must be off, shadow or on")
+	}
 	c.AIResultMode = strings.TrimSpace(get("AI_RESULT_MODE"))
 	if c.AIResultMode == "" {
 		c.AIResultMode = "warmup"
 	}
 	if c.AIResultMode != "warmup" && c.AIResultMode != "background" {
 		return errors.New("AI_RESULT_MODE must be warmup or background")
+	}
+	if err := c.readResearchChats(get("FILM_RESEARCH_CHAT_IDS")); err != nil {
+		return err
 	}
 	if level := get("LOG_LEVEL"); level != "" {
 		if err := c.Level.UnmarshalText([]byte(level)); err != nil {
@@ -99,6 +113,13 @@ func (c *Config) readRuntime(get func(string) string) error {
 }
 
 func (c *Config) readProviders(get func(string) string) error {
+	c.ResearchGeminiModel = strings.TrimSpace(get("FILM_RESEARCH_GEMINI_MODEL"))
+	if c.ResearchGeminiModel == "" {
+		c.ResearchGeminiModel = "gemini-3.5-flash-lite"
+	}
+	if !regexp.MustCompile(`^[a-zA-Z0-9._-]+$`).MatchString(c.ResearchGeminiModel) {
+		return errors.New("invalid FILM_RESEARCH_GEMINI_MODEL")
+	}
 	c.GeminiKey = strings.TrimSpace(get("GEMINI_API_KEY"))
 	c.GeminiModel = get("GEMINI_MODEL")
 	if c.GeminiModel == "" {
@@ -158,6 +179,13 @@ func (c *Config) readTitles(get func(string) string) error {
 }
 
 func (c *Config) readGroq(get func(string) string) error {
+	c.ResearchGroqModel = strings.TrimSpace(get("FILM_RESEARCH_GROQ_MODEL"))
+	if c.ResearchGroqModel == "" {
+		c.ResearchGroqModel = "openai/gpt-oss-120b"
+	}
+	if !regexp.MustCompile(`^[a-zA-Z0-9/._-]+$`).MatchString(c.ResearchGroqModel) {
+		return errors.New("invalid FILM_RESEARCH_GROQ_MODEL")
+	}
 	c.GroqKey = strings.TrimSpace(get("GROQ_API_KEY"))
 	c.GroqModel = get("GROQ_MODEL")
 	if c.GroqModel == "" {
@@ -174,5 +202,25 @@ func (c *Config) readGroq(get func(string) string) error {
 		}
 		c.GroqDailyLimit = n
 	}
+	return nil
+}
+
+func (c *Config) readResearchChats(raw string) error {
+	c.FilmResearchChats = make(map[int64]bool)
+	researchChats := strings.TrimSpace(raw)
+	if researchChats == "" {
+		for id, allowed := range c.Chats {
+			c.FilmResearchChats[id] = allowed
+		}
+	} else {
+		for part := range strings.SplitSeq(researchChats, ",") {
+			id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+			if err != nil || !c.Chats[id] {
+				return errors.New("FILM_RESEARCH_CHAT_IDS must be a subset of ALLOWED_CHAT_IDS")
+			}
+			c.FilmResearchChats[id] = true
+		}
+	}
+
 	return nil
 }

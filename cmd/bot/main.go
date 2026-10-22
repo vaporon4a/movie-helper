@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/facts"
 	"github.com/vaporon4a/movie-helper/internal/factsource"
 	"github.com/vaporon4a/movie-helper/internal/featurevote"
+	"github.com/vaporon4a/movie-helper/internal/filmresearch"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
 	"github.com/vaporon4a/movie-helper/internal/meme"
@@ -101,7 +103,7 @@ func run() error {
 	reminders := &clubreminder.Coordinator{Store: store, Sender: telegram.ClubSender{API: b}, Allowed: cfg.Chats, Log: log, Now: time.Now}
 	workers.Go(func() { reminders.Run(ctx) })
 	workers.Go(func() { s.Run(ctx) })
-	if err = startAIWork(ctx, store, provider, titles, primaryAI, secondaryAI, log, &workers); err != nil {
+	if err = startAIWork(ctx, cfg, store, provider, titles, primaryAI, secondaryAI, log, &workers); err != nil {
 		return err
 	}
 	if err = startFeatureVoting(ctx, store, b, handler, cfg.Chats, log, &workers); err != nil {
@@ -148,7 +150,31 @@ func buildContentProvider(cfg config.Config, store *storage.Store, log *slog.Log
 	return provider, primary, secondary
 }
 
-func startAIWork(ctx context.Context, store *storage.Store, provider *content.Provider, titles ai.FeatureTitleGenerator, primary, secondary ai.Generator, log *slog.Logger, workers *sync.WaitGroup) error {
+func startAIWork(ctx context.Context, cfg config.Config, store *storage.Store, provider *content.Provider, titles ai.FeatureTitleGenerator, primary, secondary ai.Generator, log *slog.Logger, workers *sync.WaitGroup) error {
+	if err := store.ConfigureFilmResearch(ctx, cfg.FilmResearchMode, cfg.FilmResearchChats); err != nil {
+		return err
+	}
+	sourceHTTP := &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	catalog := &tmdb.Client{HTTP: sourceHTTP, BaseURL: "https://api.themoviedb.org/3", Token: cfg.TMDBToken, Log: log}
+	researchPrimary := primary
+	if client, ok := primary.(*gemini.Client); ok {
+		copyClient := *client
+		copyClient.Temperature = new(0.3)
+		copyClient.Model = cfg.ResearchGeminiModel
+		researchPrimary = &copyClient
+	}
+	researchSecondary := secondary
+	if client, ok := secondary.(*groq.Client); ok {
+		copyClient := *client
+		copyClient.MaxCompletionTokens = 4096
+		copyClient.Temperature = new(0.3)
+		copyClient.Model = cfg.ResearchGroqModel
+		if strings.HasPrefix(copyClient.Model, "openai/gpt-oss-") {
+			copyClient.ReasoningEffort = "low"
+		}
+		researchSecondary = &copyClient
+	}
+	researcher := content.ResearchPreparer{Store: store, Primary: researchPrimary, Secondary: researchSecondary, Log: log, Sources: []filmresearch.Source{catalog, &factsource.Source{HTTP: sourceHTTP, IDs: catalog, WikidataURL: "https://www.wikidata.org", WikipediaURL: "https://ru.wikipedia.org", Log: log}}}
 	if client, ok := secondary.(*groq.Client); ok {
 		copyClient := *client
 		copyClient.MaxCompletionTokens = 1800
@@ -158,7 +184,7 @@ func startAIWork(ctx context.Context, store *storage.Store, provider *content.Pr
 	contentRefiller := &content.Refiller{Store: store, Provider: provider, Log: log}
 	titleRefiller := featurevote.TitleRefiller{Store: store, Generator: titles}
 	coordinator, err := aiwork.NewCoordinator(store, map[string]aiwork.Executor{
-		aiwork.FactRefill: contentRefiller, aiwork.MemeRefill: contentRefiller, aiwork.FeatureTitle: titleRefiller, aiwork.ClubReminderRefill: clubRefiller,
+		aiwork.FilmResearch: researcher, aiwork.FactRefill: contentRefiller, aiwork.MemeRefill: contentRefiller, aiwork.FeatureTitle: titleRefiller, aiwork.ClubReminderRefill: clubRefiller,
 	}, log, time.Now)
 	if err != nil {
 		return err

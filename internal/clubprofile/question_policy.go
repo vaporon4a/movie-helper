@@ -10,7 +10,13 @@ func DefaultReviewPlan() ReviewPlan {
 }
 
 func (p ReviewPlan) Validate() error {
-	if p.Version != CoverageV1 || len(p.Targets) != 4 || p.MinimumAnswers < 1 || p.MaxQuestions < 5 || p.MaxQuestions > 7 || p.MaxPerBatch < 1 || p.MaxPerBatch > 2 || p.MaxPerTarget != 2 {
+	if (p.Version != CoverageV1 && p.Version != CoverageV2) || len(p.Targets) != 4 || p.MinimumAnswers < 1 || p.MaxQuestions < 5 || p.MaxQuestions > 7 || p.MaxPerBatch < 1 || p.MaxPerBatch > 2 || p.MaxPerTarget != 2 {
+		return ErrInvalid
+	}
+	if p.Version == CoverageV2 {
+		return p.validateResearchTargets()
+	}
+	if p.PreparationID != "" || len(p.Questions) != 0 {
 		return ErrInvalid
 	}
 	seen := map[Aspect]bool{}
@@ -29,16 +35,7 @@ func (p ReviewPlan) Coverage(observations []Observation, unresolved bool) Covera
 		c.Reason = "invalid_plan"
 		return c
 	}
-	for _, o := range observations {
-		if o.Question.Version != QuestionV1 || o.Question.Topic != PostWatch || o.Question.Scale != aspectScale(o.Question.Aspect) || o.Question.Intent != aspectIntent(o.Question.Aspect) || o.Answers() < p.MinimumAnswers {
-			continue
-		}
-		if o.Question.Aspect == Overall {
-			c.Overall = true
-		} else {
-			c.Covered[o.Question.Aspect] = true
-		}
-	}
+	p.coverObservations(&c, observations)
 	c.Sufficient = c.Overall && !unresolved
 	for _, a := range p.Targets {
 		c.Sufficient = c.Sufficient && c.Covered[a]
@@ -107,4 +104,25 @@ func ReviewQuestion(a Aspect, title string) (Question, error) {
 	}
 	q.Options = append(q.Options, Option{Key: "not_watched", Text: "Не смотрел(а)"}, Option{Key: "cannot_rate", Text: "Не могу оценить"})
 	return q, q.Validate()
+}
+
+func (p ReviewPlan) coverObservations(c *Coverage, observations []Observation) {
+	for _, o := range observations {
+		if o.Answers() < p.MinimumAnswers {
+			continue
+		}
+		if p.compatibleResearch(o) {
+			c.Covered[o.Question.PlanTarget()] = true
+			continue
+		}
+		q := o.Question
+		if q.Version != QuestionV1 || q.Topic != PostWatch || q.Scale != aspectScale(q.Aspect) || q.Intent != aspectIntent(q.Aspect) {
+			continue
+		}
+		if q.Aspect == Overall {
+			c.Overall = true
+		} else {
+			c.Covered[q.Aspect] = true
+		}
+	}
 }

@@ -36,7 +36,7 @@ func (s *Store) EnqueueAIWork(ctx context.Context, kind string, scopeID int64, k
 }
 
 func validAIWorkKind(kind string) bool {
-	return kind == aiwork.ClubReminderRefill || kind == aiwork.FactRefill || kind == aiwork.MemeRefill || kind == aiwork.FeatureTitle
+	return kind == aiwork.FilmResearch || kind == aiwork.ClubReminderRefill || kind == aiwork.FactRefill || kind == aiwork.MemeRefill || kind == aiwork.FeatureTitle
 }
 
 func (s *Store) SeedAIWork(ctx context.Context, now time.Time) error {
@@ -51,7 +51,10 @@ func (s *Store) SeedAIWork(ctx context.Context, now time.Time) error {
 		if err := seedFeatureTitleWork(ctx, tx, now); err != nil {
 			return err
 		}
-		return seedClubWork(ctx, tx, now)
+		if err := seedClubWork(ctx, tx, now); err != nil {
+			return err
+		}
+		return seedResearchWork(ctx, tx, now)
 	})
 }
 

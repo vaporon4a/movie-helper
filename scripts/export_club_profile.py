@@ -23,6 +23,17 @@ def export_data(connection, chat_id):
     data = {"schema": "club-profile-export-v1", "chat_id": chat_id}
     for key, query in statements.items():
         data[key] = [dict(row) for row in connection.execute(query, (chat_id,))]
+    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    research_queries = {
+        "film_research_approvals": "SELECT * FROM film_research_approvals WHERE preparation_id IN (SELECT id FROM film_research_preparations WHERE chat_id=?) ORDER BY preparation_id",
+        "film_research_preparations": "SELECT * FROM film_research_preparations WHERE chat_id=? ORDER BY id",
+        "film_research_jobs": "SELECT * FROM film_research_jobs WHERE chat_id=? ORDER BY session_id",
+        "film_research_dossiers": "SELECT * FROM film_research_dossiers WHERE id IN (SELECT dossier_id FROM film_research_preparations WHERE chat_id=?) ORDER BY id",
+        "film_research_sources": "SELECT * FROM film_research_sources WHERE id IN (SELECT source_id FROM film_research_dossier_sources WHERE dossier_id IN (SELECT dossier_id FROM film_research_preparations WHERE chat_id=?)) ORDER BY id",
+    }
+    for table, query in research_queries.items():
+        if table in tables:
+            data[table] = [dict(row) for row in connection.execute(query, (chat_id,))]
     connection.rollback()
     return data
 
@@ -36,13 +47,15 @@ def csv_cell(value):
 
 def write_csv(data, stream):
     writer = csv.writer(stream)
-    writer.writerow(["poll_id", "session_id", "topic", "intent", "aspect", "scale", "version", "question", "state", "total", "result_source", "option_key", "option_text", "substantive", "votes"])
+    writer.writerow(["poll_id", "session_id", "topic", "intent", "aspect", "scale", "version", "question", "state", "total", "result_source", "option_key", "option_text", "substantive", "votes", "target", "measurement", "family", "registry", "dossier"])
     for poll in data["polls"]:
         question = json.loads(poll["question_json"])
         result = json.loads(poll["result_json"]) if poll["result_json"] else {}
         counts = result.get("counts") or []
         for index, option in enumerate(question.get("options", [])):
             row = [poll["id"], poll["session_id"], question.get("topic"), question.get("intent"), question.get("aspect"), question.get("scale"), question.get("version"), question.get("text"), poll["state"], result.get("total_voter_count"), result.get("source"), option.get("key"), option.get("text"), option.get("substantive"), counts[index] if index < len(counts) else None]
+            descriptor = question.get("measurement") or {}
+            row.extend(descriptor.get(key) for key in ("target_id", "measurement_id", "comparison_family_id", "comparison_registry_version", "dossier_id"))
             writer.writerow([csv_cell(value) for value in row])
 
 

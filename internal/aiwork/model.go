@@ -4,6 +4,7 @@ package aiwork
 import "time"
 
 const (
+	FilmResearch       = "film_research"
 	ClubReminderRefill = "club_reminder_refill"
 	FactRefill         = "fact_refill"
 	MemeRefill         = "meme_refill"

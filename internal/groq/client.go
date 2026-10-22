@@ -39,6 +39,8 @@ func (e *HTTPError) Error() string { return fmt.Sprintf("Groq status %d", e.Stat
 func (e *HTTPError) RetryAfter() time.Duration { return e.After }
 
 type Client struct {
+	Temperature         *float64
+	ReasoningEffort     string
 	MaxCompletionTokens int
 	HTTP                *http.Client
 	BaseURL, Key, Model string
@@ -70,7 +72,7 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 		}
 	}
 	body := map[string]any{
-		"model": c.Model, "reasoning_effort": "none", "max_completion_tokens": c.requestCompletionLimit(parts),
+		"model": c.Model, "reasoning_effort": c.reasoningEffort(), "max_completion_tokens": c.requestCompletionLimit(parts),
 		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{
 			"name": "content_selection", "strict": true, "schema": ai.SelectionSchema(parts),
 		}},
@@ -78,6 +80,9 @@ func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Pa
 			map[string]any{"role": "system", "content": instruction + ai.SourceInstruction},
 			map[string]any{"role": "user", "content": content},
 		},
+	}
+	if c.Temperature != nil {
+		body["temperature"] = *c.Temperature
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -294,4 +299,15 @@ func (c *Client) requestCompletionLimit(parts []ai.Part) int {
 		}
 	}
 	return c.completionLimit()
+}
+
+func (c *Client) reasoningEffort() string {
+	if c.ReasoningEffort != "" {
+		return c.ReasoningEffort
+	}
+	return "none"
+}
+
+func (c *Client) GenerationSettings() (string, *float64, int) {
+	return c.reasoningEffort(), c.Temperature, c.MaxCompletionTokens
 }

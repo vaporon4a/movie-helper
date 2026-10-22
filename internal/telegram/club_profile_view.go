@@ -58,6 +58,8 @@ func (v clubProfileView) page(page string, id int64) (string, *models.InlineKeyb
 		return v.interestCard(int(id))
 	case "poll":
 		return v.pollCard(id)
+	case "research":
+		return v.researchCard(int(id))
 	case "aspects":
 		return v.aspectCard()
 	default:
@@ -175,7 +177,7 @@ func (v clubProfileView) watchCard(id int64) (string, *models.InlineKeyboardMark
 	}
 	appendFilmMetadata(&b, w.Film)
 	for _, p := range v.watchPolls(id) {
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton(fmt.Sprintf("Опрос #%d · %s", p.ID, aspectLabel(p.Question.Aspect)), "poll", p.ID)})
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton(fmt.Sprintf("Опрос #%d · %s", p.ID, questionAspectLabel(p.Question)), "poll", p.ID)})
 	}
 	if w.State == "active" {
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
@@ -219,7 +221,7 @@ func (v clubProfileView) reviewStatus(watch int64) string {
 			covered++
 		}
 		status := sessionLabel(s.State, s.Reason)
-		return fmt.Sprintf("\nИсследование: %s\nПокрыто: %d/5 тем · минимум %d ответа на каждую в одном опросе\n%s\n%s\n", status, covered, s.Plan.MinimumAnswers, coverageText(d.Coverage), v.nextResearchText(s))
+		return fmt.Sprintf("\nИсследование: %s\nПокрыто: %d/5 тем · минимум %d ответа на каждую в одном опросе\n%s\n%s\n", status, covered, s.Plan.MinimumAnswers, researchCoverageText(s.Plan, d.Coverage), v.nextResearchText(s))
 	}
 	return "\nСохранён как история; автоматическое обсуждение не запущено. Это бывает при старой/неточной дате или выключенном автообсуждении.\n"
 }
@@ -363,7 +365,9 @@ func (v clubProfileView) aspectCard() (string, *models.InlineKeyboardMarkup) {
 		b.WriteString("Пока нет оценок аспектов просмотренного кино.\n\n")
 	}
 	b.WriteString("Каждый фильм имеет равный вес. Это средние доли ответов в этих просмотрах, не доля участников клуба. Ответы разных вопросов нельзя связывать с одними и теми же людьми.")
-	return b.String(), profileNavigation()
+	keyboard := profileNavigation()
+	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton("🎬 Особенности фильмов", "research", 0)})
+	return b.String(), keyboard
 }
 
 func aspectLabel(a clubprofile.Aspect) string {

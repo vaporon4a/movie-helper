@@ -42,3 +42,22 @@ func TestBootstrapDeniesEveryChat(t *testing.T) {
 		t.Fatalf("bootstrap must allow no groups: %v %v", c.Chats, err)
 	}
 }
+
+func TestResearchRolloutIsOptInAndScoped(t *testing.T) {
+	values := map[string]string{"BOT_TOKEN": "123:test", "ALLOWED_CHAT_IDS": "-1,-2"}
+	get := func(k string) string { return values[k] }
+	cfg, err := Parse(get)
+	if err != nil || cfg.FilmResearchMode != "off" {
+		t.Fatal(cfg.FilmResearchMode, err)
+	}
+	values["FILM_RESEARCH_MODE"] = "shadow"
+	values["FILM_RESEARCH_CHAT_IDS"] = "-2"
+	cfg, err = Parse(get)
+	if err != nil || len(cfg.FilmResearchChats) != 1 || !cfg.FilmResearchChats[-2] {
+		t.Fatal(cfg.FilmResearchChats, err)
+	}
+	values["FILM_RESEARCH_CHAT_IDS"] = "-3"
+	if _, err = Parse(get); err == nil {
+		t.Fatal("foreign rollout chat")
+	}
+}

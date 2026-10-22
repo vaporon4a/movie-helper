@@ -23,6 +23,7 @@ const (
 	Enjoyment                    = "enjoyment"
 	AspectResponse               = "aspect_response"
 	QuestionV1                   = "club-question-v1"
+	QuestionV2                   = "club-question-v2"
 	CoverageV1                   = "coverage-v1"
 	DefaultDuration              = 24 * time.Hour
 	CatchupWindow                = 30 * time.Minute
@@ -66,18 +67,19 @@ type Option struct {
 }
 
 type Question struct {
-	Topic       Topic    `json:"topic"`
-	Intent      string   `json:"intent"`
-	Aspect      Aspect   `json:"aspect,omitempty"`
-	Scale       string   `json:"scale"`
-	Version     string   `json:"version"`
-	Text        string   `json:"text"`
-	Description string   `json:"description"`
-	Options     []Option `json:"options"`
-	Anonymous   bool     `json:"anonymous"`
-	Multiple    bool     `json:"multiple"`
-	Revoting    bool     `json:"revoting"`
-	Source      string   `json:"source"`
+	Topic       Topic                  `json:"topic"`
+	Intent      string                 `json:"intent"`
+	Aspect      Aspect                 `json:"aspect,omitempty"`
+	Scale       string                 `json:"scale"`
+	Version     string                 `json:"version"`
+	Text        string                 `json:"text"`
+	Description string                 `json:"description"`
+	Options     []Option               `json:"options"`
+	Anonymous   bool                   `json:"anonymous"`
+	Multiple    bool                   `json:"multiple"`
+	Revoting    bool                   `json:"revoting"`
+	Source      string                 `json:"source"`
+	Measurement *MeasurementDescriptor `json:"measurement,omitempty"`
 }
 
 type PollResult struct {
@@ -117,12 +119,14 @@ type Schedule struct {
 
 // ReviewPlan is frozen before the first question; repeats never pool respondents.
 type ReviewPlan struct {
-	Version        string   `json:"version"`
-	Targets        []Aspect `json:"targets"`
-	MinimumAnswers int      `json:"minimum_answers"`
-	MaxQuestions   int      `json:"max_questions"`
-	MaxPerBatch    int      `json:"max_per_batch"`
-	MaxPerTarget   int      `json:"max_per_target"`
+	PreparationID  string     `json:"preparation_id,omitempty"`
+	Questions      []Question `json:"questions,omitempty"`
+	Version        string     `json:"version"`
+	Targets        []Aspect   `json:"targets"`
+	MinimumAnswers int        `json:"minimum_answers"`
+	MaxQuestions   int        `json:"max_questions"`
+	MaxPerBatch    int        `json:"max_per_batch"`
+	MaxPerTarget   int        `json:"max_per_target"`
 }
 
 type Observation struct {

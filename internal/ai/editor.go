@@ -44,19 +44,21 @@ const factEvidenceMaxRunes = 800
 
 type Article struct{ Title, Text, URL, Key, Attribution string }
 type Part struct {
-	FactCandidates int     `json:"-"`
-	Text           string  `json:"text,omitempty"`
-	Inline         *Inline `json:"inlineData,omitempty"`
+	ResponseSchema map[string]any `json:"-"`
+	FactCandidates int            `json:"-"`
+	Text           string         `json:"text,omitempty"`
+	Inline         *Inline        `json:"inlineData,omitempty"`
 }
 type Inline struct {
 	MIME string `json:"mimeType"`
 	Data string `json:"data"`
 }
 type Selection struct {
-	Index    *int     `json:"index"`
-	Text     string   `json:"text"`
-	Evidence string   `json:"evidence"`
-	Reviews  []Review `json:"reviews,omitempty"`
+	Structured json.RawMessage `json:"structured,omitempty"`
+	Index      *int            `json:"index"`
+	Text       string          `json:"text"`
+	Evidence   string          `json:"evidence"`
+	Reviews    []Review        `json:"reviews,omitempty"`
 }
 
 func (c *Editor) Fact(ctx context.Context, articles []Article) (*daily.Item, error) {

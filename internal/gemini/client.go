@@ -43,6 +43,7 @@ func (e *HTTPError) Error() string { return fmt.Sprintf("Gemini status %d", e.St
 func (e *HTTPError) RetryAfter() time.Duration { return e.After }
 
 type Client struct {
+	Temperature         *float64
 	HTTP                *http.Client
 	BaseURL, Key, Model string
 	Budget              Budget
@@ -61,10 +62,14 @@ func (c *Client) ModelName() string { return c.Model }
 
 func (c *Client) Generate(ctx context.Context, instruction string, parts []ai.Part) (ai.Selection, error) {
 	var result ai.Selection
+	settings := map[string]any{"maxOutputTokens": 4096, "responseMimeType": "application/json", "responseJsonSchema": ai.SelectionSchema(parts)}
+	if c.Temperature != nil {
+		settings["temperature"] = *c.Temperature
+	}
 	body := map[string]any{
 		"systemInstruction": map[string]any{"parts": []ai.Part{{Text: instruction + ai.SourceInstruction}}},
 		"contents":          []any{map[string]any{"role": "user", "parts": parts}},
-		"generationConfig":  map[string]any{"maxOutputTokens": 4096, "responseMimeType": "application/json", "responseJsonSchema": ai.SelectionSchema(parts)},
+		"generationConfig":  settings,
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -258,3 +263,5 @@ func (c *Client) Fact(ctx context.Context, articles []Article) (*daily.Item, err
 	e := &ai.Editor{HTTP: c.HTTP, Generator: c, Reviews: c.Reviews, Scope: "gemini:" + c.Model + ":" + ai.FactGenerationPolicy, Now: c.Now, MaxBatches: 2, MaxImages: 4, Log: c.Log}
 	return e.Fact(ctx, articles)
 }
+
+func (c *Client) GenerationSettings() (string, *float64, int) { return "", c.Temperature, 4096 }

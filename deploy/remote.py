@@ -53,7 +53,21 @@ def runtime_settings(data, previous=None):
     ai_result_mode = data.get('ai_result_mode', 'warmup')
     if ai_result_mode not in ('warmup', 'background'):
         raise DeployError('Invalid AI_RESULT_MODE')
-    settings = {'BOT_TOKEN': token, 'GEMINI_API_KEY': data.get('gemini_api_key', ''),
+    research_mode = data.get('film_research_mode', 'off')
+    if research_mode not in ('off', 'shadow', 'on'):
+        raise DeployError('Invalid FILM_RESEARCH_MODE')
+    research_model = data.get('film_research_groq_model', 'openai/gpt-oss-120b')
+    if not isinstance(research_model, str) or not re.fullmatch(r'[a-zA-Z0-9/._-]+', research_model):
+        raise DeployError('Invalid FILM_RESEARCH_GROQ_MODEL')
+    research_gemini = data.get('film_research_gemini_model', 'gemini-3.5-flash-lite')
+    if not isinstance(research_gemini, str) or not re.fullmatch(r'[a-zA-Z0-9._-]+', research_gemini):
+        raise DeployError('Invalid FILM_RESEARCH_GEMINI_MODEL')
+    research_chats = data.get('film_research_chat_ids', '')
+    if not isinstance(research_chats, str):
+        raise DeployError('Invalid FILM_RESEARCH_CHAT_IDS')
+    if research_chats and any(part.strip() not in chats.split(',') for part in research_chats.split(',')):
+        raise DeployError('FILM_RESEARCH_CHAT_IDS must be allowed')
+    settings = {'FILM_RESEARCH_GEMINI_MODEL': research_gemini, 'FILM_RESEARCH_CHAT_IDS': research_chats, 'FILM_RESEARCH_MODE': research_mode, 'FILM_RESEARCH_GROQ_MODEL': research_model, 'BOT_TOKEN': token, 'GEMINI_API_KEY': data.get('gemini_api_key', ''),
                 'GROQ_API_KEY': data.get('groq_api_key', ''),
                 'TMDB_API_TOKEN': data.get('tmdb_api_token', ''), 'ALLOWED_CHAT_IDS': chats,
                 'AI_RESULT_MODE': ai_result_mode}

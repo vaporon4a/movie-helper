@@ -44,32 +44,39 @@ func (s *Source) Episodes(ctx context.Context, movie facts.Movie) ([]facts.Episo
 	return episodes, err
 }
 func (s *Source) episodes(ctx context.Context, movie facts.Movie) ([]facts.Episode, error) {
-	ids, err := s.IDs.FactExternalIDs(ctx, movie.ID)
-	if err != nil {
+	raw, qid, err := s.article(ctx, movie)
+	if err != nil || len(raw) == 0 {
 		return nil, err
 	}
+	return extract(raw, movie, qid)
+}
+func (s *Source) article(ctx context.Context, movie facts.Movie) ([]byte, string, error) {
+	ids, err := s.IDs.FactExternalIDs(ctx, movie.ID)
+	if err != nil {
+		return nil, "", err
+	}
 	if !qidPattern.MatchString(ids.Wikidata) {
-		return nil, nil
+		return nil, "", nil
 	}
 	raw, err := s.get(ctx, s.WikidataURL+"/wiki/Special:EntityData/"+ids.Wikidata+".json")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var data struct {
 		Entities map[string]entity `json:"entities"`
 	}
 	if err = json.Unmarshal(raw, &data); err != nil {
-		return nil, errors.New("invalid fact identity response")
+		return nil, "", errors.New("invalid fact identity response")
 	}
 	title, ok := resolve(movie, ids, data.Entities[ids.Wikidata])
 	if !ok {
-		return nil, nil
+		return nil, "", nil
 	}
 	raw, err = s.get(ctx, s.WikipediaURL+"/wiki/"+url.PathEscape(strings.ReplaceAll(title, " ", "_")))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return extract(raw, movie, ids.Wikidata)
+	return raw, ids.Wikidata, nil
 }
 func (s *Source) get(ctx context.Context, address string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)

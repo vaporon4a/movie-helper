@@ -158,7 +158,7 @@ func reviewEvidence(polls []Poll) ([]Observation, map[Aspect]int, int, bool, boo
 		}
 		if p.DeliveryCounted || p.MessageID > 0 || p.State == Unknown || p.State == Creating {
 			count++
-			attempts[p.Question.Aspect]++
+			attempts[p.Question.PlanTarget()]++
 		}
 		if pollUnresolved(p) {
 			unresolved = true

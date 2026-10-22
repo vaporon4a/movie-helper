@@ -17,6 +17,7 @@ import (
 var productionSection = regexp.MustCompile(`(?i)создан|съ[её]м|производ|разработ|сценари|спецэфф|кастинг|работа над фильмом|интересные факты|звук|музык`)
 
 type paragraphs struct {
+	sections            *regexp.Regexp
 	section, subsection string
 	values              []passage
 }
@@ -68,7 +69,11 @@ func (p *paragraphs) walk(n *html.Node) {
 		case "h3", "h4":
 			p.subsection = nodeText(n)
 		case "p":
-			if productionSection.MatchString(p.section) {
+			sections := p.sections
+			if sections == nil {
+				sections = productionSection
+			}
+			if sections.MatchString(p.section) {
 				p.values = append(p.values, passage{section: p.section + " · " + p.subsection, text: nodeText(n)})
 			}
 			return

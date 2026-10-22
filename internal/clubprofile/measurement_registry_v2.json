@@ -1,0 +1,546 @@
+{
+  "taxonomy_version": "film-targets-v1",
+  "comparison_registry_version": "comparison-v2",
+  "targets": [
+    {
+      "id": "film.overall",
+      "label": "Общее впечатление",
+      "definition": "Оценка фильма целиком; существующий v1-якорь.",
+      "allowed_measurements": [
+        "enjoyment"
+      ],
+      "ai_eligible": false
+    },
+    {
+      "id": "narrative.investigation",
+      "label": "Расследование",
+      "definition": "Интерес к ходу раскрытия загадки или расследования.",
+      "allowed_measurements": [
+        "interest",
+        "enjoyment"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "narrative.relationships",
+      "label": "Отношения",
+      "definition": "Конкретная линия отношений персонажей; её тип обязателен в family.",
+      "allowed_measurements": [
+        "interest",
+        "enjoyment",
+        "credibility"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "narrative.pace",
+      "label": "Темп",
+      "definition": "Желаемое направление изменения темпа, а не хронометраж.",
+      "allowed_measurements": [
+        "pace_preference"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "narrative.attention",
+      "label": "Удержание внимания",
+      "definition": "Насколько интересно следить за заданной сюжетной линией; не факт отвлечения.",
+      "allowed_measurements": [
+        "interest"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "characters.emotional_portrayal",
+      "label": "Изображение эмоций",
+      "definition": "Интерес или убедительность конкретного способа раскрытия эмоций.",
+      "allowed_measurements": [
+        "interest",
+        "credibility"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "characters.motivation",
+      "label": "Мотивация",
+      "definition": "Субъективная убедительность причин поступков; не одобрение поступков.",
+      "allowed_measurements": [
+        "credibility"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "world.social_order",
+      "label": "Общественное устройство",
+      "definition": "Восприятие конкретного устройства общества фильма.",
+      "allowed_measurements": [
+        "interest",
+        "credibility"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "world.technology",
+      "label": "Технологии мира",
+      "definition": "Восприятие определённой технологии в рамках фильма, не научная проверка.",
+      "allowed_measurements": [
+        "interest",
+        "credibility"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "world.everyday_life",
+      "label": "Повседневность",
+      "definition": "Интерес к определённой практике или бытовой детали мира.",
+      "allowed_measurements": [
+        "interest",
+        "credibility"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "world.environmental_crisis",
+      "label": "Экологический кризис",
+      "definition": "Убедительность изображения экологического кризиса в фильме.",
+      "allowed_measurements": [
+        "credibility"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "world.food_supply",
+      "label": "Обеспечение пищей",
+      "definition": "Убедительность изображения системы питания вымышленного мира.",
+      "allowed_measurements": [
+        "credibility"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "style.atmosphere",
+      "label": "Атмосфера",
+      "definition": "Отношение к определённой атмосфере; её тип обязателен в family.",
+      "allowed_measurements": [
+        "enjoyment"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "style.visuals",
+      "label": "Визуальный стиль",
+      "definition": "Удовольствие от конкретного визуального приёма.",
+      "allowed_measurements": [
+        "enjoyment"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "style.humor",
+      "label": "Юмор",
+      "definition": "Удовольствие от конкретного вида юмора.",
+      "allowed_measurements": [
+        "enjoyment"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "style.sound",
+      "label": "Звуковая сторона",
+      "definition": "Удовольствие от конкретного звукового приёма; версия озвучки учитывается.",
+      "allowed_measurements": [
+        "enjoyment"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "themes.social_inequality",
+      "label": "Социальное неравенство",
+      "definition": "Интерес к раскрытию темы; не политические убеждения зрителя.",
+      "allowed_measurements": [
+        "interest"
+      ],
+      "ai_eligible": true
+    },
+    {
+      "id": "themes.loneliness",
+      "label": "Одиночество",
+      "definition": "Интерес к раскрытию темы; не состояние самого зрителя.",
+      "allowed_measurements": [
+        "interest"
+      ],
+      "ai_eligible": true
+    }
+  ],
+  "scales": [
+    {
+      "id": "interest-5-v1",
+      "measurement_id": "interest",
+      "order": "fixed",
+      "options": [
+        {
+          "key": "very_interested",
+          "label": "Очень интересно",
+          "substantive": true,
+          "ordinal_rank": 1,
+          "bucket": "positive"
+        },
+        {
+          "key": "interested",
+          "label": "Скорее интересно",
+          "substantive": true,
+          "ordinal_rank": 2,
+          "bucket": "positive"
+        },
+        {
+          "key": "neutral",
+          "label": "Нейтрально",
+          "substantive": true,
+          "ordinal_rank": 3,
+          "bucket": "neutral"
+        },
+        {
+          "key": "uninterested",
+          "label": "Скорее неинтересно",
+          "substantive": true,
+          "ordinal_rank": 4,
+          "bucket": "negative"
+        },
+        {
+          "key": "very_uninterested",
+          "label": "Совсем неинтересно",
+          "substantive": true,
+          "ordinal_rank": 5,
+          "bucket": "negative"
+        },
+        {
+          "key": "cannot_rate",
+          "label": "Не могу оценить",
+          "substantive": false,
+          "ordinal_rank": null,
+          "bucket": "skip"
+        },
+        {
+          "key": "not_watched",
+          "label": "Не смотрел(а)",
+          "substantive": false,
+          "ordinal_rank": null,
+          "bucket": "skip"
+        }
+      ],
+      "numeric_average_allowed": false
+    },
+    {
+      "id": "enjoyment-5-v2",
+      "measurement_id": "enjoyment",
+      "order": "fixed",
+      "options": [
+        {
+          "key": "very_positive",
+          "label": "Очень понравилось",
+          "substantive": true,
+          "ordinal_rank": 1,
+          "bucket": "positive"
+        },
+        {
+          "key": "positive",
+          "label": "Скорее понравилось",
+          "substantive": true,
+          "ordinal_rank": 2,
+          "bucket": "positive"
+        },
+        {
+          "key": "neutral",
+          "label": "Нейтрально",
+          "substantive": true,
+          "ordinal_rank": 3,
+          "bucket": "neutral"
+        },
+        {
+          "key": "negative",
+          "label": "Скорее не понравилось",
+          "substantive": true,
+          "ordinal_rank": 4,
+          "bucket": "negative"
+        },
+        {
+          "key": "very_negative",
+          "label": "Совсем не понравилось",
+          "substantive": true,
+          "ordinal_rank": 5,
+          "bucket": "negative"
+        },
+        {
+          "key": "cannot_rate",
+          "label": "Не могу оценить",
+          "substantive": false,
+          "ordinal_rank": null,
+          "bucket": "skip"
+        },
+        {
+          "key": "not_watched",
+          "label": "Не смотрел(а)",
+          "substantive": false,
+          "ordinal_rank": null,
+          "bucket": "skip"
+        }
+      ],
+      "numeric_average_allowed": false
+    },
+    {
+      "id": "credibility-5-v1",
+      "measurement_id": "credibility",
+      "order": "fixed",
+      "options": [
+        {
+          "key": "fully_credible",
+          "label": "Полностью убедительно",
+          "substantive": true,
+          "ordinal_rank": 1,
+          "bucket": "credible"
+        },
+        {
+          "key": "mostly_credible",
+          "label": "Скорее убедительно",
+          "substantive": true,
+          "ordinal_rank": 2,
+          "bucket": "credible"
+        },
+        {
+          "key": "partly_credible",
+          "label": "Отчасти убедительно",
+          "substantive": true,
+          "ordinal_rank": 3,
+          "bucket": "partial"
+        },
+        {
+          "key": "mostly_not_credible",
+          "label": "Скорее неубедительно",
+          "substantive": true,
+          "ordinal_rank": 4,
+          "bucket": "not_credible"
+        },
+        {
+          "key": "not_credible",
+          "label": "Совсем неубедительно",
+          "substantive": true,
+          "ordinal_rank": 5,
+          "bucket": "not_credible"
+        },
+        {
+          "key": "cannot_rate",
+          "label": "Не могу оценить",
+          "substantive": false,
+          "ordinal_rank": null,
+          "bucket": "skip"
+        },
+        {
+          "key": "not_watched",
+          "label": "Не смотрел(а)",
+          "substantive": false,
+          "ordinal_rank": null,
+          "bucket": "skip"
+        }
+      ],
+      "numeric_average_allowed": false
+    },
+    {
+      "id": "pace-preference-3-v2",
+      "measurement_id": "pace_preference",
+      "order": "fixed",
+      "options": [
+        {
+          "key": "faster",
+          "label": "Хотелось быстрее",
+          "substantive": true,
+          "ordinal_rank": null,
+          "bucket": "faster"
+        },
+        {
+          "key": "as_is",
+          "label": "В самый раз",
+          "substantive": true,
+          "ordinal_rank": null,
+          "bucket": "as_is"
+        },
+        {
+          "key": "slower",
+          "label": "Хотелось спокойнее",
+          "substantive": true,
+          "ordinal_rank": null,
+          "bucket": "slower"
+        },
+        {
+          "key": "cannot_rate",
+          "label": "Не могу оценить",
+          "substantive": false,
+          "ordinal_rank": null,
+          "bucket": "skip"
+        },
+        {
+          "key": "not_watched",
+          "label": "Не смотрел(а)",
+          "substantive": false,
+          "ordinal_rank": null,
+          "bucket": "skip"
+        }
+      ],
+      "numeric_average_allowed": false
+    }
+  ],
+  "comparison_families": [
+    {
+      "id": "investigation_interest_v1",
+      "target_id": "narrative.investigation",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "status": "approved",
+      "label": "Интерес к расследованию",
+      "definition": "Интерес к действительно показанному расследованию или раскрытию загадки. Случайная непонятная деталь не означает расследование."
+    },
+    {
+      "id": "synthetic_food_credibility_v1",
+      "target_id": "world.food_supply",
+      "measurement_id": "credibility",
+      "scale_id": "credibility-5-v1",
+      "status": "approved",
+      "label": "Правдоподобность искусственной пищи",
+      "definition": "Правдоподобность показанной системы производства синтетической еды. Обычная еда не подходит."
+    },
+    {
+      "id": "crowded_city_atmosphere_enjoyment_v1",
+      "target_id": "style.atmosphere",
+      "measurement_id": "enjoyment",
+      "scale_id": "enjoyment-5-v2",
+      "status": "approved",
+      "label": "Впечатление от атмосферы перенаселённого города",
+      "definition": "Насколько понравилась атмосфера именно перенаселённого города. Обычная городская погоня не подходит."
+    },
+    {
+      "id": "environmental_crisis_credibility_v1",
+      "target_id": "world.environmental_crisis",
+      "measurement_id": "credibility",
+      "scale_id": "credibility-5-v1",
+      "status": "approved",
+      "label": "Правдоподобность экологического кризиса",
+      "definition": "Правдоподобность явно описанного экологического кризиса. Просто мрачное будущее не подходит."
+    },
+    {
+      "id": "ai_companion_emotions_interest_v1",
+      "target_id": "characters.emotional_portrayal",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "status": "approved",
+      "label": "Интерес к эмоциям ИИ-компаньона",
+      "definition": "Интерес к эмоциональным проявлениям персонажа, который прямо назван искусственным интеллектом. Люди, включая наставников, не подходят."
+    },
+    {
+      "id": "human_ai_romance_credibility_v1",
+      "target_id": "narrative.relationships",
+      "measurement_id": "credibility",
+      "scale_id": "credibility-5-v1",
+      "status": "approved",
+      "label": "Правдоподобность романа человека и ИИ",
+      "definition": "Правдоподобность романтических отношений человека и ИИ. Дружба и наставничество не подходят."
+    },
+    {
+      "id": "character_dialogue_humor_enjoyment_v1",
+      "target_id": "style.humor",
+      "measurement_id": "enjoyment",
+      "scale_id": "enjoyment-5-v2",
+      "status": "approved",
+      "label": "Удовольствие от юмора в диалогах",
+      "definition": "Насколько понравился юмор именно в диалогах. Наличие юмора должно подтверждаться текстом, а не додумываться."
+    },
+    {
+      "id": "outsourced_personal_letters_interest_v1",
+      "target_id": "world.everyday_life",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "status": "approved",
+      "label": "Интерес к написанию личных писем за других",
+      "definition": "Интерес к сюжету о профессиональном написании личных писем за других людей. Обычные письма не подходят."
+    },
+    {
+      "id": "characters_motivation_interest_v1",
+      "target_id": "characters.motivation",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "status": "approved",
+      "label": "Интерес к мотивации героев",
+      "definition": "Насколько интересно разбираться в мотивах конкретного героя, а не согласны ли вы с его поступками."
+    },
+    {
+      "id": "narrative_relationships_interest_v1",
+      "target_id": "narrative.relationships",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "status": "approved",
+      "label": "Интерес к развитию отношений",
+      "definition": "Насколько интересно следить за развитием явно описанной линии отношений двух персонажей. Не спрашивать о правдоподобности или симпатии."
+    },
+    {
+      "id": "world_social_order_interest_v1",
+      "target_id": "world.social_order",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "status": "approved",
+      "label": "Интерес к общественному устройству",
+      "definition": "Интерес к явно описанному устройству общества, социальным правилам или классовым отношениям в мире фильма."
+    },
+    {
+      "id": "world_technology_interest_v1",
+      "target_id": "world.technology",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "status": "approved",
+      "label": "Интерес к технологиям мира фильма",
+      "definition": "Насколько интересно устройство конкретной технологии в мире фильма. НЕ правдоподобность технологии. Это технология ВНУТРИ вымышленного мира. Приёмы съёмки, flo-mo, спецэффекты и производство фильма НЕ подходят."
+    },
+    {
+      "id": "style_atmosphere_interest_v1",
+      "target_id": "style.atmosphere",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "status": "approved",
+      "label": "Интерес к атмосфере фильма",
+      "definition": "Насколько интересно погружаться в конкретную атмосферу фильма, подтверждённую источником. НЕ оценка удовольствия."
+    },
+    {
+      "id": "themes_loneliness_interest_v1",
+      "target_id": "themes.loneliness",
+      "measurement_id": "interest",
+      "scale_id": "interest-5-v1",
+      "status": "approved",
+      "label": "Интерес к теме одиночества",
+      "definition": "Интерес к тому, как раскрывается тема одиночества конкретного героя. Тема должна прямо подтверждаться источником."
+    },
+    {
+      "id": "visual_effects_enjoyment_v1",
+      "target_id": "style.visuals",
+      "measurement_id": "enjoyment",
+      "scale_id": "enjoyment-5-v2",
+      "status": "approved",
+      "label": "Впечатление от визуальных эффектов",
+      "definition": "Насколько понравились конкретные визуальные эффекты или приёмы съёмки, прямо упомянутые источником. Не интерес к технологии внутри мира фильма."
+    },
+    {
+      "id": "film_humor_enjoyment_v1",
+      "target_id": "style.humor",
+      "measurement_id": "enjoyment",
+      "scale_id": "enjoyment-5-v2",
+      "status": "approved",
+      "label": "Впечатление от юмора фильма",
+      "definition": "Насколько понравился явно отмеченный юмор фильма в целом. Нельзя приписывать ему отдельные шутки или диалоги, которых нет в источнике."
+    },
+    {
+      "id": "film_music_enjoyment_v1",
+      "target_id": "style.sound",
+      "measurement_id": "enjoyment",
+      "scale_id": "enjoyment-5-v2",
+      "status": "approved",
+      "label": "Впечатление от музыкальной стороны",
+      "definition": "Насколько понравилась конкретная музыка, музыкальные выступления или музыкальное оформление фильма, прямо описанные источником. Не догадки о звукозаписи или дубляже."
+    }
+  ]
+}

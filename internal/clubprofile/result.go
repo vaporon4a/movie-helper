@@ -7,6 +7,23 @@ import (
 )
 
 func (q Question) Validate() error {
+	if err := q.validateShape(); err != nil {
+		return err
+	}
+	switch q.Version {
+	case QuestionV1:
+		if q.Measurement != nil {
+			return ErrInvalid
+		}
+		return nil
+	case QuestionV2:
+		return q.validateMeasurement(true)
+	default:
+		return ErrInvalid
+	}
+}
+
+func (q Question) validateShape() error {
 	if !q.Topic.Valid() || q.Intent == "" || q.Version == "" || q.Scale == "" || !q.Anonymous || q.Multiple {
 		return ErrInvalid
 	}
@@ -25,6 +42,11 @@ func (q Question) Validate() error {
 
 // ValidateFinal rejects absent and inconsistent snapshots rather than inventing zero votes.
 func (r PollResult) ValidateFinal(q Question, pollID string) error {
+	if q.Version == QuestionV2 {
+		if err := q.Validate(); err != nil {
+			return err
+		}
+	}
 	if !r.Closed || r.PollID == "" || r.PollID != pollID || r.Total == nil || *r.Total < 0 || len(r.Counts) != len(q.Options) || r.ReceivedAt.IsZero() {
 		return ErrInvalid
 	}

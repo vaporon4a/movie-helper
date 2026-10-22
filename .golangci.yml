@@ -128,7 +128,7 @@ linters:
       rules:
         domain:
           files:
-          - '**/internal/{aiwork,clubreminder,clubprofile,daily,featurevote,facts,feedback}/*.go'
+          - '**/internal/{aiwork,clubreminder,clubprofile,filmresearch,daily,featurevote,facts,feedback}/*.go'
           - '!$test'
           list-mode: strict
           allow:
