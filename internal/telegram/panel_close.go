@@ -52,6 +52,14 @@ func (h *Handler) closePanelCallback(ctx context.Context, q *models.CallbackQuer
 	}
 	_, _ = h.API.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{CallbackQueryID: q.ID})
 	h.Log.DebugContext(ctx, "menu close requested", "chat_id", m.Chat.ID, "message_id", m.ID)
+	if h.DailyMenu != nil && h.Allowed[m.Chat.ID] {
+		if err := h.DailyMenu.Store.CloseDailyPanel(ctx, m.Chat.ID, m.ID); err != nil {
+			return
+		}
+	}
+	if err := h.cancelDailyPanel(ctx, m.Chat.ID, m.ID); err != nil {
+		return
+	}
 	// Persist before calling Telegram so future background refreshes skip this UI.
 	if h.Watches != nil && m.Chat.Type != models.ChatTypePrivate {
 		if err := h.Watches.CloseMessage(ctx, m.Chat.ID, m.ID); err != nil {

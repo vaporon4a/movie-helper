@@ -102,7 +102,7 @@ func researchSlotQuestions(ctx context.Context, tx *sql.Tx, sc clubprofile.Sched
 	if err := advanceChatReviews(ctx, tx, sc.ChatID, now); err != nil {
 		return 0, nil, err
 	}
-	session, err := scanReviewSession(tx.QueryRowContext(ctx, "SELECT "+reviewSessionColumns+" FROM club_review_sessions WHERE chat_id=? AND state IN ('queued','researching','blocked') ORDER BY CASE WHEN state='queued' THEN 1 ELSE 0 END,id LIMIT 1", sc.ChatID))
+	session, err := nextReviewSession(ctx, tx, sc.ChatID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil, nil
 	}
@@ -236,7 +236,7 @@ func advanceReview(ctx context.Context, tx *sql.Tx, s clubprofile.ReviewSession,
 			return err
 		}
 	}
-	if d.State == "partial" || d.State == "expired" || d.State == "cancelled" {
+	if d.State == "partial" || d.State == "expired" || d.State == cancelledState {
 		_, err = tx.ExecContext(ctx, "UPDATE club_profile_polls SET state='cancelled',error_code=? WHERE session_id=? AND state='planned'", d.Reason, s.ID)
 	}
 	return err

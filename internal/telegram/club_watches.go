@@ -11,6 +11,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/clubprofile"
+	"github.com/vaporon4a/movie-helper/internal/daily"
 )
 
 const watchedCommand = "/movie_watched"
@@ -106,9 +107,12 @@ func (h *Handler) EditWatchCard(ctx context.Context, d clubprofile.WatchDraft) e
 	if d.Closed {
 		return nil
 	}
-	text, keyboard, err := h.watchDraftCard(ctx, d)
+	text, keyboard, closed, err := h.currentWatchPanel(ctx, d)
 	if err != nil {
 		return err
+	}
+	if closed {
+		return nil
 	}
 	keyboard = closableKeyboard(keyboard)
 	_, err = h.API.EditMessageText(ctx, &bot.EditMessageTextParams{ChatID: d.ChatID, MessageID: d.MessageID, Text: text, ReplyMarkup: keyboard, LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: new(true)}})
@@ -167,13 +171,22 @@ func (h *Handler) profileCallback(ctx context.Context, operation int64, data str
 	if !strings.HasPrefix(data, "cp:") || h.Watches == nil {
 		return false
 	}
+	if h.ProfilePanels != nil {
+		page, _, closed, err := h.ProfilePanels.ProfilePage(ctx, m.Chat.ID, m.ID)
+		if err != nil || closed {
+			return true
+		}
+		if strings.HasPrefix(data, "cp:pause_confirm:") && page != "" && page != menuPauseAction {
+			return true
+		}
+	}
 	parts := strings.Split(data, ":")
 	if len(parts) < 3 {
 		return true
 	}
 	err := h.applyProfileCallback(ctx, operation, parts, m)
 	if err != nil && !errors.Is(err, errResponseSent) {
-		h.reply(ctx, m.Chat.ID, "Запись недоступна, выбор устарел или операция уже выполнена. Актуальные данные: /movie_profile")
+		_, _ = h.API.EditMessageText(ctx, &bot.EditMessageTextParams{ChatID: m.Chat.ID, MessageID: m.ID, Text: "Действие не применено: запись изменилась, выбор устарел или операция уже выполнена. Откройте актуальную историю.", ReplyMarkup: closableKeyboard(profileNavigation())})
 	}
 	return true
 }
@@ -192,24 +205,10 @@ func (h *Handler) applyProfileCallback(ctx context.Context, operation int64, p [
 	}
 	switch p[1] {
 	case "choose":
-		if len(p) != 4 {
-			return clubprofile.ErrInvalid
-		}
-		film, e := strconv.ParseInt(p[3], 10, 64)
-		if e != nil {
-			return e
-		}
-		d, e := h.Watches.Choose(ctx, m.Chat.ID, id, film)
-		if e != nil {
-			return e
-		}
-		return h.EditWatchCard(ctx, d)
+		return h.chooseProfileFilm(ctx, p, m, id)
 	case "pause_confirm":
-		if err = h.Watches.Change(ctx, operation, m.Chat.ID, id, "pause", ""); err != nil {
-			return err
-		}
-		return h.showClubProfile(ctx, m.Chat.ID, m.ID, "watch", id)
-	case "pause", "edit":
+		return h.confirmProfilePause(ctx, operation, p, m, id)
+	case menuPauseAction, "edit":
 		return h.showClubProfile(ctx, m.Chat.ID, m.ID, p[1], id)
 	case "annul":
 		// Old Telegram cards outlive releases. Their cancel buttons must also
@@ -249,4 +248,69 @@ func (h *Handler) PublishWatchCard(ctx context.Context, d clubprofile.WatchDraft
 		return nil
 	}
 	return err
+}
+
+func (h *Handler) currentWatchPanel(ctx context.Context, d clubprofile.WatchDraft) (string, *models.InlineKeyboardMarkup, bool, error) {
+	if h.ProfilePanels == nil {
+		return h.draftPanel(ctx, d)
+	}
+	page, id, closed, err := h.ProfilePanels.ProfilePage(ctx, d.ChatID, d.MessageID)
+	if err != nil || closed {
+		return "", nil, closed, err
+	}
+	if d.State != "saved" || page == "" || (page == "watch" && id == 0) {
+		return h.draftPanel(ctx, d)
+	}
+	view, err := h.loadProfileView(ctx, d.ChatID)
+	if err != nil {
+		return "", nil, false, err
+	}
+	expected, err := h.ProfilePanels.ProfilePageRevision(ctx, d.ChatID, d.MessageID)
+	if err != nil {
+		return "", nil, false, err
+	}
+	text, k := view.stableWatchPage(page, id, expected)
+	return text, k, false, nil
+}
+func (h *Handler) draftPanel(ctx context.Context, d clubprofile.WatchDraft) (string, *models.InlineKeyboardMarkup, bool, error) {
+	h.Log.DebugContext(ctx, "watch panel refreshed", "chat_id", d.ChatID, "draft_id", d.ID, "version", d.Version)
+	text, k, err := h.watchDraftCard(ctx, d)
+	return text, k, false, err
+}
+func (v clubProfileView) stableWatchPage(page string, id int64, expected int) (string, *models.InlineKeyboardMarkup) {
+	if page == menuPauseAction {
+		for _, w := range v.watches {
+			if w.ID == id && w.Revision != expected {
+				text, k := v.watchCard(id)
+				return "Настройки просмотра изменились. Старое подтверждение отменено.\n\n" + text, k
+			}
+		}
+	}
+	return v.page(page, id)
+}
+
+func (h *Handler) chooseProfileFilm(ctx context.Context, p []string, m *models.Message, id int64) error {
+	if len(p) != 4 {
+		return clubprofile.ErrInvalid
+	}
+	film, err := strconv.ParseInt(p[3], 10, 64)
+	if err != nil {
+		return err
+	}
+	d, err := h.Watches.Choose(ctx, m.Chat.ID, id, film)
+	if err != nil {
+		return err
+	}
+	return h.EditWatchCard(ctx, d)
+}
+
+func (h *Handler) confirmProfilePause(ctx context.Context, op int64, p []string, m *models.Message, id int64) error {
+	if len(p) != 4 {
+		return h.showClubProfile(ctx, m.Chat.ID, m.ID, "watch", id)
+	}
+	err := h.Watches.Change(ctx, op, m.Chat.ID, id, menuPauseAction, p[3])
+	if err != nil && !errors.Is(err, daily.ErrDuplicate) && !errors.Is(err, clubprofile.ErrDuplicate) {
+		return err
+	}
+	return h.showClubProfile(ctx, m.Chat.ID, m.ID, "watch", id)
 }

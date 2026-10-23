@@ -16,11 +16,12 @@ import (
 const watchActive = "active"
 
 type clubProfileView struct {
-	watches   []clubprofile.WatchEvent
-	sessions  []clubprofile.ReviewSession
-	polls     []clubprofile.Poll
-	schedules []clubprofile.Schedule
-	now       time.Time
+	preparations []clubprofile.PreparationState
+	watches      []clubprofile.WatchEvent
+	sessions     []clubprofile.ReviewSession
+	polls        []clubprofile.Poll
+	schedules    []clubprofile.Schedule
+	now          time.Time
 }
 
 func (h *Handler) loadProfileView(ctx context.Context, chat int64) (clubProfileView, error) {
@@ -31,10 +32,25 @@ func (h *Handler) loadProfileView(ctx context.Context, chat int64) (clubProfileV
 		return v, err
 	}
 	v.schedules, v.polls, err = h.Profile.Settings(ctx, chat)
+	if err == nil && h.ProfilePanels != nil {
+		v.preparations, err = h.ProfilePanels.ProfilePreparationStates(ctx, chat)
+	}
 	return v, err
 }
 
 func (h *Handler) showClubProfile(ctx context.Context, chat int64, message int, page string, id int64) error {
+	if h.ProfilePanels != nil && message > 0 {
+		_, _, closed, e := h.ProfilePanels.ProfilePage(ctx, chat, message)
+		if e != nil {
+			return e
+		}
+		if closed {
+			return errResponseSent
+		}
+		if e = h.ProfilePanels.SaveProfilePage(ctx, chat, message, page, id); e != nil {
+			return e
+		}
+	}
 	v, err := h.loadProfileView(ctx, chat)
 	if err != nil {
 		return err
@@ -61,7 +77,9 @@ func (v clubProfileView) page(page string, id int64) (string, *models.InlineKeyb
 		return v.watchList(int(id))
 	case "watch":
 		return v.watchCard(id)
-	case "pause", "edit":
+	case "details", "impressions", "actions":
+		return v.watchSection(id, page)
+	case menuPauseAction, "edit":
 		return v.watchActionCard(id, page)
 	case "interest":
 		return v.interestCard(int(id))
@@ -164,35 +182,11 @@ func (v clubProfileView) watchList(offset int) (string, *models.InlineKeyboardMa
 	if len(v.watches) == 0 {
 		b.WriteString("Добавьте просмотр: /movie_watched название или ссылка TMDB")
 	}
+	if offset > 0 {
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton("← Предыдущие 5", "watches", int64(max(0, offset-5)))})
+	}
 	if end < len(v.watches) {
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton("Следующие 5", "watches", int64(end))})
-	}
-	return b.String(), keyboard
-}
-
-func (v clubProfileView) watchCard(id int64) (string, *models.InlineKeyboardMarkup) {
-	keyboard := profileNavigation()
-	index := slices.IndexFunc(v.watches, func(w clubprofile.WatchEvent) bool { return w.ID == id })
-	if index < 0 {
-		return "Просмотр не найден в этом чате.", keyboard
-	}
-	w := v.watches[index]
-	var b strings.Builder
-	fmt.Fprintf(&b, "🎞 %s\nПросмотр #%d · %s (%s)\nhttps://www.themoviedb.org/movie/%d\n\n%s\n", clipProfile(w.Film.Label(), 180), w.ID, watchDate(w.Date), w.Zone, w.TMDBID, v.enjoymentLine(w.ID))
-	if w.State != watchActive {
-		b.WriteString("\nЗапись отменена. История и ответы сохранены, из сводного профиля исключены.\n")
-	} else {
-		b.WriteString(v.reviewStatus(w.ID))
-	}
-	appendFilmMetadata(&b, w.Film)
-	for _, p := range v.watchPolls(id) {
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton(fmt.Sprintf("Опрос #%d · %s", p.ID, questionAspectLabel(p.Question)), "poll", p.ID)})
-	}
-	if w.State == watchActive {
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
-			{Text: "Остановить вопросы…", CallbackData: fmt.Sprintf("cp:pause:%d", id)},
-			{Text: "Исправить", CallbackData: fmt.Sprintf("cp:edit:%d", id)},
-		})
 	}
 	return b.String(), keyboard
 }
@@ -204,16 +198,16 @@ func (v clubProfileView) watchActionCard(id int64, action string) (string, *mode
 	}
 	w := v.watches[index]
 	keyboard := &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
-		{profileButton("← Назад к фильму", "watch", id)},
+		{profileButton("← Другие действия", "actions", id)},
 	}}
 	heading := fmt.Sprintf("🎞 %s · просмотр #%d\n\n", clipProfile(w.Film.Label(), 180), id)
 	if action == "edit" {
 		return heading + fmt.Sprintf("Исправить дату вручную:\n/movie_watch_date %d YYYY-MM-DD\n\nВнимание: исправление даты остановит дальнейшие вопросы этой серии. История и ответы сохранятся.\n\nОтмена просмотра кнопкой отключена. Если ошиблись фильмом, попросите исправить запись вручную.", id), keyboard
 	}
 	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
-		{Text: "Да, остановить вопросы", CallbackData: fmt.Sprintf("cp:pause_confirm:%d", id)},
+		{Text: "Да, остановить вопросы", CallbackData: fmt.Sprintf("cp:pause_confirm:%d:%d", id, w.Revision)},
 	})
-	return heading + "Остановить дальнейшие вопросы об этом просмотре?\n\nФильм останется в истории, собранные ответы сохранятся. Уже опубликованные опросы останутся до завершения. Серия сама не возобновится.\n\nЕсли просто открыли карточку — нажмите «Назад к фильму».", keyboard
+	return heading + "Остановить дальнейшие вопросы об этом просмотре?\n\nФильм останется в истории, собранные ответы сохранятся. Уже опубликованные опросы останутся до завершения. Серия сама не возобновится.\n\nЕсли просто открыли карточку — нажмите «Другие действия».", keyboard
 }
 
 func appendFilmMetadata(b *strings.Builder, f clubprofile.Film) {
@@ -243,12 +237,21 @@ func (v clubProfileView) reviewStatus(watch int64) string {
 		}
 		polls := v.watchPolls(watch)
 		d := clubprofile.ReviewProgress(s, polls, v.now)
-		covered := len(d.Coverage.Covered)
+		covered := 0
+		for _, target := range s.Plan.Targets {
+			if d.Coverage.Covered[target] {
+				covered++
+			}
+		}
 		if d.Coverage.Overall {
 			covered++
 		}
 		status := sessionLabel(s.State, s.Reason)
-		return fmt.Sprintf("\nИсследование: %s\nПокрыто: %d/5 тем · минимум %d ответа на каждую в одном опросе\n%s\n%s\n", status, covered, s.Plan.MinimumAnswers, researchCoverageText(s.Plan, d.Coverage), v.nextResearchText(s))
+		details := researchCoverageText(s.Plan, d.Coverage)
+		if s.Plan.Version != clubprofile.CoverageV2 && len(polls) == 0 {
+			details = "Темы уточняются до начала обсуждения.\n"
+		}
+		return fmt.Sprintf("\nИсследование: %s\n%s\nПокрыто: %d/%d тем · минимум %d ответа на каждую в одном опросе\n%s\n%s\n", status, v.preparationLabel(s), covered, len(s.Plan.Targets)+1, s.Plan.MinimumAnswers, details, v.nextResearchText(s))
 	}
 	return "\nСохранён как история; автоматическое обсуждение не запущено. Это бывает при старой/неточной дате или выключенном автообсуждении.\n"
 }
@@ -309,8 +312,9 @@ func (v clubProfileView) nextResearchText(s clubprofile.ReviewSession) string {
 	if s.State != "queued" && s.State != "researching" {
 		return "Новые вопросы не запланированы."
 	}
+	prefix := ""
 	if reason := v.reviewWaitingReason(s); reason != "" {
-		return reason
+		prefix = reason + "\n"
 	}
 	next, zone := v.nextResearchSlot()
 	if next.IsZero() {
@@ -323,7 +327,7 @@ func (v clubProfileView) nextResearchText(s clubprofile.ReviewSession) string {
 	if err != nil {
 		return "Проверьте часовой пояс расписания."
 	}
-	return "Ближайший возможный исследовательский слот: " + next.In(loc).Format("02.01 15:04") + " · " + zone + ". До двух вопросов за слот."
+	return prefix + "Ближайшее окно обсуждений клуба: " + next.In(loc).Format("02.01 15:04") + " · " + zone + ". До двух вопросов за слот; очередь и ответы могут сдвинуть вопросы по этому фильму."
 }
 
 func (v clubProfileView) pollCard(id int64) (string, *models.InlineKeyboardMarkup) {
@@ -339,7 +343,14 @@ func (v clubProfileView) pollCard(id int64) (string, *models.InlineKeyboardMarku
 			appendProfileResult(&b, p)
 		}
 		fmt.Fprintf(&b, "\n\nВерсия: %s · шкала: %s\nИсточник вопроса: %s", p.Question.Version, p.Question.Scale, p.Question.Source)
-		return b.String(), profileNavigation()
+		keyboard := profileNavigation()
+		for _, session := range v.sessions {
+			if session.ID == p.SessionID {
+				keyboard = &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{profileButton("← Впечатления", "impressions", session.WatchID)}}}
+				break
+			}
+		}
+		return b.String(), keyboard
 	}
 	return "Опрос не найден в этом чате.", profileNavigation()
 }
@@ -438,9 +449,10 @@ func (v clubProfileView) reviewWaitingReason(s clubprofile.ReviewSession) string
 			return "Сначала дождёмся итогов уже подготовленных вопросов."
 		}
 	}
-	for _, other := range v.sessions {
-		if other.ID != s.ID && (other.State == "researching" || other.State == "blocked" || (other.State == "queued" && other.ID < s.ID)) {
-			return "Перед этим фильмом есть другие просмотры в очереди."
+	queue := clubprofile.ReviewQueue(v.sessions)
+	for index, other := range queue {
+		if other.ID == s.ID && index > 0 {
+			return fmt.Sprintf("Очередь обсуждений: %d из %d. Перед фильмом есть другие просмотры.", index+1, len(queue))
 		}
 	}
 	return ""

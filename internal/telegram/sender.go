@@ -19,6 +19,7 @@ type PostRecorder interface {
 }
 
 type Sender struct {
+	Closable    bool
 	API         API
 	Feedback    PostRecorder
 	Publication string
@@ -34,19 +35,19 @@ func (s Sender) Send(ctx context.Context, chatID int64, item daily.Item) (int, e
 	if item.Kind == daily.Meme {
 		message, err = s.API.SendPhoto(sendCtx, &bot.SendPhotoParams{
 			ChatID: chatID, Photo: &models.InputFileString{Data: item.Image},
-			Caption: memeCaption(item), ParseMode: models.ParseModeHTML,
+			Caption: memeCaption(item), ParseMode: models.ParseModeHTML, ReplyMarkup: s.previewKeyboard(),
 		})
 	} else {
 		message, err = s.API.SendMessage(sendCtx, &bot.SendMessageParams{
 			ChatID: chatID, Text: factMessage(item), ParseMode: models.ParseModeHTML,
-			LinkPreviewOptions: disabledLinkPreview(),
+			LinkPreviewOptions: disabledLinkPreview(), ReplyMarkup: s.previewKeyboard(),
 		})
 	}
 	if err != nil {
 		return 0, classify(err)
 	}
 	if message == nil || message.ID <= 0 {
-		return 0, &daily.SendError{Kind: "unknown"}
+		return 0, &daily.SendError{Kind: deliveryUnknown}
 	}
 	s.registerFeedback(ctx, chatID, message.ID, item)
 	return message.ID, nil
@@ -142,9 +143,16 @@ func classify(err error) error {
 	if errors.Is(err, bot.ErrorBadRequest) || errors.Is(err, bot.ErrorNotFound) {
 		return &daily.SendError{Kind: "permanent"}
 	}
-	return &daily.SendError{Kind: "unknown"}
+	return &daily.SendError{Kind: deliveryUnknown}
 }
 
 func disabledLinkPreview() *models.LinkPreviewOptions {
 	return &models.LinkPreviewOptions{IsDisabled: new(true)}
+}
+
+func (s Sender) previewKeyboard() *models.InlineKeyboardMarkup {
+	if s.Closable {
+		return closableKeyboard(nil)
+	}
+	return nil
 }

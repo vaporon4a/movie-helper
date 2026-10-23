@@ -72,11 +72,17 @@ func (h *Handler) handleMessage(ctx context.Context, update *models.Update) {
 	if h.handleBasicMessage(ctx, message, command, args) {
 		return
 	}
+	if command == "" && (message.From == nil || message.From.IsBot || message.SenderChat != nil) {
+		return
+	}
 	if message.From == nil || message.From.IsBot || message.SenderChat != nil {
 		h.reply(ctx, message.Chat.ID, "Отправьте команду от своего имени.")
 		return
 	}
 	if command == "" {
+		if h.handleDailyTimeReply(ctx, message) {
+			return
+		}
 		if h.handleIdeaReply(ctx, update) {
 			return
 		}
@@ -116,7 +122,7 @@ func (h *Handler) handleBasicMessage(ctx context.Context, message *models.Messag
 		h.handleMigration(ctx, message)
 		return true
 	}
-	if command == "" && !isIdeaReply(message) {
+	if command == "" && !isIdeaReply(message) && (h.DailyMenu == nil || message.ReplyToMessage == nil) {
 		return true
 	}
 	if err := h.Daily.EnsureChat(ctx, message.Chat.ID); err != nil {

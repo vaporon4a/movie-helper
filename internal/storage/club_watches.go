@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/vaporon4a/movie-helper/internal/clubprofile"
@@ -182,6 +183,10 @@ func (s *Store) ChangeProfileWatch(ctx context.Context, op, chat, id int64, acti
 		if err != nil {
 			return err
 		}
+		if err = validateWatchConfirmation(ctx, tx, w, action, value); err != nil {
+			return err
+		}
+
 		if err = changeWatchValue(&w, action, value, now); err != nil {
 			return err
 		}
@@ -242,4 +247,22 @@ func (s *Store) SetAutoReview(ctx context.Context, op, chat int64, enabled bool,
 		_, err = tx.ExecContext(ctx, "UPDATE club_profile_polls SET state='cancelled',error_code='auto_review_off',next_attempt=? WHERE chat_id=? AND topic='post_watch' AND state='planned'", now.Unix(), chat)
 		return err
 	})
+}
+
+func validateWatchConfirmation(ctx context.Context, tx *sql.Tx, w clubprofile.WatchEvent, action, value string) error {
+	if action != "pause" || value == "" {
+		return nil
+	}
+	revision, err := strconv.Atoi(value)
+	if err != nil || revision != w.Revision {
+		return clubprofile.ErrConflict
+	}
+	var live bool
+	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM club_review_sessions WHERE watch_id=? AND state IN ('queued','researching','blocked'))", w.ID).Scan(&live); err != nil {
+		return err
+	}
+	if !live {
+		return clubprofile.ErrConflict
+	}
+	return nil
 }

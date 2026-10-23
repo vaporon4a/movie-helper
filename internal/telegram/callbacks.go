@@ -18,15 +18,7 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 	if message == nil || query.From.IsBot {
 		return
 	}
-	if query.Data == closePanelAction {
-		h.closePanelCallback(ctx, query, message)
-		return
-	}
-	if strings.HasPrefix(query.Data, "fv:") && h.featureCallback(ctx, query, message) {
-		return
-	}
-	if strings.HasPrefix(query.Data, "nav:") {
-		h.navigationCallback(ctx, query, message)
+	if h.panelCallback(ctx, query, message) {
 		return
 	}
 	if !h.Allowed[message.Chat.ID] {
@@ -58,4 +50,20 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 
 func retiredMovieCallback(data string) bool {
 	return strings.HasPrefix(data, "movie_more:") || strings.HasPrefix(data, "movie_taste_reset:")
+}
+
+func (h *Handler) panelCallback(ctx context.Context, q *models.CallbackQuery, m *models.Message) bool {
+	switch {
+	case q.Data == closePanelAction:
+		h.closePanelCallback(ctx, q, m)
+	case strings.HasPrefix(q.Data, "fv:"):
+		return h.featureCallback(ctx, q, m)
+	case strings.HasPrefix(q.Data, "dm:"):
+		h.dailyMenuCallback(ctx, q, m)
+	case strings.HasPrefix(q.Data, "nav:"):
+		h.navigationCallback(ctx, q, m)
+	default:
+		return false
+	}
+	return true
 }

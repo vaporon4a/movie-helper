@@ -121,17 +121,19 @@ type FeedbackRecorder interface {
 }
 
 type Handler struct {
-	Profile  ProfileApplication
-	Watches  WatchApplication
-	Feedback FeedbackRecorder
-	Club     ClubReminders
-	API      API
-	Features FeatureVotes
-	Daily    DailyApplication
-	Allowed  map[int64]bool
-	Username string
-	Log      *slog.Logger
-	Now      func() time.Time
+	ProfilePanels clubprofile.ProfilePanelRepository
+	DailyMenu     *daily.MenuService
+	Profile       ProfileApplication
+	Watches       WatchApplication
+	Feedback      FeedbackRecorder
+	Club          ClubReminders
+	API           API
+	Features      FeatureVotes
+	Daily         DailyApplication
+	Allowed       map[int64]bool
+	Username      string
+	Log           *slog.Logger
+	Now           func() time.Time
 }
 
 type ProfileApplication interface {

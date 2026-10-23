@@ -94,6 +94,8 @@ func run() error {
 		return err
 	}
 	handler.Feedback = store
+	handler.ProfilePanels = store
+	handler.DailyMenu = &daily.MenuService{Store: store, Stock: store, Log: log}
 	s, err := scheduler.New(store, telegram.Sender{API: b, Feedback: store, Log: log, Now: time.Now}, provider, cfg.Chats, log, time.Now)
 	if err != nil {
 		return err

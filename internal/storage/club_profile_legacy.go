@@ -131,7 +131,7 @@ func legacyProfileState(r legacyProfileRound) (clubprofile.PollState, bool) {
 		return clubprofile.Unknown, false
 	case "failed":
 		return clubprofile.Failed, false
-	case "cancelled", "planned":
+	case cancelledState, "planned":
 		return clubprofile.Cancelled, false
 	default:
 		return clubprofile.Failed, false

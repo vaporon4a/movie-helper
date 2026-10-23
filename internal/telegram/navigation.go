@@ -27,6 +27,21 @@ func menuBack() *models.InlineKeyboardMarkup {
 
 func (h *Handler) showMenu(ctx context.Context, chat int64, message int, page string, private bool) error {
 	h.Log.DebugContext(ctx, "menu requested", "chat_id", chat, "page", page, "message_id", message)
+	if h.DailyMenu != nil && message > 0 && !private {
+		closed, err := h.DailyMenu.Store.DailyPanelClosed(ctx, chat, message)
+		if err != nil {
+			return err
+		}
+		if closed {
+			return errResponseSent
+		}
+	}
+	if err := h.cancelDailyPanel(ctx, chat, message); err != nil {
+		return err
+	}
+	if strings.HasPrefix(page, "daily_") && !private {
+		return h.dailyKindPanel(ctx, chat, message, strings.TrimPrefix(page, "daily_"), "", false)
+	}
 	p, err := h.menuPage(ctx, chat, page, private)
 	if err != nil {
 		return err
@@ -69,7 +84,7 @@ func (h *Handler) navigationCallback(ctx context.Context, q *models.CallbackQuer
 
 func knownMenuPage(page string) bool {
 	switch page {
-	case "help", "about", "home", "timezone", "daily", "movies", "club", "ideas", "backlog", "advanced", "moderation", "diagnostics", "movie_state":
+	case "help", "about", "home", "timezone", "daily", "movies", "club", "ideas", "backlog", "advanced", "moderation", "diagnostics", "movie_state", "daily_meme", "daily_fact":
 		return true
 	default:
 		return false
@@ -88,7 +103,7 @@ func (h *Handler) menuPage(ctx context.Context, chat int64, page string, private
 			{menuButton("⚙️ Настройки", "home"), menuButton("ℹ️ О боте", "about")},
 		}}}, nil
 	case "about":
-		return menuPanel{about, keyboard}, nil
+		return menuPanel{about, &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{menuButton("← Помощь", "help"), menuButton("⚙️ Настройки", "home")}}}}, nil
 	case "home":
 		if private {
 			return menuPanel{"⚙️ Настройки принадлежат группе киноклуба. Откройте /settings в подключённой группе — там же будут её расписания и история.", keyboard}, nil
@@ -113,7 +128,7 @@ func (h *Handler) menuPage(ctx context.Context, chat int64, page string, private
 		}, keyboard.InlineKeyboard...)
 		return menuPanel{helpManage, keyboard}, nil
 	case "moderation":
-		return menuPanel{moderationHelp, keyboard}, nil
+		return menuPanel{moderationHelp, &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{menuButton("← Дополнительно", "advanced")}}}}, nil
 	case "diagnostics":
 		return h.diagnosticsMenu(ctx, chat)
 	case "movie_state":

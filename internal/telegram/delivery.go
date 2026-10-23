@@ -9,6 +9,8 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/clubprofile"
 )
 
+const deliveryUnknown = "unknown"
+
 func classifyProfileDelivery(err error) *clubprofile.DeliveryError {
 	if rate, ok := errors.AsType[*bot.TooManyRequestsError](err); ok {
 		return &clubprofile.DeliveryError{Kind: "retry", After: time.Duration(rate.RetryAfter) * time.Second, Reason: "rate_limit"}

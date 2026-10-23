@@ -45,17 +45,8 @@ func (h *Handler) handleDailyCommand(ctx context.Context, update *models.Update,
 			return true, errResponseSent
 		}
 		return true, err
-	case "/timezone":
-		return true, h.Daily.SetZone(ctx, update.ID, chatID, args, now)
-	case "/schedule":
-		fields := strings.Fields(args)
-		if len(fields) != 2 {
-			h.reply(ctx, chatID, "Пример: /schedule meme 09:00. Сначала задайте /timezone.")
-			return true, errResponseSent
-		}
-		return true, h.Daily.SetSchedule(ctx, update.ID, chatID, fields[0], fields[1], true, now)
-	case "/pause":
-		return true, h.Daily.SetSchedule(ctx, update.ID, chatID, args, "09:00", false, now)
+	case "/timezone", "/schedule", "/pause":
+		return true, h.dailyScheduleCommand(ctx, update.ID, chatID, command, args, now)
 	case "/resume":
 		return true, h.Daily.Resume(ctx, update.ID, chatID)
 	case "/suggest_fact":

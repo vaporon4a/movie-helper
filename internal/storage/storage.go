@@ -443,7 +443,7 @@ func (s *Store) Finish(ctx context.Context, id int64, state string, message int,
 			itemState = sentState
 		case "failed":
 			itemState = "failed"
-		case "cancelled":
+		case cancelledState:
 			itemState = approvedState
 		}
 		_, err := tx.ExecContext(ctx, "UPDATE items SET state=? WHERE id=? AND state='reserved'", itemState, item)

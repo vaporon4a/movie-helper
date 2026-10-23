@@ -65,7 +65,7 @@ func settingsText(schedules []daily.Schedule, issues []daily.Delivery, now time.
 	}
 	lines = append(lines, "Источники: Reddit; фильмы TMDB → русская Wikipedia. AI отбирает факты без пересказа: Gemini с резервом Groq (если настроен).")
 	for _, delivery := range issues {
-		if delivery.State == "unknown" {
+		if delivery.State == deliveryUnknown {
 			lines = append(lines, "unknown: проверьте чат и выполните /resolve ID sent или /resolve ID requeue.")
 			break
 		}

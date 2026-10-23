@@ -38,7 +38,7 @@ func TestWatchedCommandOneCardEqualMembersAndQuietCorrections(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.Handle(ctx, nil, update(500, -1, 42, "/movie_watched https://www.themoviedb.org/movie/603"))
-	if len(api.messages) != 1 || !strings.Contains(api.messages[0].Text, "Просмотр сохранён") || !strings.Contains(api.messages[0].Text, "расписание выключено") || len(api.photos) != 0 {
+	if len(api.messages) != 1 || !strings.Contains(api.messages[0].Text, "Просмотр сохранён") || !strings.Contains(api.messages[0].Text, "Обсуждение:") || len(api.photos) != 0 {
 		t.Fatal(api.messages)
 	}
 	h.Handle(ctx, nil, update(500, -1, 42, "/movie_watched https://www.themoviedb.org/movie/603"))
@@ -66,8 +66,8 @@ func TestWatchedCommandOneCardEqualMembersAndQuietCorrections(t *testing.T) {
 	if !strings.Contains(api.edits[len(api.edits)-1].Text, "Серия сама не возобновится") {
 		t.Fatal("pause did not explain consequences")
 	}
-	click(521, "cp:pause_confirm:1")
-	click(521, "cp:pause_confirm:1")
+	click(521, "cp:pause_confirm:1:1")
+	click(521, "cp:pause_confirm:1:1")
 	watches, err := store.ProfileWatches(ctx, -1)
 	if err != nil || len(watches) != 1 || watches[0].State != "active" || watches[0].Revision != 2 {
 		t.Fatal("confirmation replay changed watch twice", watches, err)
@@ -95,7 +95,7 @@ func TestWatchCardHasNoCancellationAndPauseNeedsExplicitConfirmation(t *testing.
 				if strings.HasPrefix(b.CallbackData, "cp:annul:") {
 					t.Fatal("cancellation button remains", page)
 				}
-				confirmation = confirmation || b.CallbackData == "cp:pause_confirm:2"
+				confirmation = confirmation || strings.HasPrefix(b.CallbackData, "cp:pause_confirm:2:")
 			}
 		}
 		if confirmation != (page == "pause") {

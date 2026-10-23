@@ -53,8 +53,14 @@ func (h *Handler) dailyMenu(ctx context.Context, chat int64) (menuPanel, error) 
 	for _, s := range schedules {
 		lines = append(lines, scheduleText(s))
 	}
-	lines = append(lines, "", "Попробовать сейчас:\n/preview meme\n/preview fact", "", "Настроить время и включить:\n/schedule meme 09:00\n/schedule fact 12:00", "", "Выключить рубрику:\n/pause meme\n/pause fact", "", "Время — по часовому поясу чата. Предпросмотр не меняет расписание.")
-	return menuPanel{strings.Join(lines, "\n"), menuBack()}, nil
+	keyboard := menuBack()
+	if h.DailyMenu != nil {
+		keyboard.InlineKeyboard = append([][]models.InlineKeyboardButton{{menuButton("🎭 Мем дня", "daily_meme"), menuButton("🎬 Факт дня", "daily_fact")}}, keyboard.InlineKeyboard...)
+		lines = append(lines, "", "Выберите рубрику: время, включение и пример — кнопками ниже.")
+	} else {
+		lines = append(lines, "", "Попробовать сейчас:\n/preview meme\n/preview fact", "", "Настроить время и включить:\n/schedule meme 09:00\n/schedule fact 12:00", "", "Выключить рубрику:\n/pause meme\n/pause fact", "", "Время — по часовому поясу чата. Предпросмотр не меняет расписание.")
+	}
+	return menuPanel{strings.Join(lines, "\n"), keyboard}, nil
 }
 
 func (h *Handler) moviesMenu(ctx context.Context, chat int64) (menuPanel, error) {
@@ -137,8 +143,7 @@ func (h *Handler) diagnosticsMenu(ctx context.Context, chat int64) (menuPanel, e
 		return menuPanel{}, err
 	}
 	text := "🛠 Диагностика\n\n" + settingsText(schedules, issues, now, stocks) + "\n\n" + diagnosticsHelp
-	keyboard := menuBack()
-	keyboard.InlineKeyboard = append([][]models.InlineKeyboardButton{{menuButton("🎬 Состояние киноопросов", "movie_state")}}, keyboard.InlineKeyboard...)
+	keyboard := &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{menuButton("🎬 Состояние киноопросов", "movie_state")}, {menuButton("← Дополнительно", "advanced")}}}
 	return menuPanel{text, keyboard}, nil
 }
 
