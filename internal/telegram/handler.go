@@ -137,11 +137,11 @@ func (h *Handler) handlePrivate(ctx context.Context, message *models.Message, co
 	}
 	switch command {
 	case "/start", "/help":
-		h.reply(ctx, chatID, help)
+		h.finishCommand(ctx, chatID, command, h.showMenu(ctx, chatID, 0, "help", true))
 	case "/about":
-		h.reply(ctx, chatID, about)
-	case "/help_manage", "/help_admin":
-		h.reply(ctx, chatID, helpManage)
+		h.finishCommand(ctx, chatID, command, h.showMenu(ctx, chatID, 0, "about", true))
+	case "/settings", "/help_manage", "/help_admin":
+		h.finishCommand(ctx, chatID, command, h.showMenu(ctx, chatID, 0, "home", true))
 	}
 }
 
@@ -157,16 +157,18 @@ func (h *Handler) handleMigration(ctx context.Context, message *models.Message) 
 }
 
 func (h *Handler) handleReference(ctx context.Context, chatID int64, command string) bool {
+	var page string
 	switch command {
 	case "/start", "/help":
-		h.reply(ctx, chatID, help)
+		page = "help"
 	case "/help_manage", "/help_admin":
-		h.reply(ctx, chatID, helpManage)
+		page = "advanced"
 	case "/about":
-		h.reply(ctx, chatID, about)
+		page = "about"
 	default:
 		return false
 	}
+	h.finishCommand(ctx, chatID, command, h.showMenu(ctx, chatID, 0, page, false))
 	return true
 }
 

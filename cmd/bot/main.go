@@ -80,6 +80,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	configureTelegramMenu(ctx, b, log)
 	redirect := func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
 	provider, primaryAI, secondaryAI := buildContentProvider(cfg, store, log, redirect)
 	titles := ai.FeatureTitleGenerator{Primary: primaryAI, Secondary: secondaryAI, PrimaryTimeout: 30 * time.Second, SecondaryTimeout: 20 * time.Second, Log: log}

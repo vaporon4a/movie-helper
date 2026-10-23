@@ -21,6 +21,10 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 	if strings.HasPrefix(query.Data, "fv:") && h.featureCallback(ctx, query, message) {
 		return
 	}
+	if strings.HasPrefix(query.Data, "nav:") {
+		h.navigationCallback(ctx, query, message)
+		return
+	}
 	if !h.Allowed[message.Chat.ID] {
 		return
 	}

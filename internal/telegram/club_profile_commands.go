@@ -49,6 +49,9 @@ func (h *Handler) handleProfileCommand(ctx context.Context, u *models.Update, co
 		return false, nil
 	}
 	chat := u.Message.Chat.ID
+	if command == "/movie_settings" {
+		return true, h.showMenu(ctx, chat, 0, "movies", false)
+	}
 	if h.Profile == nil {
 		h.reply(ctx, chat, "Профиль киноклуба временно недоступен.")
 		return true, errResponseSent
@@ -60,20 +63,12 @@ func (h *Handler) handleProfileCommand(ctx context.Context, u *models.Update, co
 		return true, h.setProfileSchedule(ctx, u, args, false)
 	case "/movie_pause":
 		return true, h.setProfileSchedule(ctx, u, args, true)
-	case "/movie_settings", "/movie_taste", "/movie_profile":
-		schedules, polls, err := h.Profile.Settings(ctx, chat)
+	case "/movie_taste", "/movie_profile":
+		_, polls, err := h.Profile.Settings(ctx, chat)
 		if err != nil {
 			return true, err
 		}
 		text := profileEvidenceText(polls)
-		if command == "/movie_settings" {
-			text = profileSettingsText(schedules, polls)
-			status, e := h.Profile.Status(ctx, chat)
-			if e != nil {
-				return true, e
-			}
-			text += profileStatusText(status)
-		}
 		h.reply(ctx, chat, text)
 		return true, errResponseSent
 	case "/movie_personalization", "/movie_taste_reset":

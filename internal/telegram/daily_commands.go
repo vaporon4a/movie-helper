@@ -23,7 +23,7 @@ func (h *Handler) handleDailyCommand(ctx context.Context, update *models.Update,
 	case "/preview":
 		return true, h.preview(ctx, chatID, args)
 	case "/settings":
-		return true, h.settings(ctx, chatID, now)
+		return true, h.showMenu(ctx, chatID, 0, "home", false)
 	case "/refill":
 		if !daily.ValidKind(args) && args != "titles" {
 			h.reply(ctx, chatID, "Формат: /refill fact, /refill meme или /refill titles.")
@@ -116,23 +116,6 @@ func (h *Handler) preview(ctx context.Context, chatID int64, kind string) error 
 		h.Log.Warn("preview delivery not confirmed", "chat_id", chatID)
 		h.reply(ctx, chatID, "Доставка предпросмотра не подтверждена. Проверьте чат перед повторной командой.")
 	}
-	return errResponseSent
-}
-
-func (h *Handler) settings(ctx context.Context, chatID int64, now time.Time) error {
-	schedules, err := h.Daily.Schedules(ctx, chatID)
-	if err != nil {
-		return err
-	}
-	issues, err := h.Daily.Issues(ctx, chatID)
-	if err != nil {
-		return err
-	}
-	stocks, err := h.Daily.Stocks(ctx, chatID, now)
-	if err != nil {
-		return err
-	}
-	h.reply(ctx, chatID, settingsText(schedules, issues, now, stocks))
 	return errResponseSent
 }
 

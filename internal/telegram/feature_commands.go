@@ -57,12 +57,7 @@ func (h *Handler) handleFeatureCommand(ctx context.Context, update *models.Updat
 	case "/idea_round":
 		return true, h.startFeatureRound(ctx, update.ID, chatID, args)
 	case "/idea_settings":
-		settings, err := h.Features.Settings(ctx, chatID)
-		if err == nil {
-			h.reply(ctx, chatID, featureSettingsText(settings))
-			return true, errResponseSent
-		}
-		return true, err
+		return true, h.showMenu(ctx, chatID, 0, "ideas", false)
 	case "/idea_backlog":
 		ideas, err := h.Features.Backlog(ctx, chatID)
 		if err == nil {

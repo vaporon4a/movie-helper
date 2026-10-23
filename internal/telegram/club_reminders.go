@@ -41,12 +41,7 @@ func (h *Handler) handleClubCommand(ctx context.Context, update *models.Update, 
 	case "/club_pause":
 		return true, h.Club.Pause(ctx, update.ID, chat)
 	case "/club_settings":
-		settings, err := h.Club.Settings(ctx, chat)
-		if err != nil {
-			return true, err
-		}
-		h.reply(ctx, chat, clubSettingsText(settings, h.Now()))
-		return true, errResponseSent
+		return true, h.showMenu(ctx, chat, 0, "club", false)
 	case "/club_preview":
 		return true, h.clubPreview(ctx, chat)
 	case "/club_resolve":
