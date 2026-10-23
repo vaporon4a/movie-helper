@@ -25,10 +25,10 @@ func dailyName(kind string) string {
 	return "🎬 Факт дня"
 }
 func (h *Handler) cancelDailyPanel(ctx context.Context, chat int64, message int) error {
-	if h.DailyMenu == nil || message <= 0 {
+	if h.Interactions == nil || message <= 0 {
 		return nil
 	}
-	prompts, err := h.DailyMenu.Store.CancelDailyIntents(ctx, chat, message, h.Now())
+	prompts, err := h.Interactions.CancelPanel(ctx, chat, message, h.Now())
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,14 @@ func (h *Handler) dailyKindPanel(ctx context.Context, chat int64, message int, k
 	if h.DailyMenu == nil || !daily.ValidKind(kind) {
 		return daily.ErrConflict
 	}
-	closed, err := h.DailyMenu.Store.DailyPanelClosed(ctx, chat, message)
+	screen, screenErr := h.Interactions.PanelScreen(ctx, chat, message)
+	if screenErr != nil {
+		return screenErr
+	}
+	if screen != "" && screen != dailyPage {
+		return nil
+	}
+	closed, err := h.Interactions.Closed(ctx, chat, message)
 	if err != nil {
 		return err
 	}
@@ -53,11 +60,20 @@ func (h *Handler) dailyKindPanel(ctx context.Context, chat int64, message int, k
 	if err := h.cancelDailyPanel(ctx, chat, message); err != nil {
 		return err
 	}
-	c, err := h.DailyMenu.Store.DailyConfig(ctx, chat)
+	c, err := h.DailyMenu.Config(ctx, chat)
 	if err != nil {
 		return err
 	}
 	text, actions := dailyPanelPresentation(c, kind, notice, confirm)
+	_, unresolved, issueErr := h.DailyMenu.PreviewIssue(ctx, chat, kind, h.Now())
+	if issueErr != nil {
+		return issueErr
+	}
+	if unresolved && !confirm {
+		text += "\n\n⚠️ Доставка прошлого примера не подтверждена. Проверьте сообщения в чате."
+		actions = append(actions, dailyMenuAction{"🛠 Разобрать доставку", "preview_recovery"})
+	}
+
 	keyboard := &models.InlineKeyboardMarkup{}
 	if err = h.dailyActionButtons(ctx, keyboard, actions, daily.MenuIntent{ChatID: chat, PanelID: message, Kind: kind, Revision: c.Revision}); err != nil {
 		return err
@@ -65,7 +81,7 @@ func (h *Handler) dailyKindPanel(ctx context.Context, chat int64, message int, k
 	if confirm {
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{menuButton("← Отмена", "daily_"+kind)})
 	}
-	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{menuButton("← Мемы и факты", "daily")})
+	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{menuButton("← Мемы и факты", dailyPage)})
 	_, err = h.API.EditMessageText(ctx, &bot.EditMessageTextParams{ChatID: chat, MessageID: message, Text: text, ReplyMarkup: closableKeyboard(keyboard), LinkPreviewOptions: disabledLinkPreview()})
 	return err
 }
@@ -73,14 +89,27 @@ func (h *Handler) dailyMenuCallback(ctx context.Context, q *models.CallbackQuery
 	if h.DailyMenu == nil || !h.Allowed[m.Chat.ID] || m.Chat.Type == models.ChatTypePrivate {
 		return
 	}
-	i, err := h.DailyMenu.Store.DailyIntent(ctx, strings.TrimPrefix(q.Data, "dm:"), m.Chat.ID, m.ID, h.Now())
+	i, err := h.Interactions.Input(ctx, strings.TrimPrefix(q.Data, "dm:"), m.Chat.ID, m.ID, h.Now())
 	if err != nil {
-		_, _ = h.API.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{CallbackQueryID: q.ID, Text: "Меню устарело. Откройте /settings."})
-		h.Log.DebugContext(ctx, "daily menu intent expired", "chat_id", m.Chat.ID)
+		_, _ = h.API.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{CallbackQueryID: q.ID, Text: menuErrorText(err)})
+		if errors.Is(err, daily.ErrConflict) {
+			h.Log.DebugContext(ctx, "daily menu intent expired", "chat_id", m.Chat.ID)
+		} else {
+			h.Log.WarnContext(ctx, "daily menu lookup failed", "chat_id", m.Chat.ID, "reason", "storage_unavailable")
+		}
 		return
 	}
 	_, _ = h.API.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{CallbackQueryID: q.ID})
 	switch i.Action {
+	case "preview_recovery", "preview_seen", "preview_absent":
+		err = h.previewRecoveryPanel(ctx, i, i.Action)
+	case "resolve_seen", "resolve_absent":
+		err = h.DailyMenu.ResolvePreview(ctx, i.ChatID, daily.PreviewIssue{Token: i.Clock, Kind: i.Kind, Revision: i.Revision}, i.Action == "resolve_seen", h.Now())
+		notice := "✅ Решение сохранено. Повторной отправки не было. Новый пример можно запросить отдельным нажатием."
+		if err != nil {
+			notice = menuErrorText(err)
+		}
+		err = h.dailyKindPanel(ctx, i.ChatID, i.PanelID, i.Kind, notice, false)
 	case "ask_pause":
 		err = h.dailyKindPanel(ctx, m.Chat.ID, m.ID, i.Kind, "", true)
 	case "ask_time":
@@ -95,7 +124,7 @@ func (h *Handler) dailyMenuCallback(ctx context.Context, q *models.CallbackQuery
 			notice = "✅ Изменение сохранено. Расписание действует для будущих публикаций."
 		}
 		if err != nil {
-			notice = "Настройки изменились или действие устарело. Проверьте актуальные значения и нажмите ещё раз."
+			notice = menuErrorText(err)
 		}
 		err = h.dailyKindPanel(ctx, m.Chat.ID, m.ID, i.Kind, notice, false)
 	}
@@ -111,16 +140,16 @@ func (h *Handler) askDailyTime(ctx context.Context, i daily.MenuIntent, user mod
 	if err := h.cancelDailyPanel(ctx, i.ChatID, i.PanelID); err != nil {
 		return err
 	}
-	prompts, err := h.DailyMenu.Store.CancelDailyActorInputs(ctx, i.ChatID, user.ID)
+	prompts, err := h.Interactions.CancelActorInputs(ctx, i.ChatID, user.ID)
 	if err != nil {
 		return err
 	}
 	for _, id := range prompts {
 		_ = h.deleteOrHidePanel(ctx, i.ChatID, id)
 	}
-	i.Action = "time"
+	i.Action = timeInputAction
 	i.ActorID = user.ID
-	next, err := h.DailyMenu.NewIntent(ctx, i, h.Now())
+	next, err := h.Interactions.NewIntent(ctx, i, h.Now())
 	if err != nil {
 		return err
 	}
@@ -132,14 +161,14 @@ func (h *Handler) askDailyTime(ctx context.Context, i daily.MenuIntent, user mod
 	if m == nil || m.ID <= 0 {
 		return daily.ErrConflict
 	}
-	return h.DailyMenu.Store.BindDailyPrompt(ctx, next.Token, m.ID)
+	return h.Interactions.BindPrompt(ctx, next.Token, m.ID)
 }
 func (h *Handler) handleDailyTimeReply(ctx context.Context, m *models.Message) bool {
 	if h.DailyMenu == nil || m.From == nil || m.ReplyToMessage == nil {
 		return false
 	}
-	i, err := h.DailyMenu.Store.DailyReplyIntent(ctx, m.Chat.ID, m.From.ID, m.ReplyToMessage.ID, h.Now())
-	if err != nil {
+	i, err := h.Interactions.Reply(ctx, m.Chat.ID, m.From.ID, m.ReplyToMessage.ID, h.Now())
+	if err != nil || !daily.ValidKind(i.Kind) {
 		return false
 	}
 	clock := strings.TrimSpace(m.Text)
@@ -152,7 +181,7 @@ func (h *Handler) handleDailyTimeReply(ctx context.Context, m *models.Message) b
 	_, err = h.DailyMenu.Apply(ctx, i, h.Now())
 	notice := "✅ Время сохранено. Состояние рубрики осталось прежним."
 	if err != nil {
-		notice = "Время не изменено: настройки уже обновились. Начните изменение заново."
+		notice = menuErrorText(err)
 	}
 	if e := h.dailyKindPanel(ctx, i.ChatID, i.PanelID, i.Kind, notice, false); e != nil {
 		h.Log.WarnContext(ctx, "time result panel failed", "chat_id", i.ChatID)
@@ -168,13 +197,16 @@ func (h *Handler) dailyMenuPreview(ctx context.Context, i daily.MenuIntent) erro
 	if !found {
 		return h.dailyKindPanel(ctx, i.ChatID, i.PanelID, i.Kind, "⏳ Готового материала пока нет. Фоновая подготовка запущена. Нажмите «Показать пример» позже — расписание не изменилось.", false)
 	}
-	if err = h.DailyMenu.Store.ClaimDailyPreview(ctx, i, h.Now()); err != nil {
+	if err = h.DailyMenu.Claim(ctx, i, h.Now()); err != nil {
+		if !errors.Is(err, daily.ErrConflict) {
+			return err
+		}
 		return h.dailyKindPanel(ctx, i.ChatID, i.PanelID, i.Kind, "Пример уже запрошен. Между показами — 30 секунд. Если доставка не подтверждена, сначала проверьте чат; автоматического повтора не будет.", false)
 	}
 	item.ChatID = i.ChatID
 	item.Kind = i.Kind
 	if err = item.Validate(); err != nil {
-		_, _ = h.DailyMenu.Store.FinishDailyPreview(ctx, i, "rejected", 0, h.Now())
+		_, _ = h.DailyMenu.Finish(ctx, i, "rejected", 0, h.Now())
 		return err
 	}
 	item.Text = "Предпросмотр · " + item.Text
@@ -188,7 +220,7 @@ func (h *Handler) dailyMenuPreview(ctx context.Context, i daily.MenuIntent) erro
 	}
 	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	closed, err := h.DailyMenu.Store.FinishDailyPreview(persist, i, state, id, h.Now())
+	closed, err := h.DailyMenu.Finish(persist, i, state, id, h.Now())
 	if err != nil {
 		h.Log.WarnContext(ctx, "preview outcome persistence failed", "chat_id", i.ChatID)
 		return err
@@ -210,7 +242,7 @@ func (h *Handler) dailyMenuPreview(ctx context.Context, i daily.MenuIntent) erro
 func (h *Handler) dailyActionButtons(ctx context.Context, k *models.InlineKeyboardMarkup, actions []dailyMenuAction, base daily.MenuIntent) error {
 	for _, a := range actions {
 		base.Action = a.action
-		i, err := h.DailyMenu.NewIntent(ctx, base, h.Now())
+		i, err := h.Interactions.NewIntent(ctx, base, h.Now())
 		if err != nil {
 			return err
 		}
@@ -276,4 +308,43 @@ func dailyPanelPresentation(c daily.ConfigSnapshot, kind, notice string, confirm
 		actions = []dailyMenuAction{{"⏸ Да, приостановить", menuPauseAction}}
 	}
 	return text, actions
+}
+
+func menuErrorText(err error) string {
+	if errors.Is(err, daily.ErrConflict) {
+		return "Действие устарело. Откройте актуальные настройки."
+	}
+	return "Не удалось прочитать или сохранить данные. Попробуйте позже; действие не подтверждено."
+}
+
+func (h *Handler) previewRecoveryPanel(ctx context.Context, i daily.MenuIntent, step string) error {
+	issue, found, err := h.DailyMenu.PreviewIssue(ctx, i.ChatID, i.Kind, h.Now())
+	if err != nil {
+		return err
+	}
+	if !found {
+		return h.dailyKindPanel(ctx, i.ChatID, i.PanelID, i.Kind, "Проблема уже разрешена.", false)
+	}
+	if err = h.cancelDailyPanel(ctx, i.ChatID, i.PanelID); err != nil {
+		return err
+	}
+	text := "🛠 Проверка доставки\n\nПосмотрите, появился ли пример в чате. Бот не может достоверно узнать это после обрыва связи."
+	actions := []dailyMenuAction{{"Сообщение есть…", "preview_seen"}, {"Проверил, сообщения нет…", "preview_absent"}}
+	if step != "preview_recovery" {
+		text += "\n\nПодтвердить решение? Автоматической отправки не будет. Если сообщения всё же есть, новый запрос может создать дубль."
+		action := "resolve_absent"
+		if step == "preview_seen" {
+			action = "resolve_seen"
+		}
+		actions = []dailyMenuAction{{"✅ Подтвердить", action}}
+	}
+	i.Clock = issue.Token
+	i.Revision = issue.Revision
+	keyboard := &models.InlineKeyboardMarkup{}
+	if err = h.dailyActionButtons(ctx, keyboard, actions, i); err != nil {
+		return err
+	}
+	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{menuButton("← Назад", "daily_"+i.Kind)})
+	_, err = h.API.EditMessageText(ctx, &bot.EditMessageTextParams{ChatID: i.ChatID, MessageID: i.PanelID, Text: text, ReplyMarkup: closableKeyboard(keyboard)})
+	return err
 }

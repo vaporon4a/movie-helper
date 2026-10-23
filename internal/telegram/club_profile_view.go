@@ -39,17 +39,8 @@ func (h *Handler) loadProfileView(ctx context.Context, chat int64) (clubProfileV
 }
 
 func (h *Handler) showClubProfile(ctx context.Context, chat int64, message int, page string, id int64) error {
-	if h.ProfilePanels != nil && message > 0 {
-		_, _, closed, e := h.ProfilePanels.ProfilePage(ctx, chat, message)
-		if e != nil {
-			return e
-		}
-		if closed {
-			return errResponseSent
-		}
-		if e = h.ProfilePanels.SaveProfilePage(ctx, chat, message, page, id); e != nil {
-			return e
-		}
+	if err := h.prepareProfilePanel(ctx, chat, message, page, id); err != nil {
+		return err
 	}
 	v, err := h.loadProfileView(ctx, chat)
 	if err != nil {
@@ -57,11 +48,7 @@ func (h *Handler) showClubProfile(ctx context.Context, chat int64, message int, 
 	}
 	text, keyboard := v.page(page, id)
 	keyboard = closableKeyboard(keyboard)
-	if message == 0 {
-		_, err = h.API.SendMessage(ctx, &bot.SendMessageParams{ChatID: chat, Text: text, ReplyMarkup: keyboard, LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: new(true)}})
-	} else {
-		_, err = h.API.EditMessageText(ctx, &bot.EditMessageTextParams{ChatID: chat, MessageID: message, Text: text, ReplyMarkup: keyboard, LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: new(true)}})
-	}
+	_, err = h.deliverPanel(ctx, chat, message, "profile", text, keyboard)
 	if errors.Is(err, bot.ErrorBadRequest) && strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
 		return errResponseSent
 	}
@@ -75,16 +62,18 @@ func (v clubProfileView) page(page string, id int64) (string, *models.InlineKeyb
 	switch page {
 	case "watches":
 		return v.watchList(int(id))
-	case "watch":
+	case watchPage:
 		return v.watchCard(id)
 	case "details", "impressions", "actions":
 		return v.watchSection(id, page)
-	case menuPauseAction, "edit":
+	case menuPauseAction, editPage:
 		return v.watchActionCard(id, page)
 	case "interest":
 		return v.interestCard(int(id))
 	case "poll":
 		return v.pollCard(id)
+	case "evidence":
+		return v.evidenceCard(int(id))
 	case "research":
 		return v.researchCard(int(id))
 	case "aspects":
@@ -177,7 +166,7 @@ func (v clubProfileView) watchList(offset int) (string, *models.InlineKeyboardMa
 			state = " · отменён"
 		}
 		fmt.Fprintf(&b, "#%d · %s\n%s%s\n\n", w.ID, clipProfile(w.Film.Label(), 100), watchDate(w.Date), state)
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton(fmt.Sprintf("#%d · Подробнее", w.ID), "watch", w.ID)})
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton(fmt.Sprintf("#%d · Подробнее", w.ID), watchPage, w.ID)})
 	}
 	if len(v.watches) == 0 {
 		b.WriteString("Добавьте просмотр: /movie_watched название или ссылка TMDB")
@@ -201,7 +190,7 @@ func (v clubProfileView) watchActionCard(id int64, action string) (string, *mode
 		{profileButton("← Другие действия", "actions", id)},
 	}}
 	heading := fmt.Sprintf("🎞 %s · просмотр #%d\n\n", clipProfile(w.Film.Label(), 180), id)
-	if action == "edit" {
+	if action == editPage {
 		return heading + fmt.Sprintf("Исправить дату вручную:\n/movie_watch_date %d YYYY-MM-DD\n\nВнимание: исправление даты остановит дальнейшие вопросы этой серии. История и ответы сохранятся.\n\nОтмена просмотра кнопкой отключена. Если ошиблись фильмом, попросите исправить запись вручную.", id), keyboard
 	}
 	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
@@ -426,21 +415,7 @@ func aspectLabel(a clubprofile.Aspect) string {
 }
 
 func (v clubProfileView) nextResearchSlot() (time.Time, string) {
-	var next time.Time
-	var zone string
-	for _, sc := range v.schedules {
-		if !sc.Enabled {
-			continue
-		}
-		for day := 0; day < 8; day++ {
-			slot, err := clubprofile.WeeklySlot(v.now.AddDate(0, 0, day), sc.Weekday, sc.Clock, sc.Zone)
-			if err == nil && clubprofile.ResearchSlot(v.schedules, sc, slot) && slot.After(v.now) && slot.After(sc.Effective) && (next.IsZero() || slot.Before(next)) {
-				next = slot
-				zone = sc.Zone
-			}
-		}
-	}
-	return next, zone
+	return clubprofile.NextResearchSlot(v.schedules, v.now)
 }
 
 func (v clubProfileView) reviewWaitingReason(s clubprofile.ReviewSession) string {
@@ -456,4 +431,25 @@ func (v clubProfileView) reviewWaitingReason(s clubprofile.ReviewSession) string
 		}
 	}
 	return ""
+}
+
+func (h *Handler) prepareProfilePanel(ctx context.Context, chat int64, message int, page string, id int64) error {
+	if h.Interactions != nil && message > 0 {
+		if err := h.Interactions.SetPanelScreen(ctx, chat, message, "profile"); err != nil {
+			return err
+		}
+	}
+	if h.ProfilePanels != nil && message > 0 {
+		_, _, closed, e := h.ProfilePanels.ProfilePage(ctx, chat, message)
+		if e != nil {
+			return e
+		}
+		if closed {
+			return errResponseSent
+		}
+		if e = h.ProfilePanels.SaveProfilePage(ctx, chat, message, page, id); e != nil {
+			return e
+		}
+	}
+	return nil
 }

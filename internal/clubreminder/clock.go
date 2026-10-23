@@ -68,3 +68,17 @@ func localClock(date time.Time, hour, minute int) time.Time {
 	}
 	return time.Time{}
 }
+
+func NextMeeting(settings Settings, now time.Time) (time.Time, error) {
+	loc, err := time.LoadLocation(settings.Zone)
+	if err != nil || Validate(settings.Weekday, settings.Ordinal, settings.Clock) != nil {
+		return time.Time{}, errors.New("meeting rule unavailable")
+	}
+	local := now.In(loc)
+	at := Meeting(local.Year(), local.Month(), settings.Weekday, settings.Ordinal, loc)
+	if at.Format(time.DateOnly) < local.Format(time.DateOnly) {
+		base := time.Date(local.Year(), local.Month()+1, 1, 12, 0, 0, 0, loc)
+		at = Meeting(base.Year(), base.Month(), settings.Weekday, settings.Ordinal, loc)
+	}
+	return at, nil
+}

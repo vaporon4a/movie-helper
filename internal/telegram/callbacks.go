@@ -53,11 +53,42 @@ func retiredMovieCallback(data string) bool {
 }
 
 func (h *Handler) panelCallback(ctx context.Context, q *models.CallbackQuery, m *models.Message) bool {
+	if h.Interactions != nil && h.Allowed[m.Chat.ID] && q.Data != closePanelAction && !strings.HasPrefix(q.Data, "nav:") {
+		screen, err := h.Interactions.PanelScreen(ctx, m.Chat.ID, m.ID)
+		if err != nil {
+			return true
+		}
+		want := ""
+		switch {
+		case strings.HasPrefix(q.Data, "sc:"):
+			want = "schedule"
+		case strings.HasPrefix(q.Data, "wd:") && q.Data != "wd:start":
+			want = watchPage
+		case strings.HasPrefix(q.Data, "dm:"):
+			want = dailyPage
+		case strings.HasPrefix(q.Data, "rc:"):
+			want = recoveryPage
+		}
+		if family, _, ok := strings.Cut(screen, ":"); ok {
+			screen = family
+		}
+		closed, e := h.Interactions.Closed(ctx, m.Chat.ID, m.ID)
+		if e != nil || closed || (want != "" && screen != "" && screen != want) {
+			return true
+		}
+	}
+
 	switch {
 	case q.Data == closePanelAction:
 		h.closePanelCallback(ctx, q, m)
 	case strings.HasPrefix(q.Data, "fv:"):
 		return h.featureCallback(ctx, q, m)
+	case strings.HasPrefix(q.Data, "wd:"):
+		h.watchDialogCallback(ctx, q, m)
+	case strings.HasPrefix(q.Data, "rc:"):
+		h.recoveryCallback(ctx, q, m)
+	case strings.HasPrefix(q.Data, "sc:"):
+		h.scheduleCallback(ctx, q, m)
 	case strings.HasPrefix(q.Data, "dm:"):
 		h.dailyMenuCallback(ctx, q, m)
 	case strings.HasPrefix(q.Data, "nav:"):

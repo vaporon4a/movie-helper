@@ -26,3 +26,41 @@ func WeeklySlot(now time.Time, weekday int, clock, zone string) (time.Time, erro
 	}
 	return time.Time{}, ErrInvalid
 }
+
+func NextResearchSlot(schedules []Schedule, now time.Time) (time.Time, string) {
+	var next time.Time
+	var zone string
+	for _, sc := range schedules {
+		if !sc.Enabled {
+			continue
+		}
+		for _, at := range UpcomingSlots(sc, now, 8) {
+			if ResearchSlot(schedules, sc, at) && (next.IsZero() || at.Before(next)) {
+				next, zone = at, sc.Zone
+			}
+		}
+	}
+	return next, zone
+}
+func UpcomingSlots(sc Schedule, now time.Time, days int) []time.Time {
+	if !sc.Enabled {
+		return nil
+	}
+	loc, err := time.LoadLocation(sc.Zone)
+	if err != nil {
+		return nil
+	}
+	var out []time.Time
+	local := now.In(loc)
+	for day := 0; day <= days; day++ {
+		date := local.AddDate(0, 0, day)
+		if int(date.Weekday()) != sc.Weekday {
+			continue
+		}
+		at, e := WeeklySlot(date, sc.Weekday, sc.Clock, sc.Zone)
+		if e == nil && at.After(now) && at.After(sc.Effective) && !at.After(local.AddDate(0, 0, days)) {
+			out = append(out, at)
+		}
+	}
+	return out
+}

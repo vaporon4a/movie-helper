@@ -42,20 +42,16 @@ func (s *Store) SetProfileSchedule(ctx context.Context, operation int64, p clubp
 		return err
 	}
 	return s.transaction(ctx, &operation, func(tx *sql.Tx) error {
-		var zone string
-		var active bool
-		if err := tx.QueryRowContext(ctx, "SELECT zone,active FROM chats WHERE chat_id=?", p.ChatID).Scan(&zone, &active); err != nil {
-			return err
-		}
-		if p.Enabled && (zone == "" || !active) {
-			return clubprofile.ErrInvalid
-		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO club_profile_schedules(chat_id,topic,weekday,clock,enabled,effective) VALUES(?,?,?,?,?,?)
- ON CONFLICT(chat_id,topic,weekday) DO UPDATE SET clock=CASE WHEN excluded.enabled THEN excluded.clock ELSE club_profile_schedules.clock END,enabled=excluded.enabled,effective=excluded.effective`, p.ChatID, p.Topic, p.Weekday, p.Clock, p.Enabled, p.Effective.Unix())
+		_, active, zone, err := configHeader(ctx, tx, p.ChatID, "movies")
 		if err != nil {
 			return err
 		}
-		return cancelProfilePlanned(ctx, tx, p.ChatID, p.Topic, "schedule_changed")
+		patch := clubprofile.SchedulePatch{Weekday: p.Weekday, Enabled: new(p.Enabled)}
+		if p.Enabled {
+			patch.Clock = new(p.Clock)
+		}
+		_, err = patchMovieDays(ctx, tx, p.ChatID, clubprofile.ConfigChange{Topic: p.Topic, Days: []clubprofile.SchedulePatch{patch}}, active && zone != "", p.Effective)
+		return err
 	})
 }
 
@@ -64,7 +60,12 @@ func (s *Store) PauseProfileSchedules(ctx context.Context, operation, chat int64
 		return clubprofile.ErrInvalid
 	}
 	return s.transaction(ctx, &operation, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, "UPDATE club_profile_schedules SET enabled=0,effective=? WHERE chat_id=? AND topic=?", now.Unix(), chat, topic); err != nil {
+		r, err := tx.ExecContext(ctx, "UPDATE club_profile_schedules SET enabled=0,effective=? WHERE chat_id=? AND topic=? AND enabled=1", now.Unix(), chat, topic)
+		if err != nil {
+			return err
+		}
+		n, err := r.RowsAffected()
+		if err != nil || n == 0 {
 			return err
 		}
 		return cancelProfilePlanned(ctx, tx, chat, topic, "schedule_paused")

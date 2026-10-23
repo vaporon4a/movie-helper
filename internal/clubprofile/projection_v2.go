@@ -18,6 +18,8 @@ type ResearchSummary struct {
 	Families                 []ResearchFamilySummary
 	Provisional, Quarantined int
 	CanonicalPollIDs         []int64
+	Evidence                 []ResearchEvidence
+	Exclusions               []ResearchExclusion
 }
 type ResearchFamilySummary struct {
 	ChatID                             int64
@@ -47,8 +49,15 @@ func ProjectResearch(watches []WatchEvent, sessions []ReviewSession, polls []Pol
 		bySession[s.ID] = s
 	}
 	perWatch := canonicalResearchViewings(byWatch, bySession, polls, &result)
+	slices.SortFunc(result.Exclusions, func(a, b ResearchExclusion) int {
+		if c := cmp.Compare(a.PollID, b.PollID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Reason, b.Reason)
+	})
 	perFilm := latestResearchFilms(perWatch)
 	groups, canonical := groupResearchFilms(perFilm)
+	result.Evidence = researchEvidence(perFilm)
 	for _, f := range groups {
 		for key := range f.Shares {
 			f.Shares[key] /= float64(f.Films)
@@ -92,11 +101,13 @@ func canonicalResearchViewings(byWatch map[int64]WatchEvent, bySession map[int64
 		d := p.Question.Measurement
 		if !validResearchObservation(p, s, w) {
 			diagnostics.Quarantined++
+			diagnostics.Exclusions = append(diagnostics.Exclusions, ResearchExclusion{PollID: p.ID, Reason: "incompatible"})
 			continue
 		}
 		n := (Observation{Question: p.Question, Result: *p.Result}).Answers()
 		if n < 3 {
 			diagnostics.Provisional++
+			diagnostics.Exclusions = append(diagnostics.Exclusions, ResearchExclusion{PollID: p.ID, Reason: "fewer_than_three_answers"})
 			continue
 		}
 		key := fmt.Sprintf("%d:%s", w.ID, d.FamilyID)

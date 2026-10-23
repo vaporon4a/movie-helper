@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/vaporon4a/movie-helper/internal/daily"
@@ -32,27 +33,19 @@ func (s *Store) DailyConfig(ctx context.Context, chat int64) (daily.ConfigSnapsh
 	return c, err
 }
 func (s *Store) CreateDailyIntent(ctx context.Context, i daily.MenuIntent, now time.Time) error {
-	if !daily.ValidKind(i.Kind) || i.PanelID <= 0 {
+	if (!daily.ValidKind(i.Kind) && i.Kind != "schedule" && i.Kind != "watch") || i.PanelID <= 0 {
 		return daily.ErrConflict
 	}
 	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
-		var closed bool
-		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM daily_menu_panels WHERE chat_id=? AND panel_id=? AND closed=1)", i.ChatID, i.PanelID).Scan(&closed); err != nil {
-			return err
-		}
-		if closed {
-			return daily.ErrConflict
-		}
-		// Expired actor bindings and completed intents are short-lived UI data.
-		if _, err := tx.ExecContext(ctx, "DELETE FROM daily_menu_intents WHERE expires_at<=?", now.Unix()); err != nil {
+		if err := validateIntentPanel(ctx, tx, i); err != nil {
 			return err
 		}
 		if i.Action == "time" {
-			if _, err := tx.ExecContext(ctx, "UPDATE daily_menu_intents SET state='cancelled' WHERE chat_id=? AND actor_id=? AND action='time' AND state='pending'", i.ChatID, i.ActorID); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE interaction_intents SET state='cancelled' WHERE chat_id=? AND actor_id=? AND action='time' AND state='pending'", i.ChatID, i.ActorID); err != nil {
 				return err
 			}
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO daily_menu_intents(token,chat_id,panel_id,kind,action,revision,actor_id,expires_at) VALUES(?,?,?,?,?,?,?,?)`, i.Token, i.ChatID, i.PanelID, i.Kind, i.Action, i.Revision, i.ActorID, i.Expires.Unix())
+		_, err := tx.ExecContext(ctx, `INSERT INTO interaction_intents(token,chat_id,panel_id,kind,action,revision,actor_id,expires_at,clock) VALUES(?,?,?,?,?,?,?,?,?)`, i.Token, i.ChatID, i.PanelID, i.Kind, i.Action, i.Revision, i.ActorID, i.Expires.Unix(), i.Clock)
 		return err
 	})
 }
@@ -70,19 +63,33 @@ func scanDailyIntent(row interface{ Scan(...any) error }) (daily.MenuIntent, err
 	return i, err
 }
 func (s *Store) DailyIntent(ctx context.Context, token string, chat int64, panel int, now time.Time) (daily.MenuIntent, error) {
-	return scanDailyIntent(s.db.QueryRowContext(ctx, "SELECT "+dailyIntentColumns+" FROM daily_menu_intents WHERE token=? AND chat_id=? AND panel_id=? AND state='pending' AND expires_at>? AND NOT EXISTS(SELECT 1 FROM daily_menu_panels p WHERE p.chat_id=daily_menu_intents.chat_id AND p.panel_id=daily_menu_intents.panel_id AND p.closed=1)", token, chat, panel, now.Unix()))
+	return scanDailyIntent(s.db.QueryRowContext(ctx, "SELECT "+dailyIntentColumns+" FROM interaction_intents WHERE token=? AND chat_id=? AND panel_id=? AND state='pending' AND expires_at>? AND NOT EXISTS(SELECT 1 FROM interaction_panels p WHERE p.chat_id=interaction_intents.chat_id AND p.panel_id=interaction_intents.panel_id AND p.closed=1)", token, chat, panel, now.Unix()))
 }
 func (s *Store) BindDailyPrompt(ctx context.Context, token string, prompt int) error {
-	_, err := s.db.ExecContext(ctx, "UPDATE daily_menu_intents SET prompt_id=? WHERE token=? AND state='pending'", prompt, token)
-	return err
+	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
+		var chat int64
+		var state string
+		if err := tx.QueryRowContext(ctx, "SELECT chat_id,state FROM interaction_intents WHERE token=?", token).Scan(&chat, &state); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE interaction_intents SET prompt_id=? WHERE token=?", prompt, token); err != nil {
+			return err
+		}
+		if state != "pending" {
+			_, err := tx.ExecContext(ctx, "INSERT INTO interaction_cleanup(chat_id,message_id) VALUES(?,?) ON CONFLICT DO NOTHING", chat, prompt)
+			return err
+		}
+		return nil
+	})
 }
+
 func (s *Store) DailyReplyIntent(ctx context.Context, chat, actor int64, prompt int, now time.Time) (daily.MenuIntent, error) {
-	return scanDailyIntent(s.db.QueryRowContext(ctx, "SELECT "+dailyIntentColumns+" FROM daily_menu_intents WHERE chat_id=? AND actor_id=? AND prompt_id=? AND action='time' AND state='pending' AND expires_at>?", chat, actor, prompt, now.Unix()))
+	return scanDailyIntent(s.db.QueryRowContext(ctx, "SELECT "+dailyIntentColumns+" FROM interaction_intents WHERE chat_id=? AND actor_id=? AND prompt_id=? AND action='time' AND state='pending' AND expires_at>?", chat, actor, prompt, now.Unix()))
 }
 func (s *Store) CancelDailyIntents(ctx context.Context, chat int64, panel int, now time.Time) ([]int, error) {
 	var prompts []int
 	err := s.transaction(ctx, nil, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, "SELECT prompt_id FROM daily_menu_intents WHERE chat_id=? AND panel_id=? AND state='pending' AND prompt_id>0", chat, panel)
+		rows, err := tx.QueryContext(ctx, "SELECT prompt_id FROM interaction_intents WHERE chat_id=? AND panel_id=? AND state='pending' AND prompt_id>0", chat, panel)
 		if err != nil {
 			return err
 		}
@@ -100,7 +107,7 @@ func (s *Store) CancelDailyIntents(ctx context.Context, chat int64, panel int, n
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE daily_menu_intents SET state='cancelled',actor_id=0 WHERE chat_id=? AND panel_id=? AND state IN ('pending','sending')", chat, panel)
+		_, err = tx.ExecContext(ctx, "UPDATE interaction_intents SET state='cancelled',actor_id=0 WHERE chat_id=? AND panel_id=? AND state IN ('pending','sending')", chat, panel)
 		return err
 	})
 	return prompts, err
@@ -108,7 +115,7 @@ func (s *Store) CancelDailyIntents(ctx context.Context, chat int64, panel int, n
 func (s *Store) ApplyDailyIntent(ctx context.Context, i daily.MenuIntent, now time.Time) (bool, error) {
 	changed := false
 	err := s.transaction(ctx, nil, func(tx *sql.Tx) error {
-		current, err := scanDailyIntent(tx.QueryRowContext(ctx, "SELECT "+dailyIntentColumns+" FROM daily_menu_intents WHERE token=? AND chat_id=? AND panel_id=? AND state='pending' AND expires_at>? AND NOT EXISTS(SELECT 1 FROM daily_menu_panels p WHERE p.chat_id=daily_menu_intents.chat_id AND p.panel_id=daily_menu_intents.panel_id AND p.closed=1)", i.Token, i.ChatID, i.PanelID, now.Unix()))
+		current, err := scanDailyIntent(tx.QueryRowContext(ctx, "SELECT "+dailyIntentColumns+" FROM interaction_intents WHERE token=? AND chat_id=? AND panel_id=? AND state='pending' AND expires_at>? AND NOT EXISTS(SELECT 1 FROM interaction_panels p WHERE p.chat_id=interaction_intents.chat_id AND p.panel_id=interaction_intents.panel_id AND p.closed=1)", i.Token, i.ChatID, i.PanelID, now.Unix()))
 		if err != nil {
 			return err
 		}
@@ -119,7 +126,7 @@ func (s *Store) ApplyDailyIntent(ctx context.Context, i daily.MenuIntent, now ti
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE daily_menu_intents SET state='done',actor_id=0,clock=? WHERE token=?", i.Clock, i.Token)
+		_, err = tx.ExecContext(ctx, "UPDATE interaction_intents SET state='done',actor_id=0,clock=? WHERE token=?", i.Clock, i.Token)
 		return err
 	})
 	return changed, err
@@ -166,7 +173,7 @@ func applyDailyConfig(ctx context.Context, tx *sql.Tx, i daily.MenuIntent, clock
 func (s *Store) CancelDailyActorInputs(ctx context.Context, chat, actor int64) ([]int, error) {
 	var prompts []int
 	err := s.transaction(ctx, nil, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, "SELECT prompt_id FROM daily_menu_intents WHERE chat_id=? AND actor_id=? AND action='time' AND state='pending' AND prompt_id>0", chat, actor)
+		rows, err := tx.QueryContext(ctx, "SELECT prompt_id FROM interaction_intents WHERE chat_id=? AND actor_id=? AND action='time' AND state='pending' AND prompt_id>0", chat, actor)
 		if err != nil {
 			return err
 		}
@@ -184,18 +191,54 @@ func (s *Store) CancelDailyActorInputs(ctx context.Context, chat, actor int64) (
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE daily_menu_intents SET state='cancelled',actor_id=0 WHERE chat_id=? AND actor_id=? AND action='time' AND state='pending'", chat, actor)
+		_, err = tx.ExecContext(ctx, "UPDATE interaction_intents SET state='cancelled',actor_id=0 WHERE chat_id=? AND actor_id=? AND action='time' AND state='pending'", chat, actor)
 		return err
 	})
 	return prompts, err
 }
 
 func (s *Store) CloseDailyPanel(ctx context.Context, chat int64, panel int) error {
-	_, err := s.db.ExecContext(ctx, "INSERT INTO daily_menu_panels(chat_id,panel_id,closed) VALUES(?,?,1) ON CONFLICT(chat_id,panel_id) DO UPDATE SET closed=1", chat, panel)
+	_, err := s.db.ExecContext(ctx, "INSERT INTO interaction_panels(chat_id,panel_id,closed) VALUES(?,?,1) ON CONFLICT(chat_id,panel_id) DO UPDATE SET closed=1", chat, panel)
 	return err
 }
 func (s *Store) DailyPanelClosed(ctx context.Context, chat int64, panel int) (bool, error) {
 	var closed bool
-	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM daily_menu_panels WHERE chat_id=? AND panel_id=? AND closed=1)", chat, panel).Scan(&closed)
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM interaction_panels WHERE chat_id=? AND panel_id=? AND closed=1)", chat, panel).Scan(&closed)
 	return closed, err
+}
+
+func intentScreenMatches(kind, screen string) bool {
+	if screen == "" {
+		return true
+	}
+	switch kind {
+	case daily.Meme, daily.Fact:
+		return screen == dailyScope
+	case "schedule":
+		return screen == "schedule"
+	case "watch":
+		return screen == "watch_input" || strings.HasPrefix(screen, "watch:")
+	default:
+		return false
+	}
+}
+
+func validateIntentPanel(ctx context.Context, tx *sql.Tx, i daily.MenuIntent) error {
+	var closed bool
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM interaction_panels WHERE chat_id=? AND panel_id=? AND closed=1)", i.ChatID, i.PanelID).Scan(&closed); err != nil {
+		return err
+	}
+	if closed {
+		return daily.ErrConflict
+	}
+	var screen string
+	err := tx.QueryRowContext(ctx, "SELECT screen FROM interaction_panels WHERE chat_id=? AND panel_id=?", i.ChatID, i.PanelID).Scan(&screen)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if !intentScreenMatches(i.Kind, screen) {
+		return daily.ErrConflict
+	}
+
+	return nil
 }

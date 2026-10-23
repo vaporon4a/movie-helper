@@ -20,22 +20,7 @@ func (s *Store) RecoverProfilePolls(ctx context.Context, now time.Time) error {
 
 func (s *Store) ResolveProfilePoll(ctx context.Context, operation, chat, id int64, action string, now time.Time) error {
 	return s.transaction(ctx, &operation, func(tx *sql.Tx) error {
-		p, err := scanProfilePoll(tx.QueryRowContext(ctx, "SELECT "+profilePollColumns+" FROM club_profile_polls WHERE id=? AND chat_id=?", id, chat))
-		if err != nil {
-			return err
-		}
-		to, err := profileResolveTarget(p, action, now)
-		if err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(ctx, "UPDATE club_profile_polls SET state=?,next_attempt=?,error_code='' WHERE id=?", to, now.Unix(), id)
-		if err == nil && action == "cancel" && p.SessionID != 0 {
-			_, err = tx.ExecContext(ctx, "UPDATE club_review_sessions SET state='partial',reason='question_cancelled' WHERE id=? AND state IN ('researching','blocked','queued')", p.SessionID)
-			if err == nil {
-				_, err = tx.ExecContext(ctx, "UPDATE club_profile_polls SET state='cancelled',error_code='batch_cancelled' WHERE session_id=? AND state='planned'", p.SessionID)
-			}
-		}
-		return err
+		return resolveProfilePoll(ctx, tx, chat, id, action, now)
 	})
 }
 
@@ -59,4 +44,24 @@ func profileResolveTarget(p clubprofile.Poll, action string, now time.Time) (clu
 		return "", clubprofile.ErrConflict
 	}
 	return clubprofile.Planned, nil
+}
+
+func resolveProfilePoll(ctx context.Context, tx *sql.Tx, chat, id int64, action string, now time.Time) error {
+
+	p, err := scanProfilePoll(tx.QueryRowContext(ctx, "SELECT "+profilePollColumns+" FROM club_profile_polls WHERE id=? AND chat_id=?", id, chat))
+	if err != nil {
+		return err
+	}
+	to, err := profileResolveTarget(p, action, now)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE club_profile_polls SET state=?,next_attempt=?,error_code='' WHERE id=?", to, now.Unix(), id)
+	if err == nil && action == "cancel" && p.SessionID != 0 {
+		_, err = tx.ExecContext(ctx, "UPDATE club_review_sessions SET state='partial',reason='question_cancelled' WHERE id=? AND state IN ('researching','blocked','queued')", p.SessionID)
+		if err == nil {
+			_, err = tx.ExecContext(ctx, "UPDATE club_profile_polls SET state='cancelled',error_code='batch_cancelled' WHERE session_id=? AND state='planned'", p.SessionID)
+		}
+	}
+	return err
 }

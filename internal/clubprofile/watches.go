@@ -33,6 +33,7 @@ type FilmMetadata struct {
 }
 
 type WatchInput struct {
+	Provisional           bool `json:"provisional,omitempty"`
 	Query                 string
 	TMDBID                int64
 	Date, Precision, Zone string

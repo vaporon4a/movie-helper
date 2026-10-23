@@ -109,46 +109,30 @@ func (s *Store) ChangeFeatureState(ctx context.Context, op, chat, id int64, stat
 }
 
 func (s *Store) SetFeatureSchedule(ctx context.Context, op, chat int64, weekday int, clock string, enabled bool, now time.Time) error {
-	if weekday < 0 || weekday > 6 {
-		return errors.New("invalid weekday")
-	}
-	if _, err := time.Parse("15:04", clock); err != nil || len(clock) != 5 {
-		return errors.New("invalid clock")
+	if weekday < 0 || weekday > 6 || !validConfigClock(clock) {
+		return featurevote.ErrConfigConflict
 	}
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		var zone string
-		var active bool
-		if err := tx.QueryRowContext(ctx, "SELECT zone,active FROM chats WHERE chat_id=?", chat).Scan(&zone, &active); err != nil {
-			return err
-		}
-		if enabled && (zone == "" || !active) {
-			return errors.New("set timezone or reconnect chat first")
-		}
-		if _, err := tx.ExecContext(ctx, "UPDATE feature_rounds SET state='cancelled',error_code='schedule_changed' WHERE chat_id=? AND state='planned' AND parent_id IS NULL", chat); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO feature_vote_schedules(chat_id,weekday,clock,enabled,effective)
- VALUES(?,?,?,?,?) ON CONFLICT(chat_id) DO UPDATE SET weekday=excluded.weekday,
- clock=CASE WHEN excluded.enabled THEN excluded.clock ELSE feature_vote_schedules.clock END,
- enabled=excluded.enabled,effective=excluded.effective`, chat, weekday, clock, enabled, now.Unix())
-		return err
-	})
-}
-
-func (s *Store) PauseFeatureSchedule(ctx context.Context, op, chat int64, now time.Time) error {
-	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, "UPDATE feature_rounds SET state='cancelled',error_code='schedule_paused' WHERE chat_id=? AND state='planned' AND parent_id IS NULL", chat); err != nil {
-			return err
-		}
-		result, err := tx.ExecContext(ctx, "UPDATE feature_vote_schedules SET enabled=0,effective=? WHERE chat_id=?", now.Unix(), chat)
+		c, err := readIdeasConfig(ctx, tx, chat)
 		if err != nil {
 			return err
 		}
-		n, err := result.RowsAffected()
-		if err != nil || n != 1 {
-			return featurevote.ErrConflict
+		patch := featurevote.ConfigChange{Weekday: new(weekday), Enabled: new(enabled)}
+		if enabled {
+			patch.Clock = new(clock)
 		}
-		return nil
+		_, err = patchIdeasSettings(ctx, tx, c, patch, now)
+		return err
+	})
+}
+func (s *Store) PauseFeatureSchedule(ctx context.Context, op, chat int64, now time.Time) error {
+	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
+		c, err := readIdeasConfig(ctx, tx, chat)
+		if err != nil {
+			return err
+		}
+		_, err = patchIdeasSettings(ctx, tx, c, featurevote.ConfigChange{Enabled: new(false)}, now)
+		return err
 	})
 }
 
@@ -655,27 +639,7 @@ func (s *Store) DisableFeatureSchedule(ctx context.Context, chat int64) error {
 
 func (s *Store) ResolveFeatureRound(ctx context.Context, op, chat, id int64, action featurevote.ResolveAction, now time.Time) error {
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		var state featurevote.RoundState
-		var outcome string
-		if err := tx.QueryRowContext(ctx, "SELECT state,outcome FROM feature_rounds WHERE id=? AND chat_id=?", id, chat).Scan(&state, &outcome); err != nil {
-			return err
-		}
-		if state != featurevote.RoundUnknown && state != featurevote.RoundFailed {
-			return featurevote.ErrConflict
-		}
-		target, targetErr := resolvedFeatureState(action, outcome)
-		if targetErr != nil {
-			return targetErr
-		}
-		result, err := tx.ExecContext(ctx, "UPDATE feature_rounds SET state=?,next_attempt=?,error_code='' WHERE id=? AND chat_id=? AND state IN ('unknown','failed')", target, now.Unix(), id, chat)
-		if err != nil {
-			return err
-		}
-		n, err := result.RowsAffected()
-		if err != nil || n != 1 {
-			return featurevote.ErrConflict
-		}
-		return nil
+		return resolveFeatureRound(ctx, tx, chat, id, action, now)
 	})
 }
 
@@ -706,4 +670,29 @@ func (s *Store) RecoverFeatureRounds(ctx context.Context) error {
 		_, err := tx.ExecContext(ctx, "UPDATE feature_rounds SET state='open',error_code='' WHERE state='closing'")
 		return err
 	})
+}
+
+func resolveFeatureRound(ctx context.Context, tx *sql.Tx, chat, id int64, action featurevote.ResolveAction, now time.Time) error {
+
+	var state featurevote.RoundState
+	var outcome string
+	if err := tx.QueryRowContext(ctx, "SELECT state,outcome FROM feature_rounds WHERE id=? AND chat_id=?", id, chat).Scan(&state, &outcome); err != nil {
+		return err
+	}
+	if state != featurevote.RoundUnknown && state != featurevote.RoundFailed {
+		return featurevote.ErrConflict
+	}
+	target, targetErr := resolvedFeatureState(action, outcome)
+	if targetErr != nil {
+		return targetErr
+	}
+	result, err := tx.ExecContext(ctx, "UPDATE feature_rounds SET state=?,next_attempt=?,error_code='' WHERE id=? AND chat_id=? AND state IN ('unknown','failed')", target, now.Unix(), id, chat)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil || n != 1 {
+		return featurevote.ErrConflict
+	}
+	return nil
 }

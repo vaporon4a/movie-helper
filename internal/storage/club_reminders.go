@@ -39,27 +39,21 @@ func (s *Store) SetClubSchedule(ctx context.Context, op, chat int64, weekday, or
 		return err
 	}
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		var zone string
-		if err := tx.QueryRowContext(ctx, "SELECT zone FROM chats WHERE chat_id=? AND active=1", chat).Scan(&zone); err != nil {
+		c, err := readClubConfig(ctx, tx, chat)
+		if err != nil {
 			return err
 		}
-		if zone == "" {
-			return errors.New("set timezone first")
-		}
-		if err := cancelClub(ctx, tx, chat, now); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO club_reminder_settings(chat_id,weekday,ordinal,clock,effective_at) VALUES(?,?,?,?,?)
- ON CONFLICT(chat_id) DO UPDATE SET weekday=excluded.weekday,ordinal=excluded.ordinal,clock=excluded.clock,enabled=1,revision=revision+1,effective_at=excluded.effective_at`, chat, weekday, ordinal, clock, now.Unix())
+		_, err = patchClubSettings(ctx, tx, c, clubreminder.ConfigChange{Weekday: new(weekday), Ordinal: new(ordinal), Clock: new(clock), Enabled: new(true)}, now)
 		return err
 	})
 }
 func (s *Store) PauseClub(ctx context.Context, op, chat int64, now time.Time) error {
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		if err := cancelClub(ctx, tx, chat, now); err != nil {
+		c, err := readClubConfig(ctx, tx, chat)
+		if err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, "UPDATE club_reminder_settings SET enabled=0,revision=revision+1,effective_at=? WHERE chat_id=?", now.Unix(), chat)
+		_, err = patchClubSettings(ctx, tx, c, clubreminder.ConfigChange{Enabled: new(false)}, now)
 		return err
 	})
 }
@@ -233,27 +227,11 @@ func (s *Store) RecoverClub(ctx context.Context) error {
 	return err
 }
 func (s *Store) ResolveClub(ctx context.Context, op, chat, id int64, action string, now time.Time) error {
-	if action != sentState && action != "retry" && action != "cancel" {
+	if action != sentState && action != retryState && action != "cancel" {
 		return daily.ErrConflict
 	}
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		d, err := scanClubDelivery(tx.QueryRowContext(ctx, "SELECT "+clubDeliveryColumns+" FROM club_reminder_deliveries WHERE id=? AND chat_id=? AND state='unknown'", id, chat))
-		if err != nil {
-			return err
-		}
-		target, err := clubResolveTarget(action, d, now)
-		if err != nil {
-			return err
-		}
-
-		result, err := tx.ExecContext(ctx, "UPDATE club_reminder_deliveries SET state=?,next_attempt=?,error_code='' WHERE id=? AND state='unknown'", target, now.Unix(), id)
-		if err = changedClubDelivery(result, err); err != nil {
-			return err
-		}
-		if target == clubreminder.Sent || target == cancelledState {
-			_, err = tx.ExecContext(ctx, "UPDATE club_reminder_texts SET state='used' WHERE id=?", d.Text.ID)
-		}
-		return err
+		return resolveClub(ctx, tx, chat, id, action, now)
 	})
 }
 
@@ -284,7 +262,7 @@ func clubResolveTarget(action string, d clubreminder.Delivery, now time.Time) (s
 	switch action {
 	case sentState:
 		return clubreminder.Sent, nil
-	case "retry":
+	case retryState:
 		if d.Deadline <= now.Unix() {
 			return "", errors.New("reminder expired")
 		}
@@ -312,4 +290,25 @@ func changedClubDelivery(result sql.Result, err error) error {
 		return daily.ErrConflict
 	}
 	return nil
+}
+
+func resolveClub(ctx context.Context, tx *sql.Tx, chat, id int64, action string, now time.Time) error {
+
+	d, err := scanClubDelivery(tx.QueryRowContext(ctx, "SELECT "+clubDeliveryColumns+" FROM club_reminder_deliveries WHERE id=? AND chat_id=? AND state='unknown'", id, chat))
+	if err != nil {
+		return err
+	}
+	target, err := clubResolveTarget(action, d, now)
+	if err != nil {
+		return err
+	}
+
+	result, err := tx.ExecContext(ctx, "UPDATE club_reminder_deliveries SET state=?,next_attempt=?,error_code='' WHERE id=? AND state='unknown'", target, now.Unix(), id)
+	if err = changedClubDelivery(result, err); err != nil {
+		return err
+	}
+	if target == clubreminder.Sent || target == cancelledState {
+		_, err = tx.ExecContext(ctx, "UPDATE club_reminder_texts SET state='used' WHERE id=?", d.Text.ID)
+	}
+	return err
 }

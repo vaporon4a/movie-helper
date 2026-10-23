@@ -128,11 +128,12 @@ linters:
       rules:
         domain:
           files:
-          - '**/internal/{aiwork,clubreminder,clubprofile,filmresearch,daily,featurevote,facts,feedback}/*.go'
+          - '**/internal/{aiwork,clubreminder,clubprofile,filmresearch,daily,featurevote,facts,feedback,interaction,agenda,scheduleui,recovery}/*.go'
           - '!$test'
           list-mode: strict
           allow:
           - $gostd
+          - github.com/vaporon4a/movie-helper/internal/interaction$
           - github.com/vaporon4a/movie-helper/internal/aiwork$
           - github.com/vaporon4a/movie-helper/internal/clubreminder$
           - github.com/vaporon4a/movie-helper/internal/clubprofile$

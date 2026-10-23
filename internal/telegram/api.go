@@ -8,11 +8,15 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/vaporon4a/movie-helper/internal/agenda"
 	"github.com/vaporon4a/movie-helper/internal/clubprofile"
 	"github.com/vaporon4a/movie-helper/internal/clubreminder"
 	"github.com/vaporon4a/movie-helper/internal/daily"
 	"github.com/vaporon4a/movie-helper/internal/featurevote"
 	"github.com/vaporon4a/movie-helper/internal/feedback"
+	"github.com/vaporon4a/movie-helper/internal/interaction"
+	"github.com/vaporon4a/movie-helper/internal/recovery"
+	"github.com/vaporon4a/movie-helper/internal/scheduleui"
 )
 
 // API is used only to assemble narrower consumer ports.
@@ -120,8 +124,20 @@ type FeedbackRecorder interface {
 	RecordFeedback(context.Context, feedback.Event) (bool, error)
 }
 
+type WatchDialogApplication interface {
+	Dialog(context.Context, int64, int64, int) (clubprofile.WatchDraft, error)
+	DateDialog(context.Context, int64, int64, int, string) (clubprofile.WatchDraft, error)
+	BeginDialog(context.Context, int64, int64, int, string, string) (clubprofile.WatchDraft, error)
+	ConfirmDialog(context.Context, int64, int64, int, string) (clubprofile.WatchDraft, error)
+}
 type Handler struct {
+	Recovery      *recovery.Service
+	Agenda        *agenda.Service
+	Panels        interaction.PanelRegistry
+	WatchDialog   WatchDialogApplication
+	ScheduleUI    *scheduleui.Service
 	ProfilePanels clubprofile.ProfilePanelRepository
+	Interactions  *interaction.Service
 	DailyMenu     *daily.MenuService
 	Profile       ProfileApplication
 	Watches       WatchApplication

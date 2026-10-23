@@ -40,9 +40,6 @@ func validAIWorkKind(kind string) bool {
 }
 
 func (s *Store) SeedAIWork(ctx context.Context, now time.Time) error {
-	if _, err := s.db.ExecContext(ctx, "UPDATE daily_menu_intents SET actor_id=0,prompt_id=0,state=CASE WHEN state='pending' THEN 'expired' ELSE state END WHERE expires_at<=? AND actor_id<>0", now.Unix()); err != nil {
-		return err
-	}
 	return s.transaction(ctx, nil, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE items SET state='rejected'
  WHERE kind='meme' AND ai_approved=1 AND state IN ('pending','approved') AND created_at<?`, now.Add(-memeStockTTL).Unix()); err != nil {

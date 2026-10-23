@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/vaporon4a/movie-helper/internal/agenda"
 	"github.com/vaporon4a/movie-helper/internal/ai"
 	"github.com/vaporon4a/movie-helper/internal/aiwork"
 	"github.com/vaporon4a/movie-helper/internal/clubprofile"
@@ -29,8 +30,11 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/filmresearch"
 	"github.com/vaporon4a/movie-helper/internal/gemini"
 	"github.com/vaporon4a/movie-helper/internal/groq"
+	"github.com/vaporon4a/movie-helper/internal/interaction"
 	"github.com/vaporon4a/movie-helper/internal/meme"
+	"github.com/vaporon4a/movie-helper/internal/recovery"
 	"github.com/vaporon4a/movie-helper/internal/scheduler"
+	"github.com/vaporon4a/movie-helper/internal/scheduleui"
 	"github.com/vaporon4a/movie-helper/internal/storage"
 	"github.com/vaporon4a/movie-helper/internal/telegram"
 	"github.com/vaporon4a/movie-helper/internal/tmdb"
@@ -95,7 +99,12 @@ func run() error {
 	}
 	handler.Feedback = store
 	handler.ProfilePanels = store
-	handler.DailyMenu = &daily.MenuService{Store: store, Stock: store, Log: log}
+	handler.DailyMenu = daily.NewMenuService(store, store, log)
+	handler.Interactions = interaction.New(store)
+	handler.Panels = store
+	handler.Agenda = agenda.New(store)
+	handler.Recovery = recovery.New(store)
+	handler.ScheduleUI = scheduleui.New(store, store)
 	s, err := scheduler.New(store, telegram.Sender{API: b, Feedback: store, Log: log, Now: time.Now}, provider, cfg.Chats, log, time.Now)
 	if err != nil {
 		return err
@@ -103,6 +112,8 @@ func run() error {
 	s.BackgroundOnly = cfg.AIResultMode == "background"
 	handler.Club = clubreminder.NewService(store, time.Now, log)
 	var workers sync.WaitGroup
+	uiMaintenance := interaction.Maintenance{Store: store, Remover: handler, Log: log}
+	workers.Go(func() { uiMaintenance.Run(ctx) })
 	reminders := &clubreminder.Coordinator{Store: store, Sender: telegram.ClubSender{API: b}, Allowed: cfg.Chats, Log: log, Now: time.Now}
 	workers.Go(func() { reminders.Run(ctx) })
 	workers.Go(func() { s.Run(ctx) })
@@ -232,6 +243,7 @@ func startClubProfile(ctx context.Context, cfg config.Config, store *storage.Sto
 		return err
 	}
 	handler.Watches = watches
+	handler.WatchDialog = watches
 	workers.Go(func() { watches.Run(ctx, handler) })
 	cleanup := clubprofile.CleanupWorker{Store: store, Transport: telegram.ProfileCleaner{API: api}, Allowed: cfg.Chats, Log: log, Now: time.Now}
 	workers.Go(func() { cleanup.Run(ctx) })

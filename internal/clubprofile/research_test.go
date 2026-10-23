@@ -90,6 +90,21 @@ func TestResearchProjectionCanonicalEqualFilmsAndQuarantine(t *testing.T) {
 	if result.Families[0].Shares[qs[0].Options[0].Key] != 0.5 {
 		t.Fatal("unequal film weight", result)
 	}
+	if len(result.Evidence) != 2 || result.Evidence[0].PollID != 2 || result.Evidence[0].WatchID != 2 || result.Evidence[1].PollID != 4 || result.Evidence[1].TMDBID != 604 {
+		t.Fatal("wrong evidence selection", result.Evidence)
+	}
+	evidenceShare := float64(0)
+	for _, e := range result.Evidence {
+		for _, option := range e.Options {
+			if option.Key == qs[0].Options[0].Key {
+				evidenceShare += float64(option.Count) / float64(e.Answers)
+			}
+		}
+	}
+	evidenceShare /= float64(len(result.Evidence))
+	if evidenceShare != result.Families[0].Shares[qs[0].Options[0].Key] {
+		t.Fatal("evidence disagrees with summary")
+	}
 	reversed := []Poll{polls[4], polls[3], polls[2], polls[1], polls[0]}
 	if !reflect.DeepEqual(result, ProjectResearch(watches, sessions, reversed)) {
 		t.Fatal("unstable rebuild")

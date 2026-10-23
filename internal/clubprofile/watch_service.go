@@ -50,6 +50,7 @@ type WatchRepository interface {
 	WatchResolverRepository
 	WatchHistoryRepository
 	FilmEnrichmentRepository
+	WatchConfirmationRepository
 }
 
 type WatchCardPublisher interface {
@@ -57,21 +58,22 @@ type WatchCardPublisher interface {
 }
 
 type WatchService struct {
-	drafts     WatchDraftRepository
-	resolver   WatchResolverRepository
-	history    WatchHistoryRepository
-	enrichment FilmEnrichmentRepository
-	catalog    FilmCatalog
-	allowed    map[int64]bool
-	log        *slog.Logger
-	now        func() time.Time
+	confirmations WatchConfirmationRepository
+	drafts        WatchDraftRepository
+	resolver      WatchResolverRepository
+	history       WatchHistoryRepository
+	enrichment    FilmEnrichmentRepository
+	catalog       FilmCatalog
+	allowed       map[int64]bool
+	log           *slog.Logger
+	now           func() time.Time
 }
 
 func NewWatchService(repo WatchRepository, catalog FilmCatalog, allowed map[int64]bool, log *slog.Logger, now func() time.Time) (*WatchService, error) {
 	if repo == nil || catalog == nil || log == nil || now == nil {
 		return nil, ErrInvalid
 	}
-	return &WatchService{drafts: repo, resolver: repo, history: repo, enrichment: repo, catalog: catalog, allowed: allowed, log: log, now: now}, nil
+	return &WatchService{confirmations: repo, drafts: repo, resolver: repo, history: repo, enrichment: repo, catalog: catalog, allowed: allowed, log: log, now: now}, nil
 }
 
 func (s *WatchService) Add(ctx context.Context, op, chat int64, text string) (WatchDraft, error) {

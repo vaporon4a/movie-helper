@@ -121,11 +121,11 @@ func validResearchTransition(from, to string, repairs int) bool {
 	}
 	switch from {
 	case "sources":
-		return to == "generate" || to == "rejected"
+		return to == "generate" || to == rejectedState
 	case "generate":
-		return to == "audit" || to == "rejected" || (to == "generate" && repairs == 1)
+		return to == "audit" || to == rejectedState || (to == "generate" && repairs == 1)
 	case "audit":
-		return to == researchReady || to == "rejected" || (to == "generate" && repairs == 1)
+		return to == researchReady || to == rejectedState || (to == "generate" && repairs == 1)
 	default:
 		return false
 	}

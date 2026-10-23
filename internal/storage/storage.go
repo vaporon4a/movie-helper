@@ -294,7 +294,7 @@ func (s *Store) Item(ctx context.Context, chat, id int64) (daily.Item, error) {
 }
 func (s *Store) Moderate(ctx context.Context, op, chat, id, user int64, approve bool, now time.Time) error {
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		target := "rejected"
+		target := rejectedState
 		from := "state IN ('pending','approved')"
 		if approve {
 			target = approvedState
@@ -421,7 +421,7 @@ func (s *Store) Claim(ctx context.Context, id int64, now time.Time) (bool, error
 }
 func (s *Store) Finish(ctx context.Context, id int64, state string, message int, next int64) error {
 	switch state {
-	case sentState, "unknown", "failed", "retry", cancelledState:
+	case sentState, unknownState, "failed", retryState, cancelledState:
 	default:
 		return errors.New("invalid delivery state")
 	}
@@ -431,7 +431,7 @@ func (s *Store) Finish(ctx context.Context, id int64, state string, message int,
 		if err := tx.QueryRowContext(ctx, "SELECT COALESCE(item_id,0),state FROM deliveries WHERE id=?", id).Scan(&item, &current); err != nil {
 			return err
 		}
-		if current != "sending" && current != "ready" && current != "retry" {
+		if current != "sending" && current != "ready" && current != retryState {
 			return daily.ErrConflict
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE deliveries SET state=?,message_id=?,next_attempt=? WHERE id=?", state, message, next, id); err != nil {
@@ -469,19 +469,7 @@ func (s *Store) Issues(ctx context.Context, chat int64) ([]daily.Delivery, error
 }
 func (s *Store) Resolve(ctx context.Context, op, chat, id int64, sent bool) error {
 	return s.transaction(ctx, &op, func(tx *sql.Tx) error {
-		var item int64
-		if err := tx.QueryRowContext(ctx, "SELECT item_id FROM deliveries WHERE id=? AND chat_id=? AND state='unknown'", id, chat).Scan(&item); err != nil {
-			return daily.ErrConflict
-		}
-		ds, is := "cancelled", approvedState
-		if sent {
-			ds, is = sentState, sentState
-		}
-		if _, err := tx.ExecContext(ctx, "UPDATE deliveries SET state=? WHERE id=?", ds, id); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx, "UPDATE items SET state=? WHERE id=?", is, item)
-		return err
+		return resolveDaily(ctx, tx, chat, id, sent)
 	})
 }
 
@@ -559,4 +547,21 @@ func validateAttachmentItem(item daily.Item) error {
 		return errors.New("obsolete meme policy")
 	}
 	return item.Validate()
+}
+
+func resolveDaily(ctx context.Context, tx *sql.Tx, chat, id int64, sent bool) error {
+
+	var item int64
+	if err := tx.QueryRowContext(ctx, "SELECT item_id FROM deliveries WHERE id=? AND chat_id=? AND state='unknown'", id, chat).Scan(&item); err != nil {
+		return daily.ErrConflict
+	}
+	ds, is := "cancelled", approvedState
+	if sent {
+		ds, is = sentState, sentState
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE deliveries SET state=? WHERE id=?", ds, id); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "UPDATE items SET state=? WHERE id=?", is, item)
+	return err
 }

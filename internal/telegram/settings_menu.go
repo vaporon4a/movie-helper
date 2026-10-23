@@ -33,8 +33,9 @@ func (h *Handler) settingsHome(ctx context.Context, chat int64) (menuPanel, erro
 	}
 	lines = append(lines, "", "Выберите раздел. Настройки доступны всем участникам клуба.")
 	keyboard := &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
+		{menuButton("📅 Что дальше", "agenda_0")},
 		{menuButton("🎬 Просмотры и опросы", "movies")},
-		{menuButton("🗞 Мемы и факты", "daily")},
+		{menuButton("🗞 Мемы и факты", dailyPage)},
 		{menuButton("🍿 Встречи и напоминания", "club")},
 		{menuButton("💡 Идеи", "ideas")},
 		{menuButton("🔧 Дополнительно", "advanced")},
@@ -81,7 +82,14 @@ func (h *Handler) moviesMenu(ctx context.Context, chat int64) (menuPanel, error)
 		text = profileSettingsText(schedules, nil) + "\n\nАвтоматические вопросы после просмотра: " + state
 	}
 	text += "\n\nДобавить просмотр:\n/movie_watched название или ссылка TMDB\nПосмотреть профиль: /movie_profile\n\nРасписание — день mon..sun и время чата:\n/movie_schedule genre mon 09:00\n/movie_schedule reference wed 12:00\n\nВыключить тип опросов:\n/movie_pause genre\n/movie_pause reference\n\nАвтовопросы для новых просмотров:\n/movie_auto_review on\n/movie_auto_review off\n\nЗапустить опрос сейчас:\n/genre_poll 10m\n/reference_poll 10m\n\nИзменения настроек не перезапускают остановленные серии."
-	return menuPanel{text, menuBack()}, nil
+	keyboard := menuBack()
+	if h.WatchDialog != nil {
+		keyboard.InlineKeyboard = append([][]models.InlineKeyboardButton{{{Text: "🎞 Добавить просмотр", CallbackData: "wd:start"}}}, keyboard.InlineKeyboard...)
+	}
+	if h.ScheduleUI != nil {
+		keyboard.InlineKeyboard = append([][]models.InlineKeyboardButton{{menuButton("🗓 Жанры", "schedule_genre"), menuButton("🗓 Фильмы", "schedule_reference")}}, keyboard.InlineKeyboard...)
+	}
+	return menuPanel{text, keyboard}, nil
 }
 
 func (h *Handler) clubMenu(ctx context.Context, chat int64) (menuPanel, error) {
@@ -94,7 +102,11 @@ func (h *Handler) clubMenu(ctx context.Context, chat int64) (menuPanel, error) {
 		text = clubSettingsText(settings, h.Now())
 	}
 	text += "\n\nНастроить встречи:\n/club_schedule fri 2 19:00\n\nПример: вторая пятница месяца; 19:00 — время напоминаний. Дни mon..sun, недели 1..4 или last.\n\nПопробовать текст: /club_preview\nВыключить: /club_pause"
-	return menuPanel{text, menuBack()}, nil
+	keyboard := menuBack()
+	if h.ScheduleUI != nil {
+		keyboard.InlineKeyboard = append([][]models.InlineKeyboardButton{{menuButton("🗓 Настроить встречи", "schedule_club")}}, keyboard.InlineKeyboard...)
+	}
+	return menuPanel{text, keyboard}, nil
 }
 
 func (h *Handler) ideasMenu(ctx context.Context, chat int64) (menuPanel, error) {
@@ -109,6 +121,9 @@ func (h *Handler) ideasMenu(ctx context.Context, chat int64) (menuPanel, error) 
 	text += "\n\nПредложить улучшение: /idea\nВаши предложения: /my_ideas\n\nНастроить голосования:\n/idea_schedule sun 18:00\nВыключить: /idea_pause\n\nПробный запуск: /idea_round 10m\n\nУправление идеями по ID:\n/idea_remove ID — убрать\n/idea_done ID — отметить реализованной\n/idea_restore ID — вернуть\n\nИзменения идей в открытом голосовании ограничены, чтобы сохранить корректность результатов."
 	keyboard := menuBack()
 	keyboard.InlineKeyboard = append([][]models.InlineKeyboardButton{{menuButton("🧰 Бэклог победителей", "backlog")}}, keyboard.InlineKeyboard...)
+	if h.ScheduleUI != nil {
+		keyboard.InlineKeyboard = append([][]models.InlineKeyboardButton{{menuButton("🗓 Расписание идей", "schedule_ideas")}}, keyboard.InlineKeyboard...)
+	}
 	return menuPanel{text, keyboard}, nil
 }
 

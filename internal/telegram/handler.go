@@ -68,6 +68,9 @@ func (h *Handler) handleMembership(ctx context.Context, member *models.ChatMembe
 
 func (h *Handler) handleMessage(ctx context.Context, update *models.Update) {
 	message := update.Message
+	if message.From != nil {
+		ctx = context.WithValue(ctx, requesterKey{}, message.From.ID)
+	}
 	command, args := Command(message.Text, h.Username)
 	if h.handleBasicMessage(ctx, message, command, args) {
 		return
@@ -80,12 +83,7 @@ func (h *Handler) handleMessage(ctx context.Context, update *models.Update) {
 		return
 	}
 	if command == "" {
-		if h.handleDailyTimeReply(ctx, message) {
-			return
-		}
-		if h.handleIdeaReply(ctx, update) {
-			return
-		}
+		h.routeInputReply(ctx, update)
 		return
 	}
 
@@ -169,6 +167,8 @@ func (h *Handler) handleReference(ctx context.Context, chatID int64, command str
 		page = "help"
 	case "/help_manage", "/help_admin":
 		page = "advanced"
+	case "/recovery":
+		page = recoveryPage
 	case "/about":
 		page = "about"
 	default:
@@ -212,4 +212,11 @@ func (h *Handler) finishCommand(ctx context.Context, chatID int64, command strin
 	}
 	h.Log.Warn("command not applied", "command", command, "chat_id", chatID)
 	h.reply(ctx, chatID, "Не удалось применить команду. Проверьте формат, часовой пояс, ID и состояние материала. /help")
+}
+
+func (h *Handler) routeInputReply(ctx context.Context, u *models.Update) {
+	if h.handleWatchDialogReply(ctx, u) || h.handleScheduleReply(ctx, u.Message) || h.handleDailyTimeReply(ctx, u.Message) {
+		return
+	}
+	h.handleIdeaReply(ctx, u)
 }

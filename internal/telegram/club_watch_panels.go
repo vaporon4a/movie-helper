@@ -88,6 +88,6 @@ func (v clubProfileView) watchSection(id int64, page string) (string, *models.In
 			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{{Text: "Остановить вопросы…", CallbackData: fmt.Sprintf("cp:pause:%d", id)}, {Text: "Исправить дату", CallbackData: fmt.Sprintf("cp:edit:%d", id)}})
 		}
 	}
-	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton("← К фильму", "watch", id)})
+	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton("← К фильму", watchPage, id)})
 	return text, keyboard
 }

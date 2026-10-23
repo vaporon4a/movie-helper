@@ -8,12 +8,14 @@ import (
 
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/daily"
+	"github.com/vaporon4a/movie-helper/internal/interaction"
 )
 
 func attachDailyMenu(t *testing.T, h *Handler) {
 	t.Helper()
 	s := appOf(t, h).store
-	h.DailyMenu = &daily.MenuService{Store: s, Stock: s, Log: h.Log}
+	h.DailyMenu = daily.NewMenuService(s, s, h.Log)
+	h.Interactions = interaction.New(s)
 	if err := s.EnsureChat(t.Context(), -1); err != nil {
 		t.Fatal(err)
 	}
@@ -39,13 +41,13 @@ func TestDailyMenuAddressedInputAndClose(t *testing.T) {
 	reply := update(800, -1, 43, "14:23")
 	reply.Message.ReplyToMessage = &models.Message{ID: 99}
 	h.Handle(t.Context(), nil, reply)
-	c, err := h.DailyMenu.Store.DailyConfig(t.Context(), -1)
+	c, err := h.DailyMenu.Config(t.Context(), -1)
 	if err != nil || c.Schedules[0].Clock == "14:23" {
 		t.Fatal("foreign input applied")
 	}
 	reply.Message.From.ID = 42
 	h.Handle(t.Context(), nil, reply)
-	c, err = h.DailyMenu.Store.DailyConfig(t.Context(), -1)
+	c, err = h.DailyMenu.Config(t.Context(), -1)
 	if err != nil || c.Schedules[0].Clock != "14:23" || c.Schedules[0].Enabled {
 		t.Fatal(c, err)
 	}
@@ -81,7 +83,7 @@ func TestDailyMenuOldRevisionDoesNotApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	clickDaily(t, h, token, 84)
-	c, err := h.DailyMenu.Store.DailyConfig(t.Context(), -1)
+	c, err := h.DailyMenu.Config(t.Context(), -1)
 	if err != nil || c.Schedules[0].Enabled {
 		t.Fatal(c, err)
 	}

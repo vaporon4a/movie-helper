@@ -78,28 +78,8 @@ func New(store Repository, sender Sender, provider Provider, allowed map[int64]b
 
 // Slot walks the local calendar day in absolute minutes. The first occurrence
 // wins during a repeated hour; a DST gap advances to the next existing minute.
-func Slot(now time.Time, clock, zone string) (time.Time, error) {
-	loc, err := time.LoadLocation(zone)
-	if err != nil {
-		return time.Time{}, err
-	}
-	parsed, err := time.Parse("15:04", clock)
-	if err != nil {
-		return time.Time{}, err
-	}
-	local := now.In(loc)
-	y, m, d := local.Date()
-	anchor := time.Date(y, m, d, 12, 0, 0, 0, loc)
-	want := parsed.Hour()*60 + parsed.Minute()
-	for t := anchor.Add(-18 * time.Hour); !t.After(anchor.Add(18 * time.Hour)); t = t.Add(time.Minute) {
-		l := t.In(loc)
-		ly, lm, ld := l.Date()
-		if ly == y && lm == m && ld == d && l.Hour()*60+l.Minute() >= want {
-			return t, nil
-		}
-	}
-	return time.Time{}, errors.New("no slot on local day")
-}
+func Slot(now time.Time, clock, zone string) (time.Time, error) { return daily.Slot(now, clock, zone) }
+
 func (s *Scheduler) Run(ctx context.Context) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()

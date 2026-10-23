@@ -86,7 +86,7 @@ func consecutiveEmptyBatches(polls []Poll) int {
 	byID := map[int64]*batch{}
 	var order []int64
 	for _, p := range polls {
-		if p.BatchID == 0 || (p.State == Cancelled && p.MessageID == 0) || (p.State == Failed && p.MessageID == 0) {
+		if !participatedBatch(p) {
 			continue
 		}
 		b := byID[p.BatchID]
@@ -190,4 +190,8 @@ func protectedInterestSlots(ordered []Schedule) map[int64]bool {
 		}
 	}
 	return protected
+}
+
+func participatedBatch(p Poll) bool {
+	return p.BatchID != 0 && (p.MessageID != 0 || (p.State != Cancelled && p.State != Failed))
 }

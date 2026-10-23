@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 
@@ -27,17 +28,11 @@ func menuBack() *models.InlineKeyboardMarkup {
 
 func (h *Handler) showMenu(ctx context.Context, chat int64, message int, page string, private bool) error {
 	h.Log.DebugContext(ctx, "menu requested", "chat_id", chat, "page", page, "message_id", message)
-	if h.DailyMenu != nil && message > 0 && !private {
-		closed, err := h.DailyMenu.Store.DailyPanelClosed(ctx, chat, message)
-		if err != nil {
-			return err
-		}
-		if closed {
-			return errResponseSent
-		}
-	}
-	if err := h.cancelDailyPanel(ctx, chat, message); err != nil {
+	if err := h.prepareMenuPanel(ctx, chat, message, page, private); err != nil {
 		return err
+	}
+	if strings.HasPrefix(page, "schedule_") && !private {
+		return h.beginSchedule(ctx, chat, message, strings.TrimPrefix(page, "schedule_"))
 	}
 	if strings.HasPrefix(page, "daily_") && !private {
 		return h.dailyKindPanel(ctx, chat, message, strings.TrimPrefix(page, "daily_"), "", false)
@@ -48,11 +43,11 @@ func (h *Handler) showMenu(ctx context.Context, chat int64, message int, page st
 	}
 	p.text = limitMenuText(p.text)
 	p.keyboard = closableKeyboard(p.keyboard)
-	if message == 0 {
-		_, err = h.API.SendMessage(ctx, &bot.SendMessageParams{ChatID: chat, Text: p.text, ReplyMarkup: p.keyboard, LinkPreviewOptions: disabledLinkPreview()})
-	} else {
-		_, err = h.API.EditMessageText(ctx, &bot.EditMessageTextParams{ChatID: chat, MessageID: message, Text: p.text, ReplyMarkup: p.keyboard, LinkPreviewOptions: disabledLinkPreview()})
+	purpose := "settings"
+	if menuScreen(page) == recoveryPage {
+		purpose = recoveryPage
 	}
+	_, err = h.deliverPanel(ctx, chat, message, purpose, p.text, p.keyboard)
 	if errors.Is(err, bot.ErrorBadRequest) && strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
 		return errResponseSent
 	}
@@ -83,8 +78,16 @@ func (h *Handler) navigationCallback(ctx context.Context, q *models.CallbackQuer
 }
 
 func knownMenuPage(page string) bool {
+	if raw, ok := strings.CutPrefix(page, "recovery_"); ok {
+		n, e := strconv.Atoi(raw)
+		return e == nil && n >= 0 && n < 1000
+	}
+	if raw, ok := strings.CutPrefix(page, "agenda_"); ok {
+		n, e := strconv.Atoi(raw)
+		return e == nil && n >= 0 && n < 1000
+	}
 	switch page {
-	case "help", "about", "home", "timezone", "daily", "movies", "club", "ideas", "backlog", "advanced", "moderation", "diagnostics", "movie_state", "daily_meme", "daily_fact":
+	case recoveryPage, "help", "about", "home", "timezone", dailyPage, "movies", "club", "ideas", "backlog", "advanced", "moderation", "diagnostics", "movie_state", "daily_meme", "daily_fact", "schedule_genre", "schedule_reference", "schedule_club", "schedule_ideas":
 		return true
 	default:
 		return false
@@ -93,6 +96,14 @@ func knownMenuPage(page string) bool {
 
 func (h *Handler) menuPage(ctx context.Context, chat int64, page string, private bool) (menuPanel, error) {
 	keyboard := menuBack()
+	if raw, ok := strings.CutPrefix(page, "recovery_"); ok {
+		offset, _ := strconv.Atoi(raw)
+		return h.recoveryPanel(ctx, chat, offset)
+	}
+	if raw, ok := strings.CutPrefix(page, "agenda_"); ok {
+		offset, _ := strconv.Atoi(raw)
+		return h.agendaPanel(ctx, chat, offset)
+	}
 	switch page {
 	case "help":
 		text := help
@@ -111,7 +122,7 @@ func (h *Handler) menuPage(ctx context.Context, chat int64, page string, private
 		return h.settingsHome(ctx, chat)
 	case "timezone":
 		return menuPanel{"🌍 Часовой пояс чата\n\nВсе расписания работают по времени чата. Чтобы изменить его, отправьте команду с вашим городом:\n\n/timezone Europe/Moscow\n/timezone Asia/Novosibirsk\n\nПосле изменения проверьте время в разделах настроек.", keyboard}, nil
-	case "daily":
+	case dailyPage:
 		return h.dailyMenu(ctx, chat)
 	case "movies":
 		return h.moviesMenu(ctx, chat)
@@ -125,10 +136,13 @@ func (h *Handler) menuPage(ctx context.Context, chat int64, page string, private
 		keyboard.InlineKeyboard = append([][]models.InlineKeyboardButton{
 			{menuButton("📥 Ручная модерация", "moderation")},
 			{menuButton("🛠 Диагностика", "diagnostics")},
+			{menuButton("🧯 Проверить операции", recoveryPage)},
 		}, keyboard.InlineKeyboard...)
 		return menuPanel{helpManage, keyboard}, nil
 	case "moderation":
 		return menuPanel{moderationHelp, &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{menuButton("← Дополнительно", "advanced")}}}}, nil
+	case recoveryPage:
+		return h.recoveryPanel(ctx, chat, 0)
 	case "diagnostics":
 		return h.diagnosticsMenu(ctx, chat)
 	case "movie_state":
@@ -161,5 +175,40 @@ func CoreCommands() []models.BotCommand {
 		{Command: "idea", Description: "Предложить улучшение бота"},
 		{Command: "my_ideas", Description: "Ваши активные предложения"},
 		{Command: "settings", Description: "Расписания и настройки"},
+	}
+}
+
+func (h *Handler) prepareMenuPanel(ctx context.Context, chat int64, message int, page string, private bool) error {
+	if h.Interactions != nil && message > 0 && !private {
+		closed, err := h.Interactions.Closed(ctx, chat, message)
+		if err != nil {
+			return err
+		}
+		if closed {
+			return errResponseSent
+		}
+	}
+	if err := h.cancelDailyPanel(ctx, chat, message); err != nil {
+		return err
+	}
+	if h.Interactions != nil && message > 0 && !private {
+		screen := menuScreen(page)
+		if err := h.Interactions.SetPanelScreen(ctx, chat, message, screen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func menuScreen(page string) string {
+	switch {
+	case strings.HasPrefix(page, "schedule_"):
+		return "schedule"
+	case strings.HasPrefix(page, "daily_"):
+		return dailyPage
+	case page == recoveryPage || strings.HasPrefix(page, "recovery_"):
+		return recoveryPage
+	default:
+		return "menu"
 	}
 }

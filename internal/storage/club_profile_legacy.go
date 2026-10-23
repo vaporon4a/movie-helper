@@ -127,7 +127,7 @@ func legacyProfileState(r legacyProfileRound) (clubprofile.PollState, bool) {
 		return clubprofile.Completed, true
 	case "publishing":
 		return clubprofile.Completed, true
-	case "poll_creating", "unknown":
+	case "poll_creating", unknownState:
 		return clubprofile.Unknown, false
 	case "failed":
 		return clubprofile.Failed, false

@@ -46,7 +46,7 @@ func (h *Handler) handleWatchCommand(ctx context.Context, u *models.Update, comm
 		if err = h.Watches.Change(ctx, u.ID, chat, n, "date", date); err != nil {
 			return true, err
 		}
-		return true, h.showClubProfile(ctx, chat, 0, "watch", n)
+		return true, h.showClubProfile(ctx, chat, 0, watchPage, n)
 	default:
 		return false, nil
 	}
@@ -104,6 +104,15 @@ func (h *Handler) persistWatchCardFailure(ctx context.Context, d clubprofile.Wat
 }
 
 func (h *Handler) EditWatchCard(ctx context.Context, d clubprofile.WatchDraft) error {
+	if h.Interactions != nil {
+		screen, err := h.Interactions.PanelScreen(ctx, d.ChatID, d.MessageID)
+		if err != nil {
+			return err
+		}
+		if screen != "" && screen != fmt.Sprintf("watch:%d", d.ID) && screen != "profile" {
+			return nil
+		}
+	}
 	if d.Closed {
 		return nil
 	}
@@ -131,8 +140,15 @@ func (h *Handler) watchDraftCard(ctx context.Context, d clubprofile.WatchDraft) 
 	case "saved":
 		return h.savedWatchCard(ctx, d)
 	case "choice":
+		if d.Input.Provisional && d.Reason == "confirm_required" && len(d.Candidates) == 1 {
+			text, k := watchDialogPresentation(d)
+			return text, k, nil
+		}
 		for _, f := range d.Candidates {
 			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{{Text: clipProfile(f.Label(), 70), CallbackData: fmt.Sprintf("cp:choose:%d:%d", d.ID, f.TMDBID)}})
+		}
+		if d.Input.Provisional {
+			return "🎬 Выберите фильм. Сохранение будет только после отдельного подтверждения даты и названия.", keyboard, nil
 		}
 		return fmt.Sprintf("🎬 Какой фильм посмотрели?\nДата: %s\n\nВыберите один вариант — просмотр сразу сохранится. Выбор действует до %s.", watchDate(d.Input.Date), d.Expires.Format("02.01 15:04 MST")), keyboard, nil
 	case "expired":
@@ -171,14 +187,8 @@ func (h *Handler) profileCallback(ctx context.Context, operation int64, data str
 	if !strings.HasPrefix(data, "cp:") || h.Watches == nil {
 		return false
 	}
-	if h.ProfilePanels != nil {
-		page, _, closed, err := h.ProfilePanels.ProfilePage(ctx, m.Chat.ID, m.ID)
-		if err != nil || closed {
-			return true
-		}
-		if strings.HasPrefix(data, "cp:pause_confirm:") && page != "" && page != menuPauseAction {
-			return true
-		}
+	if !h.profileActionAllowed(ctx, data, m) {
+		return true
 	}
 	parts := strings.Split(data, ":")
 	if len(parts) < 3 {
@@ -208,12 +218,12 @@ func (h *Handler) applyProfileCallback(ctx context.Context, operation int64, p [
 		return h.chooseProfileFilm(ctx, p, m, id)
 	case "pause_confirm":
 		return h.confirmProfilePause(ctx, operation, p, m, id)
-	case menuPauseAction, "edit":
+	case menuPauseAction, editPage:
 		return h.showClubProfile(ctx, m.Chat.ID, m.ID, p[1], id)
 	case "annul":
 		// Old Telegram cards outlive releases. Their cancel buttons must also
 		// become harmless; hiding the button in new cards is not sufficient.
-		return h.showClubProfile(ctx, m.Chat.ID, m.ID, "watch", id)
+		return h.showClubProfile(ctx, m.Chat.ID, m.ID, watchPage, id)
 	default:
 		return clubprofile.ErrInvalid
 	}
@@ -222,6 +232,9 @@ func (h *Handler) applyProfileCallback(ctx context.Context, operation int64, p [
 func (h *Handler) addWatched(ctx context.Context, u *models.Update, args string) error {
 	chat := u.Message.Chat.ID
 	if strings.TrimSpace(args) == "" {
+		if h.WatchDialog != nil && u.Message.From != nil {
+			return h.beginWatched(ctx, chat, 0, *u.Message.From)
+		}
 		h.reply(ctx, chat, "🎬 Что посмотрели?\n/movie_watched https://www.themoviedb.org/movie/603\n/movie_watched Матрица | 2026-10-16\n\nБез даты — сегодня по времени чата. Для истории допустимы год, месяц или unknown. Ссылка записывает просмотр сразу, название предложит варианты.")
 		return errResponseSent
 	}
@@ -258,7 +271,7 @@ func (h *Handler) currentWatchPanel(ctx context.Context, d clubprofile.WatchDraf
 	if err != nil || closed {
 		return "", nil, closed, err
 	}
-	if d.State != "saved" || page == "" || (page == "watch" && id == 0) {
+	if d.State != "saved" || page == "" || (page == watchPage && id == 0) {
 		return h.draftPanel(ctx, d)
 	}
 	view, err := h.loadProfileView(ctx, d.ChatID)
@@ -306,11 +319,44 @@ func (h *Handler) chooseProfileFilm(ctx context.Context, p []string, m *models.M
 
 func (h *Handler) confirmProfilePause(ctx context.Context, op int64, p []string, m *models.Message, id int64) error {
 	if len(p) != 4 {
-		return h.showClubProfile(ctx, m.Chat.ID, m.ID, "watch", id)
+		return h.showClubProfile(ctx, m.Chat.ID, m.ID, watchPage, id)
 	}
 	err := h.Watches.Change(ctx, op, m.Chat.ID, id, menuPauseAction, p[3])
 	if err != nil && !errors.Is(err, daily.ErrDuplicate) && !errors.Is(err, clubprofile.ErrDuplicate) {
 		return err
 	}
-	return h.showClubProfile(ctx, m.Chat.ID, m.ID, "watch", id)
+	return h.showClubProfile(ctx, m.Chat.ID, m.ID, watchPage, id)
+}
+
+func (h *Handler) profileActionAllowed(ctx context.Context, data string, m *models.Message) bool {
+	if !h.profileScreenMatches(ctx, data, m) {
+		return false
+	}
+	if h.ProfilePanels != nil {
+		page, _, closed, err := h.ProfilePanels.ProfilePage(ctx, m.Chat.ID, m.ID)
+		if err != nil || closed {
+			return false
+		}
+		if strings.HasPrefix(data, "cp:pause_confirm:") && page != "" && page != menuPauseAction {
+			return false
+		}
+	}
+	return true
+}
+
+func (h *Handler) profileScreenMatches(ctx context.Context, data string, m *models.Message) bool {
+	if h.Interactions != nil && !strings.HasPrefix(data, "cp:view:") {
+		screen, err := h.Interactions.PanelScreen(ctx, m.Chat.ID, m.ID)
+		if err != nil {
+			return false
+		}
+		if owner, ok := strings.CutPrefix(screen, "watch:"); ok {
+			return strings.HasPrefix(data, "cp:choose:"+owner+":")
+		}
+		if screen != "" && screen != "profile" {
+			return false
+		}
+	}
+
+	return true
 }

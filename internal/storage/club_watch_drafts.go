@@ -86,7 +86,7 @@ func (s *Store) ChooseWatchFilm(ctx context.Context, chat, id, film int64, now t
 		if d.State == "saved" {
 			return nil
 		}
-		if d.State != "choice" || !now.Before(d.Expires) || !slices.ContainsFunc(d.Candidates, func(f clubprofile.Film) bool { return f.TMDBID == film }) {
+		if d.State != choiceState || !now.Before(d.Expires) || !slices.ContainsFunc(d.Candidates, func(f clubprofile.Film) bool { return f.TMDBID == film }) {
 			return clubprofile.ErrConflict
 		}
 		d.Input.TMDBID, d.Input.Query, d.State = film, "", pendingState
@@ -173,11 +173,15 @@ func resolveWatchDraft(ctx context.Context, tx *sql.Tx, d *clubprofile.WatchDraf
 		return nil
 	}
 	if d.Input.TMDBID == 0 {
-		d.State, d.Candidates = "choice", films
+		d.State, d.Candidates = choiceState, films
 		return nil
 	}
 	if len(films) != 1 || films[0].TMDBID != d.Input.TMDBID || films[0].Title == "" || films[0].Source != "tmdb" {
 		return clubprofile.ErrInvalid
+	}
+	if d.Input.Provisional {
+		d.State, d.Reason, d.Candidates = choiceState, "confirm_required", films
+		return nil
 	}
 	id, err := saveProfileWatch(ctx, tx, *d, films[0], now)
 	if err != nil {
@@ -199,8 +203,7 @@ func (s *Store) WatchCardRendered(ctx context.Context, id int64, version int) er
 // A closed panel is UI state only. Draft resolution, the viewing, its research
 // session and all answers continue independently.
 func (s *Store) CloseWatchCard(ctx context.Context, chat int64, message int) error {
-	_, err := s.db.ExecContext(ctx, "UPDATE club_watch_drafts SET card_closed=1 WHERE chat_id=? AND message_id=?", chat, message)
-	return err
+	return s.CloseDailyPanel(ctx, chat, message)
 }
 
 // Only a confirmed rejection may release a send reservation. Ambiguous sends stay at -1.

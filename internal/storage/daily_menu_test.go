@@ -87,7 +87,7 @@ func TestDailyMenuPromptScopeExpiryAndClose(t *testing.T) {
 	must(t, s.EnsureChat(ctx, -1))
 	i := menuIntent(t, s, "input", "time")
 	// Recreate with actor binding, which does not grant any privilege on the setting.
-	_, err := s.db.ExecContext(ctx, "UPDATE daily_menu_intents SET actor_id=42 WHERE token=?", i.Token)
+	_, err := s.db.ExecContext(ctx, "UPDATE interaction_intents SET actor_id=42 WHERE token=?", i.Token)
 	must(t, err)
 	must(t, s.BindDailyPrompt(ctx, i.Token, 91))
 	if _, err = s.DailyReplyIntent(ctx, -1, 43, 91, testNow); !errors.Is(err, daily.ErrConflict) {
@@ -190,7 +190,7 @@ func TestDailyInputAndUnknownPreviewPersistAcrossRestart(t *testing.T) {
 	must(t, s.EnsureChat(ctx, -1))
 	must(t, s.SetZone(ctx, 1, -1, "UTC", testNow))
 	i := menuIntent(t, s, "restart-input", "time")
-	_, err = s.db.ExecContext(ctx, "UPDATE daily_menu_intents SET actor_id=42,prompt_id=91 WHERE token=?", i.Token)
+	_, err = s.db.ExecContext(ctx, "UPDATE interaction_intents SET actor_id=42,prompt_id=91 WHERE token=?", i.Token)
 	must(t, err)
 	preview := menuIntent(t, s, "restart-preview", "preview")
 	must(t, s.ClaimDailyPreview(ctx, preview, testNow))

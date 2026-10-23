@@ -3,7 +3,9 @@ package telegram
 import (
 	"context"
 	"errors"
+	"github.com/vaporon4a/movie-helper/internal/interaction"
 	"strings"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -52,8 +54,8 @@ func (h *Handler) closePanelCallback(ctx context.Context, q *models.CallbackQuer
 	}
 	_, _ = h.API.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{CallbackQueryID: q.ID})
 	h.Log.DebugContext(ctx, "menu close requested", "chat_id", m.Chat.ID, "message_id", m.ID)
-	if h.DailyMenu != nil && h.Allowed[m.Chat.ID] {
-		if err := h.DailyMenu.Store.CloseDailyPanel(ctx, m.Chat.ID, m.ID); err != nil {
+	if h.Interactions != nil {
+		if err := h.Interactions.ClosePanel(ctx, m.Chat.ID, m.ID); err != nil {
 			return
 		}
 	}
@@ -93,6 +95,14 @@ func (h *Handler) deleteOrHidePanel(ctx context.Context, chat int64, message int
 	_, err = h.API.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{ChatID: chat, MessageID: message, ReplyMarkup: &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{}}})
 	if errors.Is(err, bot.ErrorBadRequest) && strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
 		return nil
+	}
+	return err
+}
+
+func (h *Handler) RemoveUIPanel(ctx context.Context, chat int64, message int) error {
+	err := h.deleteOrHidePanel(ctx, chat, message)
+	if rate, ok := errors.AsType[*bot.TooManyRequestsError](err); ok {
+		return &interaction.CleanupError{After: time.Duration(rate.RetryAfter) * time.Second}
 	}
 	return err
 }
