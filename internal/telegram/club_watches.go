@@ -196,14 +196,17 @@ func (h *Handler) applyProfileCallback(ctx context.Context, operation int64, p [
 			return e
 		}
 		return h.EditWatchCard(ctx, d)
-	case "pause", "annul":
-		if err = h.Watches.Change(ctx, operation, m.Chat.ID, id, p[1], ""); err != nil {
+	case "pause_confirm":
+		if err = h.Watches.Change(ctx, operation, m.Chat.ID, id, "pause", ""); err != nil {
 			return err
 		}
 		return h.showClubProfile(ctx, m.Chat.ID, m.ID, "watch", id)
-	case "edit":
-		h.reply(ctx, m.Chat.ID, fmt.Sprintf("Исправить дату: /movie_watch_date %d YYYY-MM-DD\nДля замены фильма: отмените запись в карточке и добавьте правильную через /movie_watched. История исправлений сохраняется.", id))
-		return nil
+	case "pause", "edit":
+		return h.showClubProfile(ctx, m.Chat.ID, m.ID, p[1], id)
+	case "annul":
+		// Old Telegram cards outlive releases. Their cancel buttons must also
+		// become harmless; hiding the button in new cards is not sufficient.
+		return h.showClubProfile(ctx, m.Chat.ID, m.ID, "watch", id)
 	default:
 		return clubprofile.ErrInvalid
 	}

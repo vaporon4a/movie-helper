@@ -45,7 +45,33 @@ func TestWatchedCommandOneCardEqualMembersAndQuietCorrections(t *testing.T) {
 	if len(api.messages) != 1 {
 		t.Fatal("replayed command sent another card")
 	}
-	h.Handle(ctx, nil, &models.Update{ID: 501, CallbackQuery: &models.CallbackQuery{ID: "x", From: models.User{ID: 43}, Data: "cp:pause:1", Message: models.MaybeInaccessibleMessage{Message: &models.Message{ID: 99, Chat: models.Chat{ID: -1}}}}})
+	click := func(op int64, data string) {
+		h.Handle(ctx, nil, &models.Update{ID: op, CallbackQuery: &models.CallbackQuery{ID: "x", From: models.User{ID: 43}, Data: data, Message: models.MaybeInaccessibleMessage{Message: &models.Message{ID: 99, Chat: models.Chat{ID: -1}}}}})
+	}
+	for i, data := range []string{"cp:annul:1", "cp:edit:1", "cp:pause:1", "cp:view:watch:1"} {
+		click(510+int64(i), data)
+		watches, e := store.ProfileWatches(ctx, -1)
+		if e != nil || len(watches) != 1 || watches[0].State != "active" || watches[0].Revision != 1 {
+			t.Fatalf("button %s changed watch: %+v, %v", data, watches, e)
+		}
+		sessions, e := store.ProfileSessions(ctx, -1)
+		if e != nil || len(sessions) != 1 || sessions[0].State != "queued" {
+			t.Fatalf("button %s stopped discussion: %+v, %v", data, sessions, e)
+		}
+		if len(api.messages) != 1 {
+			t.Fatal("button help sent a new group message")
+		}
+	}
+	click(520, "cp:pause:1")
+	if !strings.Contains(api.edits[len(api.edits)-1].Text, "Серия сама не возобновится") {
+		t.Fatal("pause did not explain consequences")
+	}
+	click(521, "cp:pause_confirm:1")
+	click(521, "cp:pause_confirm:1")
+	watches, err := store.ProfileWatches(ctx, -1)
+	if err != nil || len(watches) != 1 || watches[0].State != "active" || watches[0].Revision != 2 {
+		t.Fatal("confirmation replay changed watch twice", watches, err)
+	}
 	sessions, err := store.ProfileSessions(ctx, -1)
 	if err != nil || len(sessions) != 1 || sessions[0].State != "cancelled" {
 		t.Fatal(sessions, err)
@@ -56,6 +82,36 @@ func TestWatchedCommandOneCardEqualMembersAndQuietCorrections(t *testing.T) {
 	h.Handle(ctx, nil, update(502, -1, 43, "/movie_profile"))
 	if !strings.Contains(api.messages[len(api.messages)-1].Text, "1 разных фильмов") {
 		t.Fatal(api.messages)
+	}
+}
+
+func TestWatchCardHasNoCancellationAndPauseNeedsExplicitConfirmation(t *testing.T) {
+	v := clubProfileView{watches: []clubprofile.WatchEvent{{ID: 2, State: "active", Film: clubprofile.Film{Title: "Она"}}}}
+	for _, page := range []string{"watch", "edit", "pause"} {
+		text, keyboard := v.page(page, 2)
+		confirmation := false
+		for _, row := range keyboard.InlineKeyboard {
+			for _, b := range row {
+				if strings.HasPrefix(b.CallbackData, "cp:annul:") {
+					t.Fatal("cancellation button remains", page)
+				}
+				confirmation = confirmation || b.CallbackData == "cp:pause_confirm:2"
+			}
+		}
+		if confirmation != (page == "pause") {
+			t.Fatal("confirmation must appear only on explicit pause screen", page)
+		}
+		if page == "edit" && !strings.Contains(text, "/movie_watch_date 2 YYYY-MM-DD") {
+			t.Fatal("missing manual date instruction")
+		}
+	}
+	_, keyboard := v.page("pause", 999)
+	for _, row := range keyboard.InlineKeyboard {
+		for _, b := range row {
+			if strings.HasPrefix(b.CallbackData, "cp:pause_confirm:") {
+				t.Fatal("confirmation offered for a missing watch")
+			}
+		}
 	}
 }
 

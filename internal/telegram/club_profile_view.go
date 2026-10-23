@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"github.com/go-telegram/bot/models"
 	"github.com/vaporon4a/movie-helper/internal/clubprofile"
 )
+
+const watchActive = "active"
 
 type clubProfileView struct {
 	watches   []clubprofile.WatchEvent
@@ -42,6 +45,9 @@ func (h *Handler) showClubProfile(ctx context.Context, chat int64, message int, 
 	} else {
 		_, err = h.API.EditMessageText(ctx, &bot.EditMessageTextParams{ChatID: chat, MessageID: message, Text: text, ReplyMarkup: keyboard, LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: new(true)}})
 	}
+	if errors.Is(err, bot.ErrorBadRequest) && strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
+		return errResponseSent
+	}
 	if err != nil {
 		return err
 	}
@@ -54,6 +60,8 @@ func (v clubProfileView) page(page string, id int64) (string, *models.InlineKeyb
 		return v.watchList(int(id))
 	case "watch":
 		return v.watchCard(id)
+	case "pause", "edit":
+		return v.watchActionCard(id, page)
 	case "interest":
 		return v.interestCard(int(id))
 	case "poll":
@@ -86,7 +94,7 @@ func (v clubProfileView) overviewCard() (string, *models.InlineKeyboardMarkup) {
 	n := 0
 	for i := len(v.watches) - 1; i >= 0 && n < 3; i-- {
 		w := v.watches[i]
-		if w.State != "active" {
+		if w.State != watchActive {
 			continue
 		}
 		fmt.Fprintf(&b, "• %s · %s\n  %s\n", clipProfile(w.Film.Label(), 90), watchDate(w.Date), v.enjoymentLine(w.ID))
@@ -146,7 +154,7 @@ func (v clubProfileView) watchList(offset int) (string, *models.InlineKeyboardMa
 	for j := offset; j < end; j++ {
 		w := v.watches[len(v.watches)-1-j]
 		state := ""
-		if w.State != "active" {
+		if w.State != watchActive {
 			state = " · отменён"
 		}
 		fmt.Fprintf(&b, "#%d · %s\n%s%s\n\n", w.ID, clipProfile(w.Film.Label(), 100), watchDate(w.Date), state)
@@ -170,7 +178,7 @@ func (v clubProfileView) watchCard(id int64) (string, *models.InlineKeyboardMark
 	w := v.watches[index]
 	var b strings.Builder
 	fmt.Fprintf(&b, "🎞 %s\nПросмотр #%d · %s (%s)\nhttps://www.themoviedb.org/movie/%d\n\n%s\n", clipProfile(w.Film.Label(), 180), w.ID, watchDate(w.Date), w.Zone, w.TMDBID, v.enjoymentLine(w.ID))
-	if w.State != "active" {
+	if w.State != watchActive {
 		b.WriteString("\nЗапись отменена. История и ответы сохранены, из сводного профиля исключены.\n")
 	} else {
 		b.WriteString(v.reviewStatus(w.ID))
@@ -179,14 +187,32 @@ func (v clubProfileView) watchCard(id int64) (string, *models.InlineKeyboardMark
 	for _, p := range v.watchPolls(id) {
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{profileButton(fmt.Sprintf("Опрос #%d · %s", p.ID, questionAspectLabel(p.Question)), "poll", p.ID)})
 	}
-	if w.State == "active" {
+	if w.State == watchActive {
 		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
-			{Text: "Не обсуждать", CallbackData: fmt.Sprintf("cp:pause:%d", id)},
+			{Text: "Остановить вопросы…", CallbackData: fmt.Sprintf("cp:pause:%d", id)},
 			{Text: "Исправить", CallbackData: fmt.Sprintf("cp:edit:%d", id)},
-			{Text: "Отменить запись", CallbackData: fmt.Sprintf("cp:annul:%d", id)},
 		})
 	}
 	return b.String(), keyboard
+}
+
+func (v clubProfileView) watchActionCard(id int64, action string) (string, *models.InlineKeyboardMarkup) {
+	index := slices.IndexFunc(v.watches, func(w clubprofile.WatchEvent) bool { return w.ID == id })
+	if index < 0 || v.watches[index].State != watchActive {
+		return v.watchCard(id)
+	}
+	w := v.watches[index]
+	keyboard := &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
+		{profileButton("← Назад к фильму", "watch", id)},
+	}}
+	heading := fmt.Sprintf("🎞 %s · просмотр #%d\n\n", clipProfile(w.Film.Label(), 180), id)
+	if action == "edit" {
+		return heading + fmt.Sprintf("Исправить дату вручную:\n/movie_watch_date %d YYYY-MM-DD\n\nВнимание: исправление даты остановит дальнейшие вопросы этой серии. История и ответы сохранятся.\n\nОтмена просмотра кнопкой отключена. Если ошиблись фильмом, попросите исправить запись вручную.", id), keyboard
+	}
+	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
+		{Text: "Да, остановить вопросы", CallbackData: fmt.Sprintf("cp:pause_confirm:%d", id)},
+	})
+	return heading + "Остановить дальнейшие вопросы об этом просмотре?\n\nФильм останется в истории, собранные ответы сохранятся. Уже опубликованные опросы останутся до завершения. Серия сама не возобновится.\n\nЕсли просто открыли карточку — нажмите «Назад к фильму».", keyboard
 }
 
 func appendFilmMetadata(b *strings.Builder, f clubprofile.Film) {
