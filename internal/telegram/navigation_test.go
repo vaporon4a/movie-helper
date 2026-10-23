@@ -95,7 +95,7 @@ func TestMenuNavigationEditsOneMessageAndPreservesSettings(t *testing.T) {
 		}
 		for _, row := range keyboard.InlineKeyboard {
 			for _, b := range row {
-				if !knownMenuPage(strings.TrimPrefix(b.CallbackData, "nav:")) {
+				if b.CallbackData != closePanelAction && !knownMenuPage(strings.TrimPrefix(b.CallbackData, "nav:")) {
 					t.Fatal("broken menu route", b.CallbackData)
 				}
 			}

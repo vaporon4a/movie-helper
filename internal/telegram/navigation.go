@@ -32,6 +32,7 @@ func (h *Handler) showMenu(ctx context.Context, chat int64, message int, page st
 		return err
 	}
 	p.text = limitMenuText(p.text)
+	p.keyboard = closableKeyboard(p.keyboard)
 	if message == 0 {
 		_, err = h.API.SendMessage(ctx, &bot.SendMessageParams{ChatID: chat, Text: p.text, ReplyMarkup: p.keyboard, LinkPreviewOptions: disabledLinkPreview()})
 	} else {
@@ -50,9 +51,8 @@ func (h *Handler) showMenu(ctx context.Context, chat int64, message int, page st
 
 func (h *Handler) navigationCallback(ctx context.Context, q *models.CallbackQuery, m *models.Message) {
 	page := strings.TrimPrefix(q.Data, "nav:")
-	private := m.Chat.Type == models.ChatTypePrivate && m.Chat.ID == q.From.ID
-	group := (m.Chat.Type == models.ChatTypeGroup || m.Chat.Type == models.ChatTypeSupergroup) && h.Allowed[m.Chat.ID]
-	if !private && !group {
+	private := m.Chat.Type == models.ChatTypePrivate
+	if !h.panelChatAllowed(m, q.From.ID) {
 		return
 	}
 	if private && page != "help" && page != "about" && page != "home" {

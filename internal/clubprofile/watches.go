@@ -45,6 +45,7 @@ type WatchDraft struct {
 	State, Reason        string
 	Expires, NextAttempt time.Time
 	MessageID            int
+	Closed               bool
 	Version, Rendered    int
 }
 

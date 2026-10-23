@@ -198,6 +198,7 @@ func (h *Handler) review(ctx context.Context, chatID int64, args string) error {
 		{Text: "Одобрить", CallbackData: fmt.Sprintf("approve:%d", itemID)},
 		{Text: "Убрать", CallbackData: fmt.Sprintf("reject:%d", itemID)},
 	}}}
+	keyboard = closableKeyboard(keyboard)
 	if item.Kind == daily.Meme {
 		_, err = h.API.SendPhoto(ctx, &bot.SendPhotoParams{ChatID: chatID, Photo: &models.InputFileString{Data: item.Image}, Caption: fmt.Sprintf("Предпросмотр #%d\n%s", itemID, item.Text), ReplyMarkup: keyboard})
 	} else {

@@ -40,6 +40,7 @@ func (h *Handler) showClubProfile(ctx context.Context, chat int64, message int, 
 		return err
 	}
 	text, keyboard := v.page(page, id)
+	keyboard = closableKeyboard(keyboard)
 	if message == 0 {
 		_, err = h.API.SendMessage(ctx, &bot.SendMessageParams{ChatID: chat, Text: text, ReplyMarkup: keyboard, LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: new(true)}})
 	} else {

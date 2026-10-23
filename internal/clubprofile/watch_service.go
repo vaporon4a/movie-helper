@@ -29,6 +29,7 @@ type WatchDraftRepository interface {
 }
 
 type WatchResolverRepository interface {
+	CloseWatchCard(context.Context, int64, int) error
 	DueWatchDrafts(context.Context, int64, time.Time) ([]WatchDraft, error)
 	ClaimWatchDraft(context.Context, int64, time.Time) (bool, error)
 	FinishWatchResolution(context.Context, WatchDraft, []Film, string, time.Time) (WatchDraft, error)
@@ -108,6 +109,13 @@ func (s *WatchService) BindMessage(ctx context.Context, chat, id int64, message 
 		return ErrInvalid
 	}
 	return s.drafts.BindWatchMessage(ctx, chat, id, message)
+}
+
+func (s *WatchService) CloseMessage(ctx context.Context, chat int64, message int) error {
+	if !s.allowed[chat] || message <= 0 {
+		return ErrInvalid
+	}
+	return s.resolver.CloseWatchCard(ctx, chat, message)
 }
 
 func (s *WatchService) ClaimMessage(ctx context.Context, chat, id int64) (bool, error) {

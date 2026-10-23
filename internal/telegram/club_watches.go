@@ -52,6 +52,9 @@ func (h *Handler) handleWatchCommand(ctx context.Context, u *models.Update, comm
 }
 
 func (h *Handler) sendWatchCard(ctx context.Context, d clubprofile.WatchDraft) error {
+	if d.Closed {
+		return errResponseSent
+	}
 	if d.MessageID != 0 {
 		if d.MessageID > 0 {
 			if err := h.EditWatchCard(ctx, d); err != nil {
@@ -64,6 +67,7 @@ func (h *Handler) sendWatchCard(ctx context.Context, d clubprofile.WatchDraft) e
 	if err != nil {
 		return err
 	}
+	keyboard = closableKeyboard(keyboard)
 	claimed, err := h.Watches.ClaimMessage(ctx, d.ChatID, d.ID)
 	if err != nil {
 		return err
@@ -99,10 +103,14 @@ func (h *Handler) persistWatchCardFailure(ctx context.Context, d clubprofile.Wat
 }
 
 func (h *Handler) EditWatchCard(ctx context.Context, d clubprofile.WatchDraft) error {
+	if d.Closed {
+		return nil
+	}
 	text, keyboard, err := h.watchDraftCard(ctx, d)
 	if err != nil {
 		return err
 	}
+	keyboard = closableKeyboard(keyboard)
 	_, err = h.API.EditMessageText(ctx, &bot.EditMessageTextParams{ChatID: d.ChatID, MessageID: d.MessageID, Text: text, ReplyMarkup: keyboard, LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: new(true)}})
 	if errors.Is(err, bot.ErrorBadRequest) && strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
 		return nil

@@ -27,6 +27,9 @@ type fakeAPI struct {
 	errorSend  error
 	photoErr   error
 	stopResult *models.Poll
+	deletes    []*bot.DeleteMessageParams
+	markups    []*bot.EditMessageReplyMarkupParams
+	deleteErr  error
 }
 
 type testDailyApp struct {
@@ -70,6 +73,16 @@ func (a *fakeAPI) StopPoll(_ context.Context, p *bot.StopPollParams) (*models.Po
 }
 func (a *fakeAPI) AnswerCallbackQuery(context.Context, *bot.AnswerCallbackQueryParams) (bool, error) {
 	return true, nil
+}
+
+func (a *fakeAPI) DeleteMessage(_ context.Context, p *bot.DeleteMessageParams) (bool, error) {
+	a.deletes = append(a.deletes, p)
+	return a.deleteErr == nil, a.deleteErr
+}
+
+func (a *fakeAPI) EditMessageReplyMarkup(_ context.Context, p *bot.EditMessageReplyMarkupParams) (*models.Message, error) {
+	a.markups = append(a.markups, p)
+	return &models.Message{ID: p.MessageID}, a.errorSend
 }
 func handler(t *testing.T) (*Handler, *fakeAPI) {
 	t.Helper()

@@ -13,13 +13,13 @@ import (
 
 const pendingState = "pending"
 
-const watchDraftColumns = `id,chat_id,COALESCE(watch_id,0),input_json,candidates_json,state,reason,expires_at,next_attempt,message_id,version,rendered`
+const watchDraftColumns = `id,chat_id,COALESCE(watch_id,0),input_json,candidates_json,state,reason,expires_at,next_attempt,message_id,version,rendered,card_closed`
 
 func scanWatchDraft(row interface{ Scan(...any) error }) (clubprofile.WatchDraft, error) {
 	var d clubprofile.WatchDraft
 	var input, candidates string
 	var expires, next int64
-	err := row.Scan(&d.ID, &d.ChatID, &d.WatchID, &input, &candidates, &d.State, &d.Reason, &expires, &next, &d.MessageID, &d.Version, &d.Rendered)
+	err := row.Scan(&d.ID, &d.ChatID, &d.WatchID, &input, &candidates, &d.State, &d.Reason, &expires, &next, &d.MessageID, &d.Version, &d.Rendered, &d.Closed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, clubprofile.ErrNotFound
 	}
@@ -110,7 +110,7 @@ func (s *Store) DueWatchDrafts(ctx context.Context, chat int64, now time.Time) (
 }
 
 func (s *Store) watchDraftList(ctx context.Context, chat, now int64, cards bool) ([]clubprofile.WatchDraft, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT "+watchDraftColumns+" FROM club_watch_drafts WHERE chat_id=? AND EXISTS(SELECT 1 FROM chats WHERE chat_id=? AND active=1) AND ((?=1 AND ((message_id>0 AND rendered<version) OR (message_id=0 AND card_next_attempt>0 AND card_next_attempt<=?))) OR (?=0 AND state='pending' AND next_attempt<=?)) ORDER BY id LIMIT 5", chat, chat, cards, now, cards, now)
+	rows, err := s.db.QueryContext(ctx, "SELECT "+watchDraftColumns+" FROM club_watch_drafts WHERE chat_id=? AND EXISTS(SELECT 1 FROM chats WHERE chat_id=? AND active=1) AND ((?=1 AND card_closed=0 AND ((message_id>0 AND rendered<version) OR (message_id=0 AND card_next_attempt>0 AND card_next_attempt<=?))) OR (?=0 AND state='pending' AND next_attempt<=?)) ORDER BY id LIMIT 5", chat, chat, cards, now, cards, now)
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +193,13 @@ func (s *Store) WatchCards(ctx context.Context, chat int64, now time.Time) ([]cl
 
 func (s *Store) WatchCardRendered(ctx context.Context, id int64, version int) error {
 	_, err := s.db.ExecContext(ctx, "UPDATE club_watch_drafts SET rendered=MAX(rendered,?) WHERE id=?", version, id)
+	return err
+}
+
+// A closed panel is UI state only. Draft resolution, the viewing, its research
+// session and all answers continue independently.
+func (s *Store) CloseWatchCard(ctx context.Context, chat int64, message int) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE club_watch_drafts SET card_closed=1 WHERE chat_id=? AND message_id=?", chat, message)
 	return err
 }
 

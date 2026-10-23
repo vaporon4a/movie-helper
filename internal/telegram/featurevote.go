@@ -157,6 +157,7 @@ func (h *Handler) sendFeatureDetail(ctx context.Context, chatID, userID int64, t
 }
 
 func (h *Handler) sendOrEditFeatureView(ctx context.Context, chatID int64, messageID int, text string, keyboard *models.InlineKeyboardMarkup) {
+	keyboard = closableKeyboard(keyboard)
 	if messageID == 0 {
 		_, err := h.API.SendMessage(ctx, &bot.SendMessageParams{ChatID: chatID, Text: text, ParseMode: models.ParseModeHTML, ReplyMarkup: keyboard, LinkPreviewOptions: disabledLinkPreview()})
 		if err != nil {

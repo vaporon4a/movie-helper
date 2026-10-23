@@ -18,6 +18,10 @@ func (h *Handler) callback(ctx context.Context, update *models.Update) {
 	if message == nil || query.From.IsBot {
 		return
 	}
+	if query.Data == closePanelAction {
+		h.closePanelCallback(ctx, query, message)
+		return
+	}
 	if strings.HasPrefix(query.Data, "fv:") && h.featureCallback(ctx, query, message) {
 		return
 	}

@@ -20,6 +20,12 @@ type API interface {
 	MessageAPI
 	PhotoAPI
 	PollAPI
+	PanelAPI
+}
+
+type PanelAPI interface {
+	DeleteAPI
+	EditMessageReplyMarkup(context.Context, *bot.EditMessageReplyMarkupParams) (*models.Message, error)
 }
 
 type MessageAPI interface {
@@ -161,6 +167,7 @@ func NewHandler(api API, dailyApp DailyApplication, allowed map[int64]bool, user
 }
 
 type WatchCardApplication interface {
+	CloseMessage(context.Context, int64, int) error
 	BindMessage(context.Context, int64, int64, int) error
 	ClaimMessage(context.Context, int64, int64) (bool, error)
 	RetryMessage(context.Context, int64, int64, time.Duration) error
