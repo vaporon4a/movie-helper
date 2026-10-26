@@ -47,7 +47,7 @@ func (s Sender) Send(ctx context.Context, chatID int64, item daily.Item) (int, e
 		return 0, classify(err)
 	}
 	if message == nil || message.ID <= 0 {
-		return 0, &daily.SendError{Kind: deliveryUnknown}
+		return 0, &daily.SendError{Kind: deliveryUnknown, Reason: "empty_receipt"}
 	}
 	s.registerFeedback(ctx, chatID, message.ID, item)
 	return message.ID, nil
@@ -135,22 +135,22 @@ func factMessage(item daily.Item) string {
 func classify(err error) error {
 	var migrate *bot.MigrateError
 	if rate, ok := errors.AsType[*bot.TooManyRequestsError](err); ok {
-		return &daily.SendError{Kind: "retry", After: time.Duration(rate.RetryAfter) * time.Second}
+		return &daily.SendError{Kind: "retry", After: time.Duration(rate.RetryAfter) * time.Second, Reason: "rate_limit"}
 	}
 	if errors.Is(err, bot.ErrorForbidden) || errors.Is(err, bot.ErrorUnauthorized) || errors.As(err, &migrate) {
-		return &daily.SendError{Kind: "forbidden"}
+		return &daily.SendError{Kind: deliveryForbidden, Reason: deliveryForbidden}
 	}
 	if errors.Is(err, bot.ErrorBadRequest) || errors.Is(err, bot.ErrorNotFound) {
-		return &daily.SendError{Kind: "permanent"}
+		return &daily.SendError{Kind: "permanent", Reason: telegramRejectionReason(err)}
 	}
-	return &daily.SendError{Kind: deliveryUnknown}
+	return &daily.SendError{Kind: deliveryUnknown, Reason: "transport_unknown"}
 }
 
 func disabledLinkPreview() *models.LinkPreviewOptions {
 	return &models.LinkPreviewOptions{IsDisabled: new(true)}
 }
 
-func (s Sender) previewKeyboard() *models.InlineKeyboardMarkup {
+func (s Sender) previewKeyboard() models.ReplyMarkup {
 	if s.Closable {
 		return closableKeyboard(nil)
 	}

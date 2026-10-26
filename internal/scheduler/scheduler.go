@@ -199,7 +199,12 @@ func (s *Scheduler) deliver(ctx context.Context, delivery daily.Delivery) error 
 	message, sendErr := s.Sender.Send(ctx, delivery.ChatID, delivery.Item)
 	state, next, forbidden := s.deliveryResult(delivery, sendErr)
 	if sendErr != nil {
-		s.Log.Warn("delivery not confirmed", "delivery_id", delivery.ID, "state", state)
+		reason := "transport_unknown"
+		if typed, ok := errors.AsType[*daily.SendError](sendErr); ok && typed.Reason != "" {
+			reason = typed.Reason
+		}
+		s.Log.Warn("delivery not confirmed", "delivery_id", delivery.ID, "chat_id", delivery.ChatID,
+			"kind", delivery.Kind, "state", state, "reason", reason)
 	}
 	// Persist even when SIGTERM cancelled the network request.
 	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

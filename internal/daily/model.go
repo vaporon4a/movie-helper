@@ -55,8 +55,9 @@ type Stock struct {
 
 // SendError deliberately carries no Telegram response body or token-bearing URL.
 type SendError struct {
-	Kind  string // retry (explicit rejection), forbidden, permanent, unknown
-	After time.Duration
+	Kind   string // retry (explicit rejection), forbidden, permanent, unknown
+	After  time.Duration
+	Reason string // Safe diagnostic code; never a provider response or URL.
 }
 
 type PreviewError struct {

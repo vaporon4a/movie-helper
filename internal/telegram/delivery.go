@@ -9,7 +9,10 @@ import (
 	"github.com/vaporon4a/movie-helper/internal/clubprofile"
 )
 
-const deliveryUnknown = "unknown"
+const (
+	deliveryUnknown   = "unknown"
+	deliveryForbidden = "forbidden"
+)
 
 func classifyProfileDelivery(err error) *clubprofile.DeliveryError {
 	if rate, ok := errors.AsType[*bot.TooManyRequestsError](err); ok {

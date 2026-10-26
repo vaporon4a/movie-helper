@@ -59,7 +59,7 @@ func (s *Service) Start(ctx context.Context, topic Topic, operation, chat int64,
 }
 
 func PollDescription(duration time.Duration) string {
-	return fmt.Sprintf("Анонимно · %s на ответ. Итоги сохранятся в /movie_profile, затем бот уберёт этот опрос, если Telegram разрешит удаление. Подборок и постеров не будет.", DurationText(duration))
+	return fmt.Sprintf("🗳 На ответ — %s\nПрофиль клуба: /movie_profile", DurationText(duration))
 }
 
 func DurationText(d time.Duration) string {
