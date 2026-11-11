@@ -232,6 +232,9 @@ func startClubProfile(ctx context.Context, cfg config.Config, store *storage.Sto
 		return err
 	}
 	handler.Profile = service
+	handler.Statistics = &clubprofile.StatisticsService{Reports: store, Reader: store, Settings: store, Allowed: cfg.Chats, Now: time.Now, Log: log}
+	statistics := &clubprofile.StatisticsCoordinator{Store: store, Reader: store, Sender: telegram.ClubSender{API: api}, Allowed: cfg.Chats, Now: time.Now, Log: log}
+	workers.Go(func() { statistics.Run(ctx) })
 	coordinator, err := clubprofile.NewCoordinator(service, sender)
 	if err != nil {
 		return err
@@ -274,6 +277,9 @@ func recoverBotState(ctx context.Context, store *storage.Store) error {
 	var err error
 	if err = store.Recover(ctx); err != nil {
 		return errors.New("cannot recover delivery state")
+	}
+	if err = store.RecoverStatistics(ctx); err != nil {
+		return errors.New("cannot recover club statistics")
 	}
 	if err = store.RecoverClub(ctx); err != nil {
 		return errors.New("cannot recover club reminders")

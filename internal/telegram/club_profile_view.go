@@ -39,6 +39,9 @@ func (h *Handler) loadProfileView(ctx context.Context, chat int64) (clubProfileV
 }
 
 func (h *Handler) showClubProfile(ctx context.Context, chat int64, message int, page string, id int64) error {
+	if h.Statistics != nil && strings.HasPrefix(page, "stats") {
+		return h.showStatistics(ctx, chat, message, page, id)
+	}
 	if err := h.prepareProfilePanel(ctx, chat, message, page, id); err != nil {
 		return err
 	}
@@ -47,6 +50,13 @@ func (h *Handler) showClubProfile(ctx context.Context, chat int64, message int, 
 		return err
 	}
 	text, keyboard := v.page(page, id)
+	if page == "overview" && h.Statistics != nil {
+		snapshot, e := h.Statistics.Snapshot(ctx, chat, "all")
+		if e != nil {
+			return e
+		}
+		text = statisticsOverview(snapshot) + "\n\n" + text
+	}
 	keyboard = closableKeyboard(keyboard)
 	_, err = h.deliverPanel(ctx, chat, message, "profile", text, keyboard)
 	if errors.Is(err, bot.ErrorBadRequest) && strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
@@ -86,7 +96,8 @@ func (v clubProfileView) page(page string, id int64) (string, *models.InlineKeyb
 func profileNavigation() *models.InlineKeyboardMarkup {
 	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
 		{profileButton("🎯 Профиль", "overview", 0), profileButton("🎞 Просмотры", "watches", 0)},
-		{profileButton("🔎 Аспекты", "aspects", 0), profileButton("🎭 Интересы", "interest", 0)},
+		{profileButton("📊 Статистика", "stats", 0), profileButton("🎭 Интересы", "interest", 0)},
+		{profileButton("🔎 Аспекты", "aspects", 0)},
 	}}
 }
 

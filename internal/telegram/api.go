@@ -131,6 +131,7 @@ type WatchDialogApplication interface {
 	ConfirmDialog(context.Context, int64, int64, int, string) (clubprofile.WatchDraft, error)
 }
 type Handler struct {
+	Statistics    *clubprofile.StatisticsService
 	Recovery      *recovery.Service
 	Agenda        *agenda.Service
 	Panels        interaction.PanelRegistry

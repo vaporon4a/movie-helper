@@ -202,6 +202,16 @@ func (h *Handler) profileCallback(ctx context.Context, operation int64, data str
 }
 
 func (h *Handler) applyProfileCallback(ctx context.Context, operation int64, p []string, m *models.Message) error {
+	if p[1] == "stat" && len(p) == 4 && h.Statistics != nil {
+		revision, err := strconv.Atoi(p[3])
+		if err != nil {
+			return err
+		}
+		if err = h.Statistics.Change(ctx, m.Chat.ID, revision, p[2]); err != nil {
+			return err
+		}
+		return h.showStatistics(ctx, m.Chat.ID, m.ID, "stats_settings", 0)
+	}
 	if p[1] == "view" && len(p) == 4 {
 		n, err := strconv.ParseInt(p[3], 10, 64)
 		if err != nil {
@@ -274,6 +284,10 @@ func (h *Handler) currentWatchPanel(ctx context.Context, d clubprofile.WatchDraf
 	if d.State != "saved" || page == "" || (page == watchPage && id == 0) {
 		return h.draftPanel(ctx, d)
 	}
+	if h.Statistics != nil && strings.HasPrefix(page, "stats") {
+		text, keys, e := h.statisticsPage(ctx, d.ChatID, page, id)
+		return text, keys, false, e
+	}
 	view, err := h.loadProfileView(ctx, d.ChatID)
 	if err != nil {
 		return "", nil, false, err
@@ -335,6 +349,9 @@ func (h *Handler) profileActionAllowed(ctx context.Context, data string, m *mode
 	if h.ProfilePanels != nil {
 		page, _, closed, err := h.ProfilePanels.ProfilePage(ctx, m.Chat.ID, m.ID)
 		if err != nil || closed {
+			return false
+		}
+		if strings.HasPrefix(data, "cp:stat:") && page != "" && page != "stats_settings" {
 			return false
 		}
 		if strings.HasPrefix(data, "cp:pause_confirm:") && page != "" && page != menuPauseAction {

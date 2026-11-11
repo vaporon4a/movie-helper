@@ -122,7 +122,9 @@ func countInterestPolls(polls []Poll) (int, int) {
 		}
 		switch p.Question.Intent {
 		case Interest:
-			interest++
+			if p.Question.Topic == Genre || p.Question.Topic == Reference {
+				interest++
+			}
 		case LegacyInterest:
 			legacy++
 		}

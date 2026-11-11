@@ -42,6 +42,9 @@ func (h *Handler) settingsHome(ctx context.Context, chat int64) (menuPanel, erro
 		{menuButton("🌍 Изменить часовой пояс", "timezone")},
 		{menuButton("🏠 Помощь", "help"), menuButton("ℹ️ О боте", "about")},
 	}}
+	if h.Statistics != nil {
+		keyboard.InlineKeyboard = append([][]models.InlineKeyboardButton{{profileButton("📊 Статистика и сводка", "stats", 0)}}, keyboard.InlineKeyboard...)
+	}
 	return menuPanel{strings.Join(lines, "\n"), keyboard}, nil
 }
 
